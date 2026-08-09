@@ -411,6 +411,92 @@ h1 {
   line-height: 1.5;
 }
 
+.cartesian-panel {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+  border-top: 1px solid #1e293b;
+}
+
+.cartesian-panel h2 {
+  color: #f8fafc;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.cartesian-status-solved {
+  border-color: rgba(52, 211, 153, 0.4);
+  color: #6ee7b7;
+}
+
+.cartesian-status-invalid,
+.cartesian-status-unreachable {
+  border-color: rgba(251, 113, 133, 0.4);
+  color: #fda4af;
+}
+
+.frame-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.frame-choice {
+  padding: 5px 9px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #cbd5e1;
+  background: #1e293b;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.frame-choice.active {
+  border-color: #38bdf8;
+  color: #07111f;
+  background: #7dd3fc;
+}
+
+.cartesian-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cartesian-row {
+  display: grid;
+  grid-template-columns: 30px 28px minmax(60px, 1fr) 18px 28px;
+  align-items: center;
+  gap: 5px;
+}
+
+.cartesian-label {
+  color: #7dd3fc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cartesian-input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 4px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  outline: none;
+  color: #f8fafc;
+  background: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  text-align: center;
+}
+
+.cartesian-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.16);
+}
+
 @media (max-width: 820px) {
   .app-shell {
     padding: 20px 14px 16px;

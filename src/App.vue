@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import CartesianControlPanel from './components/CartesianControlPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
 import type { KukaSceneStatus } from './scene/kuka-scene'
+import { useCartesianControl } from './robot/cartesian-control'
 import { useJointControl } from './robot/joint-control'
 
 const sceneStatus = ref<KukaSceneStatus>('loading')
@@ -12,11 +14,24 @@ const {
   jointRanges,
   pose,
   setJoint,
+  setJoints,
   adjustJoint,
   setStep,
   reset,
   randomize,
 } = useJointControl()
+const {
+  coordinateSystem,
+  positionStep,
+  orientationStep,
+  status: cartesianStatus,
+  statusMessage: cartesianStatusMessage,
+  move: moveCartesian,
+  setField: setCartesianField,
+  setCoordinateSystem,
+  setPositionStep,
+  setOrientationStep,
+} = useCartesianControl({ joints, pose, setJoints })
 
 const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'
@@ -49,15 +64,15 @@ const statusLabel = computed(() => {
         <dl class="model-facts">
           <div>
             <dt>当前阶段</dt>
-            <dd>三维场景骨架</dd>
+            <dd>关节与笛卡尔控制</dd>
           </div>
           <div>
             <dt>场景交互</dt>
             <dd>旋转 · 缩放 · 平移</dd>
           </div>
           <div>
-            <dt>后续接入</dt>
-            <dd>关节与笛卡尔控制</dd>
+            <dt>逆解状态</dt>
+            <dd>数值 DLS 求解</dd>
           </div>
         </dl>
 
@@ -76,6 +91,20 @@ const statusLabel = computed(() => {
           @step-change="setStep"
           @reset="reset"
           @random="randomize"
+        />
+
+        <CartesianControlPanel
+          :pose="pose"
+          :coordinate-system="coordinateSystem"
+          :position-step="positionStep"
+          :orientation-step="orientationStep"
+          :status="cartesianStatus"
+          :status-message="cartesianStatusMessage"
+          @move="moveCartesian"
+          @set-field="setCartesianField"
+          @coordinate-change="setCoordinateSystem"
+          @position-step-change="setPositionStep"
+          @orientation-step-change="setOrientationStep"
         />
       </aside>
 

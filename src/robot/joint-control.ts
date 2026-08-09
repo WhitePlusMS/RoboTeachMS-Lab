@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
-import { extractPose, forwardKinematicsDegrees } from '../core/robot/kinematics'
-import type { JointAngles, PoseDisplay } from '../core/robot/types'
+import { poseFromJoints } from '../core/robot/ik-solver'
+import type { JointAngles } from '../core/robot/types'
 import {
   DEFAULT_JOINTS,
   KUKA_JOINT_RANGES,
@@ -53,27 +53,18 @@ export function isJointStep(value: number): value is JointStep {
   return JOINT_STEPS.some((step) => step === value)
 }
 
-function toDegrees(radians: number): number {
-  return (radians * 180) / Math.PI
-}
-
-function calculatePose(joints: JointAngles): PoseDisplay {
-  const matrix = forwardKinematicsDegrees(joints, KUKA_LIKE)
-  const pose = extractPose(matrix)
-  return {
-    positionMm: pose.position,
-    orientationDeg: pose.eulerZYX.map(toDegrees) as [number, number, number],
-  }
-}
-
 /** Vue 状态层只暴露机器人命令，不把 Three.js 节点泄漏给控制面板。 */
 export function useJointControl() {
   const joints = ref<JointAngles>([...DEFAULT_JOINTS])
   const jointStep = ref<JointStep>(1)
-  const pose = computed(() => calculatePose(joints.value))
+  const pose = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
 
   function setJoint(index: number, value: number): void {
     joints.value = setJointAngle(joints.value, index, value)
+  }
+
+  function setJoints(next: JointAngles): void {
+    joints.value = [...next]
   }
 
   function adjustJoint(index: number, direction: JointDirection): void {
@@ -98,6 +89,7 @@ export function useJointControl() {
     jointRanges: KUKA_JOINT_RANGES,
     pose,
     setJoint,
+    setJoints,
     adjustJoint,
     setStep,
     reset,

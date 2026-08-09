@@ -30,3 +30,6 @@ export interface PoseDisplay {
   positionMm: [number, number, number]
   orientationDeg: [number, number, number]
 }
+
+export type CoordinateSystem = 'World' | 'Tool'
+export type CartesianAxis = 'x' | 'y' | 'z' | 'rx' | 'ry' | 'rz'
