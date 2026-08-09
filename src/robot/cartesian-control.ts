@@ -149,7 +149,7 @@ export interface CartesianControlOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
   robotModel: Ref<RobotModel>
-  setJoints: (joints: JointAngles) => void
+  setJoints: (joints: JointAngles, isContinuous?: boolean) => void
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -176,7 +176,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     return '就绪'
   })
 
-  function solveTarget(target: PoseDisplay, positionOnlyFallback: boolean): void {
+  function solveTarget(target: PoseDisplay, positionOnlyFallback: boolean, isContinuous: boolean): void {
     const model = options.robotModel.value
     const solved = solveIK(
       toRobotPose(target),
@@ -186,7 +186,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
       KUKA_JOINT_RANGES,
     )
     if (solved) {
-      options.setJoints(solved)
+      options.setJoints(solved, isContinuous)
       status.value = 'solved'
       return
     }
@@ -199,7 +199,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
         KUKA_JOINT_RANGES,
       )
       if (fallback) {
-        options.setJoints(fallback)
+        options.setJoints(fallback, isContinuous)
         status.value = 'position-fallback'
         return
       }
@@ -207,7 +207,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     status.value = 'unreachable'
   }
 
-  function move(axis: CartesianAxis, direction: CartesianDirection): void {
+  function move(axis: CartesianAxis, direction: CartesianDirection, isContinuous = false): void {
     const step = axis === 'rx' || axis === 'ry' || axis === 'rz'
       ? orientationStep.value
       : positionStep.value
@@ -218,7 +218,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
       step,
       coordinateSystem.value,
     )
-    solveTarget(target, axis === 'x' || axis === 'y' || axis === 'z')
+    solveTarget(target, axis === 'x' || axis === 'y' || axis === 'z', isContinuous)
   }
 
   function setField(axis: CartesianAxis, value: number): void {
@@ -232,7 +232,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     if (axis === 'x' || axis === 'y' || axis === 'z') target.positionMm[AXIS_INDEX[axis]] = value
     else target.orientationDeg[AXIS_INDEX[axis]] = value
-    solveTarget(target, axis === 'x' || axis === 'y' || axis === 'z')
+    solveTarget(target, axis === 'x' || axis === 'y' || axis === 'z', false)
   }
 
   function setCoordinateSystem(value: CoordinateSystem): void {

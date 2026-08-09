@@ -5,11 +5,13 @@ import JointControlPanel from './components/JointControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
 import { radToDeg } from './core/robot/math/angle'
 import type { RobotModel } from './core/robot/robot-model'
-import type { PoseDisplay } from './core/robot/types'
+import type { JointAngles, PoseDisplay } from './core/robot/types'
+import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from './robots/kuka-like/robot-config'
+import { adjustJointAngle, randomJointAngles, useJointControl } from './robot/joint-control'
+import { useMotion } from './robot/motion-control'
 import { DhRobotModel } from './robots/kuka-like/dh-robot-model'
 import type { KukaSceneStatus } from './scene/kuka-scene'
 import { useCartesianControl } from './robot/cartesian-control'
-import { useJointControl } from './robot/joint-control'
 
 const sceneStatus = ref<KukaSceneStatus>('loading')
 const {
@@ -17,13 +19,45 @@ const {
   jointStep,
   jointRanges,
   pose: fallbackPose,
-  setJoint,
-  setJoints,
-  adjustJoint,
+  setJoint: setJointImmediate,
+  setJoints: setJointsImmediate,
   setStep,
-  reset,
-  randomize,
 } = useJointControl()
+
+const {
+  startEasedAnimation,
+  startSpeedLimitedAnimation,
+  stopAnimation,
+} = useMotion({
+  getCurrentJoints: () => joints.value,
+  setJoints: setJointsImmediate,
+})
+
+/** 滑块输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
+function setJoint(index: number, value: number): void {
+  stopAnimation()
+  setJointImmediate(index, value)
+}
+
+function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
+  const next = adjustJointAngle(joints.value, index, direction, jointStep.value, KUKA_JOINT_RANGES)
+  if (isContinuous) startSpeedLimitedAnimation(next)
+  else startEasedAnimation(next)
+}
+
+function reset(): void {
+  startEasedAnimation([...DEFAULT_JOINTS])
+}
+
+function randomize(): void {
+  startEasedAnimation(randomJointAngles(KUKA_JOINT_RANGES))
+}
+
+function animateCartesianJoints(next: JointAngles, isContinuous = false): void {
+  if (isContinuous) startSpeedLimitedAnimation(next)
+  else startEasedAnimation(next)
+}
+
 const fallbackRobotModel = new DhRobotModel()
 const robotModel = shallowRef<RobotModel>(fallbackRobotModel)
 const pose = computed<PoseDisplay>(() => {
@@ -49,7 +83,7 @@ const {
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
-} = useCartesianControl({ joints, pose, robotModel, setJoints })
+} = useCartesianControl({ joints, pose, robotModel, setJoints: animateCartesianJoints })
 
 const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'

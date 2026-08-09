@@ -15,7 +15,7 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   'set-joint': [index: number, value: number]
-  'adjust-joint': [index: number, direction: JointDirection]
+  'adjust-joint': [index: number, direction: JointDirection, isContinuous?: boolean]
   'step-change': [value: number]
   reset: []
   random: []
@@ -51,7 +51,7 @@ function startPress(index: number, direction: JointDirection): void {
   press.timeoutId = window.setTimeout(() => {
     press.repeated = true
     press.intervalId = window.setInterval(() => {
-      emit('adjust-joint', press.index, press.direction)
+      emit('adjust-joint', press.index, press.direction, true)
     }, 80)
   }, 180)
   activePress.value = press
@@ -60,7 +60,7 @@ function startPress(index: number, direction: JointDirection): void {
 function finishPress(): void {
   const press = activePress.value
   if (!press) return
-  if (!press.repeated) emit('adjust-joint', press.index, press.direction)
+  if (!press.repeated) emit('adjust-joint', press.index, press.direction, false)
   stopPress()
 }
 

@@ -1,5 +1,14 @@
 # 更新日志
 
+## 2026-08-09：移植原项目运动动画过渡
+
+- 新增 `src/core/robot/motion-smoothing.ts`：复用原项目的 `easeInOutCubic`、关节插值和默认运动参数。
+- 新增 `src/robot/motion-control.ts`：接入 RAF 关节动画、800ms 缓动、60°/s 长按限速、连续目标更新和卸载清理。
+- 修改 `src/App.vue`：关节单击、回零、随机姿态和笛卡尔目标统一使用平滑过渡；滑块输入仍保持即时提交。
+- 修改 `JointControlPanel.vue`、`CartesianControlPanel.vue`、`cartesian-control.ts`：区分普通操作与连续长按目标。
+- 新增动画曲线测试，更新关节面板事件测试。
+- 验证结果：TypeScript 类型检查通过，`vitest` 通过（7 个测试文件、22 个测试），`vite build` 通过；仅保留既有单 chunk 体积提示。
+
 ## 2026-08-09：实现任务 03——笛卡尔控制与逆解闭环
 
 - 新增 `src/core/robot/ik-solver.ts`：基于 DH 正解的数值 Jacobian DLS 六维逆解和位置-only 回退。

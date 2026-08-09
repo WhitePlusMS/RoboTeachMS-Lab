@@ -24,7 +24,7 @@ interface Props {
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  move: [axis: CartesianAxis, direction: CartesianDirection]
+  move: [axis: CartesianAxis, direction: CartesianDirection, isContinuous?: boolean]
   'set-field': [axis: CartesianAxis, value: number]
   'coordinate-change': [value: CoordinateSystem]
   'position-step-change': [value: number]
@@ -71,7 +71,7 @@ function startPress(axis: CartesianAxis, direction: CartesianDirection): void {
   press.timeoutId = window.setTimeout(() => {
     press.repeated = true
     press.intervalId = window.setInterval(() => {
-      emit('move', press.axis, press.direction)
+      emit('move', press.axis, press.direction, true)
     }, 100)
   }, 180)
   activePress.value = press
@@ -80,7 +80,7 @@ function startPress(axis: CartesianAxis, direction: CartesianDirection): void {
 function finishPress(): void {
   const press = activePress.value
   if (!press) return
-  if (!press.repeated) emit('move', press.axis, press.direction)
+  if (!press.repeated) emit('move', press.axis, press.direction, false)
   stopPress()
 }
 

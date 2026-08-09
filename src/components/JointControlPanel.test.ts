@@ -34,7 +34,7 @@ describe('JointControlPanel', () => {
     await button.trigger('pointerdown')
     await button.trigger('pointerup')
 
-    expect(wrapper.emitted('adjust-joint')?.[0]).toEqual([0, 1])
+    expect(wrapper.emitted('adjust-joint')?.[0]).toEqual([0, 1, false])
   })
 
   it('长按会发出多次连续调整命令', async () => {
@@ -46,7 +46,9 @@ describe('JointControlPanel', () => {
     await vi.advanceTimersByTimeAsync(500)
     await button.trigger('pointerup')
 
-    expect((wrapper.emitted('adjust-joint') ?? []).length).toBeGreaterThan(1)
+    const events = wrapper.emitted('adjust-joint') ?? []
+    expect(events.length).toBeGreaterThan(1)
+    expect(events.slice(1).every((event) => event[2] === true)).toBe(true)
   })
 
   it('手动输入、步进切换、回零和随机按钮均发出对应事件', async () => {
