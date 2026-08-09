@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles } from '../core/robot/types'
 import {
   createKukaScene,
@@ -13,6 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   status: [value: KukaSceneStatus]
+  model: [value: RobotModel | null]
 }>()
 
 const viewport = ref<HTMLDivElement | null>(null)
@@ -22,6 +24,7 @@ onMounted(() => {
   if (!viewport.value) return
   controller = createKukaScene(viewport.value, {
     onStatus: (status) => emit('status', status),
+    onModel: (model) => emit('model', model),
   })
   controller.setJoints(props.joints)
 })

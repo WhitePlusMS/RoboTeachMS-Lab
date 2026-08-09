@@ -31,5 +31,34 @@ export interface PoseDisplay {
   orientationDeg: [number, number, number]
 }
 
+/** 逆解模型使用的位姿：旋转矩阵是唯一的姿态误差计算来源。 */
+export interface Pose {
+  position: [number, number, number]
+  euler: [number, number, number]
+  rotation: number[][]
+}
+
+export interface IKSolverConfig {
+  maxIterations: number
+  tolerance: number
+  posTolerance: number
+  oriTolerance: number
+  damping: number
+  lambdaDecay: number
+  lambdaGrow: number
+  maxLambda: number
+  maxStepRad: number
+  errorClampPos: number
+  errorClampOri: number
+  orientationScale: number
+}
+
+/** 逆解模型使用的位姿：旋转矩阵是唯一的姿态误差计算来源。 */
+export interface Pose {
+  position: [number, number, number]
+  euler: [number, number, number]
+  rotation: number[][]
+}
+
 export type CoordinateSystem = 'World' | 'Tool'
 export type CartesianAxis = 'x' | 'y' | 'z' | 'rx' | 'ry' | 'rz'

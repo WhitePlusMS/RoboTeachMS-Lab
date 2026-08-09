@@ -1,19 +1,23 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { degToRad } from '../core/robot/math/angle'
+import { eulerZYXToMatrix } from '../core/robot/matrix4x4'
 import { solveIK, solvePositionOnlyIK } from '../core/robot/ik-solver'
+import type { RobotModel } from '../core/robot/robot-model'
 import type {
   CartesianAxis,
   CoordinateSystem,
   JointAngles,
+  Pose,
   PoseDisplay,
 } from '../core/robot/types'
-import { KUKA_LIKE } from '../robots/kuka-like/robot-config'
+import { KUKA_JOINT_RANGES } from '../robots/kuka-like/robot-config'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
 export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
 export type CartesianDirection = -1 | 1
 export type PositionStep = (typeof POSITION_STEPS)[number]
 export type OrientationStep = (typeof ORIENTATION_STEPS)[number]
-export type CartesianStatus = 'ready' | 'solved' | 'invalid' | 'unreachable'
+export type CartesianStatus = 'ready' | 'solved' | 'position-fallback' | 'invalid' | 'unreachable'
 
 const AXIS_INDEX: Record<CartesianAxis, number> = {
   x: 0,
@@ -144,7 +148,17 @@ export function isOrientationStep(value: number): value is OrientationStep {
 export interface CartesianControlOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
+  robotModel: Ref<RobotModel>
   setJoints: (joints: JointAngles) => void
+}
+
+function toRobotPose(pose: PoseDisplay): Pose {
+  const euler = pose.orientationDeg.map(degToRad) as [number, number, number]
+  return {
+    position: pose.positionMm,
+    euler,
+    rotation: eulerZYXToMatrix(euler),
+  }
 }
 
 /** 笛卡尔控制编排：失败只更新状态，不覆盖最近一次有效关节。 */
@@ -156,22 +170,41 @@ export function useCartesianControl(options: CartesianControlOptions) {
 
   const statusMessage = computed(() => {
     if (status.value === 'solved') return '逆解完成，机器人已更新'
+    if (status.value === 'position-fallback') return '位置逆解完成，姿态保持当前值'
     if (status.value === 'invalid') return '输入无效，已保留最近一次有效姿态'
     if (status.value === 'unreachable') return '目标不可达，已保留最近一次有效姿态'
     return '就绪'
   })
 
   function solveTarget(target: PoseDisplay, positionOnlyFallback: boolean): void {
-    const solved = solveIK(target, options.joints.value, KUKA_LIKE)
-    const fallback = solved ?? (positionOnlyFallback
-      ? solvePositionOnlyIK(target.positionMm, options.joints.value, KUKA_LIKE)
-      : null)
-    if (!fallback) {
-      status.value = 'unreachable'
+    const model = options.robotModel.value
+    const solved = solveIK(
+      toRobotPose(target),
+      options.joints.value,
+      model,
+      {},
+      KUKA_JOINT_RANGES,
+    )
+    if (solved) {
+      options.setJoints(solved)
+      status.value = 'solved'
       return
     }
-    options.setJoints(fallback)
-    status.value = 'solved'
+    if (positionOnlyFallback) {
+      const fallback = solvePositionOnlyIK(
+        target.positionMm,
+        options.joints.value,
+        model,
+        {},
+        KUKA_JOINT_RANGES,
+      )
+      if (fallback) {
+        options.setJoints(fallback)
+        status.value = 'position-fallback'
+        return
+      }
+    }
+    status.value = 'unreachable'
   }
 
   function move(axis: CartesianAxis, direction: CartesianDirection): void {

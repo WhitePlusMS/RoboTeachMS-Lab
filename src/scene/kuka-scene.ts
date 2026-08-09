@@ -1,8 +1,10 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles } from '../core/robot/types'
 import { DEFAULT_JOINTS } from '../robots/kuka-like/robot-config'
+import { KukaSceneRobotModel } from './kuka-scene-model'
 
 /** KUKA 资产属于独立应用自己的 public 目录。 */
 export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'
@@ -29,6 +31,7 @@ export type KukaSceneStatus = 'loading' | 'ready' | 'error'
 
 export interface KukaSceneOptions {
   onStatus?: (status: KukaSceneStatus) => void
+  onModel?: (model: RobotModel | null) => void
 }
 
 export interface KukaSceneController {
@@ -293,6 +296,7 @@ export function createKukaScene(
   options: KukaSceneOptions = {},
 ): KukaSceneController {
   const onStatus = options.onStatus ?? (() => undefined)
+  const onModel = options.onModel ?? (() => undefined)
   const scene = createBenchmarkScene()
   const camera = configureCamera(container)
   const renderer = configureRenderer(container)
@@ -307,6 +311,7 @@ export function createKukaScene(
   })
   let animationFrame = 0
   let loadedModel: THREE.Group | null = null
+  let robotModel: KukaSceneRobotModel | null = null
   let targetJoints: JointAngles = [...DEFAULT_JOINTS]
   let disposed = false
 
@@ -319,7 +324,9 @@ export function createKukaScene(
       if (disposed) return
       loadedModel = prepareModel(gltf.scene)
       applyJointAngles(loadedModel, targetJoints)
+      robotModel = new KukaSceneRobotModel(loadedModel, applyJointAngles, targetJoints)
       scene.add(loadedModel)
+      onModel(robotModel)
       onStatus('ready')
       console.info('[KukaScene] KUKA 基准模型加载完成')
     },
@@ -330,6 +337,8 @@ export function createKukaScene(
       scene.add(fallback)
       loadedModel = fallback
       applyJointAngles(loadedModel, targetJoints)
+      robotModel = new KukaSceneRobotModel(loadedModel, applyJointAngles, targetJoints)
+      onModel(robotModel)
       onStatus('error')
       console.error('[KukaScene] KUKA 模型加载失败，已显示本地占位模型', error)
     },
@@ -346,10 +355,12 @@ export function createKukaScene(
   return {
     setJoints: (joints: JointAngles) => {
       targetJoints = [...joints]
+      robotModel?.setCurrentJoints(targetJoints)
       if (loadedModel) applyJointAngles(loadedModel, targetJoints)
     },
     dispose: () => {
       disposed = true
+      onModel(null)
       window.cancelAnimationFrame(animationFrame)
       resizeObserver.disconnect()
       controls.dispose()

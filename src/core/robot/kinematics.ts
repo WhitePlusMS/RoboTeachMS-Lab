@@ -1,5 +1,5 @@
 import { Matrix4x4 } from './matrix4x4'
-import type { JointAngles, RobotConfig } from './types'
+import type { JointAngles, PoseDisplay, RobotConfig } from './types'
 
 /** 标准 DH 变换；角度参数使用弧度，长度参数使用毫米。 */
 export function dhTransform(theta: number, d: number, a: number, alpha: number): Matrix4x4 {
@@ -55,5 +55,14 @@ export function extractPose(matrix: Matrix4x4): {
   return {
     position: [m[0][3], m[1][3], m[2][3]],
     eulerZYX: [rx, ry, rz],
+  }
+}
+
+/** 从任意配置的 DH 正解生成页面展示位姿，作为场景模型加载前的回退。 */
+export function poseFromJoints(joints: JointAngles, config: RobotConfig): PoseDisplay {
+  const pose = extractPose(forwardKinematicsDegrees(joints, config))
+  return {
+    positionMm: pose.position,
+    orientationDeg: pose.eulerZYX.map((value) => (value * 180) / Math.PI) as [number, number, number],
   }
 }

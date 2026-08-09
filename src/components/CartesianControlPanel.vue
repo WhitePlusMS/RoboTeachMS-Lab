@@ -87,7 +87,8 @@ function finishPress(): void {
 function handleFieldChange(axis: CartesianAxis, event: Event): void {
   const input = event.target as HTMLInputElement | null
   if (!input) return
-  emit('set-field', axis, Number(input.value))
+  const rawValue = input.value.trim()
+  emit('set-field', axis, rawValue === '' ? Number.NaN : Number(rawValue))
 }
 
 function valueFor(control: (typeof controls)[number]): number {
@@ -107,7 +108,7 @@ onBeforeUnmount(stopPress)
         <h2 id="cartesian-panel-title">笛卡尔位姿控制</h2>
       </div>
       <span class="control-status" :class="`cartesian-status-${props.status}`">
-        {{ props.status === 'solved' ? 'IK OK' : props.status.toUpperCase() }}
+        {{ props.status === 'solved' ? 'IK OK' : props.status === 'position-fallback' ? 'POS IK' : props.status.toUpperCase() }}
       </span>
     </div>
 

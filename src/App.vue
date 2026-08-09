@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import CartesianControlPanel from './components/CartesianControlPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
+import { radToDeg } from './core/robot/math/angle'
+import type { RobotModel } from './core/robot/robot-model'
+import type { PoseDisplay } from './core/robot/types'
+import { DhRobotModel } from './robots/kuka-like/dh-robot-model'
 import type { KukaSceneStatus } from './scene/kuka-scene'
 import { useCartesianControl } from './robot/cartesian-control'
 import { useJointControl } from './robot/joint-control'
@@ -12,7 +16,7 @@ const {
   joints,
   jointStep,
   jointRanges,
-  pose,
+  pose: fallbackPose,
   setJoint,
   setJoints,
   adjustJoint,
@@ -20,6 +24,20 @@ const {
   reset,
   randomize,
 } = useJointControl()
+const fallbackRobotModel = new DhRobotModel()
+const robotModel = shallowRef<RobotModel>(fallbackRobotModel)
+const pose = computed<PoseDisplay>(() => {
+  const modelPose = robotModel.value.forwardKinematics(joints.value)
+  if (!modelPose) return fallbackPose.value
+  return {
+    positionMm: modelPose.position,
+    orientationDeg: modelPose.euler.map(radToDeg) as [number, number, number],
+  }
+})
+
+function handleRobotModel(model: RobotModel | null): void {
+  robotModel.value = model ?? fallbackRobotModel
+}
 const {
   coordinateSystem,
   positionStep,
@@ -31,7 +49,7 @@ const {
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
-} = useCartesianControl({ joints, pose, setJoints })
+} = useCartesianControl({ joints, pose, robotModel, setJoints })
 
 const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'
@@ -109,7 +127,11 @@ const statusLabel = computed(() => {
       </aside>
 
       <div class="viewport-card">
-        <SceneViewport :joints="joints" @status="sceneStatus = $event" />
+        <SceneViewport
+          :joints="joints"
+          @status="sceneStatus = $event"
+          @model="handleRobotModel"
+        />
         <div class="viewport-caption">
           <span>WORLD / BASE FRAME</span>
           <span>OrbitControls</span>

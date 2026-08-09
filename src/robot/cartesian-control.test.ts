@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { applyCartesianDelta } from './cartesian-control'
-import type { PoseDisplay } from '../core/robot/types'
+import { computed, ref } from 'vue'
+import { poseFromJoints } from '../core/robot/kinematics'
+import {
+  applyCartesianDelta,
+  useCartesianControl,
+} from './cartesian-control'
+import type { JointAngles, PoseDisplay } from '../core/robot/types'
+import { DEFAULT_JOINTS, KUKA_LIKE } from '../robots/kuka-like/robot-config'
+import { DhRobotModel } from '../robots/kuka-like/dh-robot-model'
 
 const pose: PoseDisplay = {
   positionMm: [100, 200, 300],
@@ -20,5 +27,43 @@ describe('笛卡尔坐标增量', () => {
     expect(next.positionMm[0]).toBeCloseTo(100)
     expect(next.positionMm[1]).toBeCloseTo(210)
     expect(next.positionMm[2]).toBeCloseTo(300)
+  })
+
+  it('非法输入只更新失败状态，不覆盖当前关节', () => {
+    const joints = ref<JointAngles>([...DEFAULT_JOINTS])
+    const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      robotModel: ref(new DhRobotModel()),
+      setJoints: (next) => {
+        joints.value = [...next]
+      },
+    })
+    const before = [...joints.value]
+
+    control.setField('x', Number.NaN)
+
+    expect(control.status.value).toBe('invalid')
+    expect(joints.value).toEqual(before)
+  })
+
+  it('不可达目标只更新失败状态，不覆盖当前关节', () => {
+    const joints = ref<JointAngles>([...DEFAULT_JOINTS])
+    const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      robotModel: ref(new DhRobotModel()),
+      setJoints: (next) => {
+        joints.value = [...next]
+      },
+    })
+    const before = [...joints.value]
+
+    control.setField('x', 100000)
+
+    expect(control.status.value).toBe('unreachable')
+    expect(joints.value).toEqual(before)
   })
 })

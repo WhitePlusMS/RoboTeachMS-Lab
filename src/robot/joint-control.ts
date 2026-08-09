@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '../core/robot/ik-solver'
+import { poseFromJoints } from '../core/robot/kinematics'
 import type { JointAngles } from '../core/robot/types'
 import {
   DEFAULT_JOINTS,
