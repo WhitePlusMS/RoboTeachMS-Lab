@@ -15,4 +15,5 @@
 - 新增 `src/scene/kuka-scene-model.ts`，GLB 加载后直接从真实 KUKA Pivot 采样 FK/Jacobian，避免 DH 近似模型与三维场景轴向不一致。
 - `SceneViewport` / `App` 将真实场景模型注入笛卡尔控制；GLB 未就绪时才回退到 DH 模型。
 - 修正姿态目标使用完整旋转矩阵，不再用欧拉角差替代原始 `orientationError`。
+- 删除重复的 `Pose` 类型声明，并将位置-only 回退提示改为“姿态未约束”，与实际算法能力保持一致。
 - 验证结果：`npm test` 通过（6 个测试文件、20 个测试），`npm run check` 和 `npm run build` 通过。

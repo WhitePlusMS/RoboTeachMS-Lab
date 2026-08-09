@@ -170,7 +170,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
 
   const statusMessage = computed(() => {
     if (status.value === 'solved') return '逆解完成，机器人已更新'
-    if (status.value === 'position-fallback') return '位置逆解完成，姿态保持当前值'
+    if (status.value === 'position-fallback') return '位置逆解完成，姿态未约束'
     if (status.value === 'invalid') return '输入无效，已保留最近一次有效姿态'
     if (status.value === 'unreachable') return '目标不可达，已保留最近一次有效姿态'
     return '就绪'
