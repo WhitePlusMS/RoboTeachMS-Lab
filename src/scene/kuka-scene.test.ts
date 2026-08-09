@@ -8,6 +8,8 @@ import {
   KUKA_JOINT_NODE_NAMES,
   KUKA_MODEL_SCALE,
 } from './kuka-scene'
+import { createBaseAxes, createToolAxes } from './scene-helpers'
+import { appendTrajectoryPoint } from './trajectory'
 
 describe('KUKA 场景适配器', () => {
   it('公开六个 KUKA 关节节点名称和独立模型缩放', () => {
@@ -33,7 +35,7 @@ describe('KUKA 场景适配器', () => {
 
     expect(scene.getObjectByName('KUKA_Benchmark_Workbench')).not.toBeNull()
     expect(scene.getObjectByName('Ground_Grid')).not.toBeNull()
-    expect(scene.getObjectByName('World_Axes')).not.toBeNull()
+    expect(scene.getObjectByName('BaseAxesHelper')).not.toBeNull()
   })
 
   it('会把关节角度应用到对应的 Pivot 节点', () => {
@@ -47,5 +49,20 @@ describe('KUKA 场景适配器', () => {
 
     expect(pivot.quaternion.z).toBeCloseTo(Math.SQRT1_2)
     expect(pivot.quaternion.w).toBeCloseTo(Math.SQRT1_2)
+  })
+
+  it('创建基坐标和工具坐标辅助轴', () => {
+    expect(createBaseAxes().name).toBe('BaseAxesHelper')
+    expect(createToolAxes().name).toBe('ToolAxesHelper')
+  })
+
+  it('轨迹采样会去重并限制最大点数', () => {
+    const first = appendTrajectoryPoint([], [0, 0, 0], 2)
+    const duplicate = appendTrajectoryPoint(first, [0.0005, 0, 0], 2)
+    const second = appendTrajectoryPoint(duplicate, [0.01, 0, 0], 2)
+    const third = appendTrajectoryPoint(second, [0.02, 0, 0], 2)
+
+    expect(duplicate).toEqual(first)
+    expect(third).toEqual([[0.01, 0, 0], [0.02, 0, 0]])
   })
 })

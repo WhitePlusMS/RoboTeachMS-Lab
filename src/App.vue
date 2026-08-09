@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from 'vue'
 import CartesianControlPanel from './components/CartesianControlPanel.vue'
+import CoordinateInfoPanel from './components/CoordinateInfoPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
 import { radToDeg } from './core/robot/math/angle'
@@ -14,6 +15,10 @@ import type { KukaSceneStatus } from './scene/kuka-scene'
 import { useCartesianControl } from './robot/cartesian-control'
 
 const sceneStatus = ref<KukaSceneStatus>('loading')
+const showGrid = ref(true)
+const showCoordinateSystems = ref(true)
+const showTrajectory = ref(false)
+const trajectoryCount = ref(0)
 const {
   joints,
   jointStep,
@@ -72,6 +77,7 @@ const pose = computed<PoseDisplay>(() => {
 function handleRobotModel(model: RobotModel | null): void {
   robotModel.value = model ?? fallbackRobotModel
 }
+
 const {
   coordinateSystem,
   positionStep,
@@ -133,6 +139,8 @@ const statusLabel = computed(() => {
           <p>左键拖拽旋转视角，滚轮缩放，右键拖拽平移场景。</p>
         </div>
 
+        <CoordinateInfoPanel :tool-pose="pose" />
+
         <JointControlPanel
           :joints="joints"
           :joint-ranges="jointRanges"
@@ -163,8 +171,16 @@ const statusLabel = computed(() => {
       <div class="viewport-card">
         <SceneViewport
           :joints="joints"
+          :show-grid="showGrid"
+          :show-coordinate-systems="showCoordinateSystems"
+          :show-trajectory="showTrajectory"
+          :trajectory-count="trajectoryCount"
           @status="sceneStatus = $event"
           @model="handleRobotModel"
+          @grid-change="showGrid = $event"
+          @coordinates-change="showCoordinateSystems = $event"
+          @trajectory-change="showTrajectory = $event"
+          @trajectory-count="trajectoryCount = $event"
         />
         <div class="viewport-caption">
           <span>WORLD / BASE FRAME</span>

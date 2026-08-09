@@ -5,6 +5,12 @@ import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles } from '../core/robot/types'
 import { DEFAULT_JOINTS } from '../robots/kuka-like/robot-config'
 import { KukaSceneRobotModel } from './kuka-scene-model'
+import { createBaseAxes, createToolAxes } from './scene-helpers'
+import {
+  appendTrajectoryPoint,
+  DEFAULT_TRAJECTORY_LIMIT,
+  type ScenePoint,
+} from './trajectory'
 
 /** KUKA 资产属于独立应用自己的 public 目录。 */
 export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'
@@ -32,10 +38,18 @@ export type KukaSceneStatus = 'loading' | 'ready' | 'error'
 export interface KukaSceneOptions {
   onStatus?: (status: KukaSceneStatus) => void
   onModel?: (model: RobotModel | null) => void
+  onTrajectoryCount?: (count: number) => void
+  showGrid?: boolean
+  showCoordinateSystems?: boolean
+  showTrajectory?: boolean
 }
 
 export interface KukaSceneController {
   setJoints: (joints: JointAngles) => void
+  setGridVisible: (visible: boolean) => void
+  setCoordinateSystemsVisible: (visible: boolean) => void
+  setTrajectoryVisible: (visible: boolean) => void
+  clearTrajectory: () => void
   dispose: () => void
 }
 
@@ -256,9 +270,8 @@ function configureBaseScene(scene: THREE.Scene): void {
   grid.name = 'Ground_Grid'
   scene.add(grid)
 
-  const axes = new THREE.AxesHelper(0.8)
+  const axes = createBaseAxes()
   axes.position.y = 0.01
-  axes.name = 'World_Axes'
   scene.add(axes)
 }
 
@@ -297,7 +310,32 @@ export function createKukaScene(
 ): KukaSceneController {
   const onStatus = options.onStatus ?? (() => undefined)
   const onModel = options.onModel ?? (() => undefined)
+  const onTrajectoryCount = options.onTrajectoryCount ?? (() => undefined)
   const scene = createBenchmarkScene()
+  const grid = scene.getObjectByName('Ground_Grid')
+  const baseAxes = scene.getObjectByName('BaseAxesHelper')
+  const showGrid = options.showGrid ?? true
+  let showCoordinateSystems = options.showCoordinateSystems ?? true
+  let showTrajectory = options.showTrajectory ?? false
+  if (grid) grid.visible = showGrid
+  if (baseAxes) baseAxes.visible = showCoordinateSystems
+
+  const trajectoryGeometry = new THREE.BufferGeometry()
+  const trajectoryPositions = new Float32Array(DEFAULT_TRAJECTORY_LIMIT * 3)
+  const trajectoryAttribute = new THREE.BufferAttribute(trajectoryPositions, 3)
+  trajectoryGeometry.setAttribute('position', trajectoryAttribute)
+  trajectoryGeometry.setDrawRange(0, 0)
+  const trajectoryMaterial = new THREE.LineBasicMaterial({
+    color: 0xf97316,
+    opacity: 0.8,
+    transparent: true,
+    depthTest: false,
+  })
+  const trajectoryLine = new THREE.Line(trajectoryGeometry, trajectoryMaterial)
+  trajectoryLine.name = 'EndEffector_Trajectory'
+  trajectoryLine.visible = showTrajectory
+  scene.add(trajectoryLine)
+
   const camera = configureCamera(container)
   const renderer = configureRenderer(container)
   const controls = configureControls(camera, renderer)
@@ -313,7 +351,68 @@ export function createKukaScene(
   let loadedModel: THREE.Group | null = null
   let robotModel: KukaSceneRobotModel | null = null
   let targetJoints: JointAngles = [...DEFAULT_JOINTS]
+  let toolAxes: THREE.Group | null = null
+  let trajectoryPoints: ScenePoint[] = []
+  let lastTrajectoryTime = 0
   let disposed = false
+
+  function refreshTrajectoryLine(): void {
+    trajectoryPoints.forEach((point, index) => {
+      trajectoryPositions[index * 3] = point[0]
+      trajectoryPositions[index * 3 + 1] = point[1]
+      trajectoryPositions[index * 3 + 2] = point[2]
+    })
+    trajectoryAttribute.needsUpdate = true
+    trajectoryGeometry.setDrawRange(0, trajectoryPoints.length)
+    trajectoryGeometry.computeBoundingSphere()
+  }
+
+  function attachToolAxes(): void {
+    toolAxes?.parent?.remove(toolAxes)
+    toolAxes = createToolAxes()
+    toolAxes.visible = showCoordinateSystems
+    scene.add(toolAxes)
+  }
+
+  function updateToolAxes(): void {
+    if (!loadedModel || !toolAxes) return
+    const flange = findNode(loadedModel, 'Pivot_快拆机器人端口')
+      ?? findNode(loadedModel, '快拆机器人端口')
+    if (!flange) return
+    loadedModel.updateMatrixWorld(true)
+    const position = new THREE.Vector3()
+    const quaternion = new THREE.Quaternion()
+    flange.getWorldPosition(position)
+    flange.getWorldQuaternion(quaternion)
+    toolAxes.position.copy(position)
+    toolAxes.quaternion.copy(quaternion)
+  }
+
+  function sampleTrajectory(now: number): void {
+    if (!loadedModel || now - lastTrajectoryTime < 50) return
+    lastTrajectoryTime = now
+    const flange = findNode(loadedModel, 'Pivot_快拆机器人端口')
+      ?? findNode(loadedModel, '快拆机器人端口')
+    if (!flange) return
+
+    loadedModel.updateMatrixWorld(true)
+    const position = new THREE.Vector3()
+    flange.getWorldPosition(position)
+    const point: ScenePoint = [position.x, position.y, position.z]
+    const next = appendTrajectoryPoint(trajectoryPoints, point)
+    const previous = trajectoryPoints[trajectoryPoints.length - 1]
+    const current = next[next.length - 1]
+    const changed = next.length !== trajectoryPoints.length
+      || !previous
+      || previous[0] !== current[0]
+      || previous[1] !== current[1]
+      || previous[2] !== current[2]
+    if (!changed) return
+
+    trajectoryPoints = next
+    refreshTrajectoryLine()
+    onTrajectoryCount(trajectoryPoints.length)
+  }
 
   resizeObserver.observe(container)
   onStatus('loading')
@@ -326,6 +425,7 @@ export function createKukaScene(
       applyJointAngles(loadedModel, targetJoints)
       robotModel = new KukaSceneRobotModel(loadedModel, applyJointAngles, targetJoints)
       scene.add(loadedModel)
+      attachToolAxes()
       onModel(robotModel)
       onStatus('ready')
       console.info('[KukaScene] KUKA 基准模型加载完成')
@@ -338,6 +438,7 @@ export function createKukaScene(
       loadedModel = fallback
       applyJointAngles(loadedModel, targetJoints)
       robotModel = new KukaSceneRobotModel(loadedModel, applyJointAngles, targetJoints)
+      attachToolAxes()
       onModel(robotModel)
       onStatus('error')
       console.error('[KukaScene] KUKA 模型加载失败，已显示本地占位模型', error)
@@ -346,6 +447,8 @@ export function createKukaScene(
 
   const render = (): void => {
     if (disposed) return
+    updateToolAxes()
+    sampleTrajectory(performance.now())
     controls.update()
     renderer.render(scene, camera)
     animationFrame = window.requestAnimationFrame(render)
@@ -358,6 +461,23 @@ export function createKukaScene(
       robotModel?.setCurrentJoints(targetJoints)
       if (loadedModel) applyJointAngles(loadedModel, targetJoints)
     },
+    setGridVisible: (visible: boolean) => {
+      if (grid) grid.visible = visible
+    },
+    setCoordinateSystemsVisible: (visible: boolean) => {
+      showCoordinateSystems = visible
+      if (baseAxes) baseAxes.visible = visible
+      if (toolAxes) toolAxes.visible = visible
+    },
+    setTrajectoryVisible: (visible: boolean) => {
+      showTrajectory = visible
+      trajectoryLine.visible = visible
+    },
+    clearTrajectory: () => {
+      trajectoryPoints = []
+      refreshTrajectoryLine()
+      onTrajectoryCount(0)
+    },
     dispose: () => {
       disposed = true
       onModel(null)
@@ -367,13 +487,11 @@ export function createKukaScene(
       renderer.dispose()
 
       scene.traverse((node) => {
-        if (!(node instanceof THREE.Mesh)) return
+        if (!(node instanceof THREE.Mesh) && !(node instanceof THREE.Line)) return
         node.geometry.dispose()
-        if (Array.isArray(node.material)) {
-          node.material.forEach((material) => material.dispose())
-        } else {
-          node.material.dispose()
-        }
+        const material = node.material
+        if (Array.isArray(material)) material.forEach((item) => item.dispose())
+        else material.dispose()
       })
 
       renderer.domElement.remove()

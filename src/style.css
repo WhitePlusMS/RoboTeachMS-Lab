@@ -502,6 +502,82 @@ h1 {
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.16);
 }
 
+.coordinate-info-panel {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+  border-top: 1px solid #1e293b;
+}
+
+.coordinate-info-panel h2 {
+  color: #f8fafc;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.coordinate-info-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.coordinate-info-card {
+  padding: 10px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.coordinate-info-base {
+  border-color: rgba(125, 211, 252, 0.28);
+}
+
+.coordinate-info-tool {
+  border-color: rgba(249, 115, 22, 0.3);
+}
+
+.coordinate-info-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.coordinate-info-heading small {
+  margin-left: auto;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.coordinate-info-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+}
+
+.coordinate-info-tool .coordinate-info-dot {
+  background: #f97316;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.8);
+}
+
+.coordinate-info-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+}
+
+.coordinate-info-values span {
+  white-space: nowrap;
+}
+
 @media (max-width: 820px) {
   .app-shell {
     padding: 20px 14px 16px;

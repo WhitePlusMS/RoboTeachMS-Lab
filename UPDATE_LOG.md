@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2026-08-09：实现任务 04——场景辅助功能
+
+- 新增 `src/scene/scene-helpers.ts`：复用原项目的基坐标轴和工具坐标轴绘制方式。
+- 新增 `src/scene/trajectory.ts`：提供轨迹点最小距离去重和 200 点上限控制。
+- 修改 `src/scene/kuka-scene.ts`：网格默认开启；加入基坐标/工具坐标辅助轴、末端轨迹采样、轨迹线显示、清空轨迹和资源释放。
+- 修改 `src/components/SceneViewport.vue`：增加网格、基座/工具坐标、轨迹、清空轨迹辅助工具栏及轨迹点数提示。
+- 新增 `src/components/CoordinateInfoPanel.vue`，并修改 `src/App.vue`、`src/style.css`：展示基坐标系与工具坐标系的位姿信息。
+- 审查后改用固定轨迹缓冲区，合并坐标值格式化函数，并简化清空轨迹的状态同步路径。
+- 验证结果：TypeScript 类型检查通过，`vitest` 通过（7 个测试文件、24 个测试），`vite build` 通过；仅保留既有单 chunk 体积提示。
+
 ## 2026-08-09：移植原项目运动动画过渡
 
 - 新增 `src/core/robot/motion-smoothing.ts`：复用原项目的 `easeInOutCubic`、关节插值和默认运动参数。
