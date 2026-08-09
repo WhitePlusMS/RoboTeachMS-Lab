@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { JointAngles } from '../core/robot/types'
+import { DEFAULT_JOINTS } from '../robots/kuka-like/robot-config'
 
 /** KUKA 资产属于独立应用自己的 public 目录。 */
 export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'
@@ -14,6 +16,15 @@ export const KUKA_JOINT_NODE_NAMES = [
   '快拆机器人端口',
 ] as const
 
+const KUKA_JOINT_AXES: Record<(typeof KUKA_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
+  转台: new THREE.Vector3(0, 0, 1),
+  大臂: new THREE.Vector3(0, 1, 0),
+  小臂: new THREE.Vector3(0, 1, 0),
+  回转机构: new THREE.Vector3(1, 0, 0),
+  末端关节: new THREE.Vector3(0, 1, 0),
+  快拆机器人端口: new THREE.Vector3(0, 0, 1),
+}
+
 export type KukaSceneStatus = 'loading' | 'ready' | 'error'
 
 export interface KukaSceneOptions {
@@ -21,6 +32,7 @@ export interface KukaSceneOptions {
 }
 
 export interface KukaSceneController {
+  setJoints: (joints: JointAngles) => void
   dispose: () => void
 }
 
@@ -42,6 +54,27 @@ export function calculateModelLift(model: THREE.Group): number {
   const bounds = new THREE.Box3().setFromObject(baseNode ?? model)
   if (bounds.isEmpty()) return 0
   return -bounds.min.y * KUKA_MODEL_SCALE
+}
+
+/** 将控制面板角度应用到已准备好的 KUKA Pivot 节点。 */
+export function applyJointAngles(root: THREE.Group, joints: JointAngles): void {
+  KUKA_JOINT_NODE_NAMES.forEach((name, index) => {
+    const pivot = findNode(root, `Pivot_${name}`)
+    const axis = KUKA_JOINT_AXES[name]
+    if (!(pivot instanceof THREE.Group)) return
+
+    const baseQuaternionArray = pivot.userData.baseQuaternion as
+      | [number, number, number, number]
+      | undefined
+    const baseQuaternion = baseQuaternionArray
+      ? new THREE.Quaternion(...baseQuaternionArray)
+      : new THREE.Quaternion()
+    const deltaQuaternion = new THREE.Quaternion().setFromAxisAngle(
+      axis,
+      (joints[index] * Math.PI) / 180,
+    )
+    pivot.quaternion.copy(baseQuaternion).multiply(deltaQuaternion)
+  })
 }
 
 function createWorkbench(): THREE.Group {
@@ -105,7 +138,29 @@ function createFallbackRobot(): THREE.Group {
   const tool = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.35, 0.18), darkMaterial)
   tool.position.set(0.58, 2.52, 0)
   tool.castShadow = true
-  root.add(tool)
+
+  /**
+   * 占位模型没有真实 GLB 节点层级，因此为每个几何件建立同名 Pivot。
+   * 这样加载失败时控制面板仍能驱动占位几何，且不会影响正式模型适配。
+   */
+  const addFallbackJoint = (name: (typeof KUKA_JOINT_NODE_NAMES)[number], mesh: THREE.Mesh): void => {
+    const pivot = new THREE.Group()
+    pivot.name = `Pivot_${name}`
+    pivot.position.copy(mesh.position)
+    pivot.quaternion.copy(mesh.quaternion)
+    pivot.userData.baseQuaternion = pivot.quaternion.toArray()
+    mesh.position.set(0, 0, 0)
+    mesh.quaternion.identity()
+    pivot.add(mesh)
+    root.add(pivot)
+  }
+
+  addFallbackJoint('转台', base)
+  addFallbackJoint('大臂', shoulder)
+  addFallbackJoint('小臂', upperArm)
+  addFallbackJoint('回转机构', forearm)
+  addFallbackJoint('末端关节', wrist)
+  addFallbackJoint('快拆机器人端口', tool)
 
   return root
 }
@@ -121,6 +176,29 @@ function prepareModel(model: THREE.Group): THREE.Group {
   root.name = 'KUKA_Benchmark_Robot'
   root.position.y = calculateModelLift(clone)
   root.add(scaleGroup)
+
+  for (const jointName of KUKA_JOINT_NODE_NAMES) {
+    const node = findNode(clone, jointName)
+    if (!node?.parent) {
+      console.warn(`[KukaScene] 未找到关节节点: ${jointName}`)
+      continue
+    }
+
+    const parent = node.parent
+    const pivot = new THREE.Group()
+    pivot.name = `Pivot_${jointName}`
+    pivot.position.copy(node.position)
+    pivot.quaternion.copy(node.quaternion)
+    pivot.userData.baseQuaternion = node.quaternion.toArray()
+
+    parent.remove(node)
+    node.position.set(0, 0, 0)
+    node.quaternion.identity()
+    pivot.add(node)
+    parent.add(pivot)
+  }
+
+  applyJointAngles(root, DEFAULT_JOINTS)
 
   root.traverse((node) => {
     if (node instanceof THREE.Mesh) {
@@ -228,7 +306,8 @@ export function createKukaScene(
     renderer.setSize(width, height, false)
   })
   let animationFrame = 0
-  let loadedModel: THREE.Object3D | null = null
+  let loadedModel: THREE.Group | null = null
+  let targetJoints: JointAngles = [...DEFAULT_JOINTS]
   let disposed = false
 
   resizeObserver.observe(container)
@@ -239,6 +318,7 @@ export function createKukaScene(
     (gltf) => {
       if (disposed) return
       loadedModel = prepareModel(gltf.scene)
+      applyJointAngles(loadedModel, targetJoints)
       scene.add(loadedModel)
       onStatus('ready')
       console.info('[KukaScene] KUKA 基准模型加载完成')
@@ -249,6 +329,7 @@ export function createKukaScene(
       const fallback = createFallbackRobot()
       scene.add(fallback)
       loadedModel = fallback
+      applyJointAngles(loadedModel, targetJoints)
       onStatus('error')
       console.error('[KukaScene] KUKA 模型加载失败，已显示本地占位模型', error)
     },
@@ -263,6 +344,10 @@ export function createKukaScene(
   render()
 
   return {
+    setJoints: (joints: JointAngles) => {
+      targetJoints = [...joints]
+      if (loadedModel) applyJointAngles(loadedModel, targetJoints)
+    },
     dispose: () => {
       disposed = true
       window.cancelAnimationFrame(animationFrame)

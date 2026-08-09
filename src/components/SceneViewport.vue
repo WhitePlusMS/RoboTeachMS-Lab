@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { JointAngles } from '../core/robot/types'
 import {
   createKukaScene,
   type KukaSceneController,
   type KukaSceneStatus,
 } from '../scene/kuka-scene'
+
+const props = defineProps<{
+  joints: JointAngles
+}>()
 
 const emit = defineEmits<{
   status: [value: KukaSceneStatus]
@@ -18,7 +23,14 @@ onMounted(() => {
   controller = createKukaScene(viewport.value, {
     onStatus: (status) => emit('status', status),
   })
+  controller.setJoints(props.joints)
 })
+
+watch(
+  () => props.joints,
+  (joints) => controller?.setJoints(joints),
+  { deep: true },
+)
 
 onBeforeUnmount(() => {
   controller?.dispose()

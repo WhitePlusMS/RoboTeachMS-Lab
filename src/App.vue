@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import JointControlPanel from './components/JointControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
 import type { KukaSceneStatus } from './scene/kuka-scene'
+import { useJointControl } from './robot/joint-control'
 
 const sceneStatus = ref<KukaSceneStatus>('loading')
+const {
+  joints,
+  jointStep,
+  jointRanges,
+  pose,
+  setJoint,
+  adjustJoint,
+  setStep,
+  reset,
+  randomize,
+} = useJointControl()
 
 const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'
@@ -52,10 +65,22 @@ const statusLabel = computed(() => {
           <p class="hint-title">操作提示</p>
           <p>左键拖拽旋转视角，滚轮缩放，右键拖拽平移场景。</p>
         </div>
+
+        <JointControlPanel
+          :joints="joints"
+          :joint-ranges="jointRanges"
+          :joint-step="jointStep"
+          :pose="pose"
+          @set-joint="setJoint"
+          @adjust-joint="adjustJoint"
+          @step-change="setStep"
+          @reset="reset"
+          @random="randomize"
+        />
       </aside>
 
       <div class="viewport-card">
-        <SceneViewport @status="sceneStatus = $event" />
+        <SceneViewport :joints="joints" @status="sceneStatus = $event" />
         <div class="viewport-caption">
           <span>WORLD / BASE FRAME</span>
           <span>OrbitControls</span>

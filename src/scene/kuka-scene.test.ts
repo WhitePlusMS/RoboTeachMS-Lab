@@ -4,6 +4,7 @@ import {
   calculateModelLift,
   createBenchmarkScene,
   findNode,
+  applyJointAngles,
   KUKA_JOINT_NODE_NAMES,
   KUKA_MODEL_SCALE,
 } from './kuka-scene'
@@ -33,5 +34,18 @@ describe('KUKA 场景适配器', () => {
     expect(scene.getObjectByName('KUKA_Benchmark_Workbench')).not.toBeNull()
     expect(scene.getObjectByName('Ground_Grid')).not.toBeNull()
     expect(scene.getObjectByName('World_Axes')).not.toBeNull()
+  })
+
+  it('会把关节角度应用到对应的 Pivot 节点', () => {
+    const root = new THREE.Group()
+    const pivot = new THREE.Group()
+    pivot.name = 'Pivot_转台'
+    pivot.userData.baseQuaternion = [0, 0, 0, 1]
+    root.add(pivot)
+
+    applyJointAngles(root, [90, 0, 0, 0, 0, 0])
+
+    expect(pivot.quaternion.z).toBeCloseTo(Math.SQRT1_2)
+    expect(pivot.quaternion.w).toBeCloseTo(Math.SQRT1_2)
   })
 })
