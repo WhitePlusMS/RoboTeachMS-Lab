@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest'
+import * as THREE from 'three'
+import {
+  calculateModelLift,
+  createBenchmarkScene,
+  findNode,
+  KUKA_JOINT_NODE_NAMES,
+  KUKA_MODEL_SCALE,
+} from './kuka-scene'
+
+describe('KUKA 场景适配器', () => {
+  it('公开六个 KUKA 关节节点名称和独立模型缩放', () => {
+    expect(KUKA_JOINT_NODE_NAMES).toHaveLength(6)
+    expect(KUKA_MODEL_SCALE).toBeGreaterThan(0)
+  })
+
+  it('可以在场景树中查找命名节点并计算底座抬升量', () => {
+    const model = new THREE.Group()
+    const base = new THREE.Group()
+    base.name = '固定底座'
+    base.position.y = -12
+    base.add(new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1)))
+    model.add(base)
+
+    expect(findNode(model, '固定底座')).toBe(base)
+    expect(findNode(model, 'missing')).toBeNull()
+    expect(calculateModelLift(model)).toBeCloseTo(13 * KUKA_MODEL_SCALE)
+  })
+
+  it('可以建立包含工作台、地面网格和世界坐标轴的基准场景', () => {
+    const scene = createBenchmarkScene()
+
+    expect(scene.getObjectByName('KUKA_Benchmark_Workbench')).not.toBeNull()
+    expect(scene.getObjectByName('Ground_Grid')).not.toBeNull()
+    expect(scene.getObjectByName('World_Axes')).not.toBeNull()
+  })
+})
