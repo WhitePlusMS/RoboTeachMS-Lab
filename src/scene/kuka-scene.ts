@@ -49,7 +49,7 @@ function createWorkbench(): THREE.Group {
   workbench.name = 'KUKA_Benchmark_Workbench'
 
   const top = new THREE.Mesh(
-    new THREE.BoxGeometry(3.2, 0.08, 2.4),
+    new THREE.BoxGeometry(4.525, 0.08, 3.394),
     new THREE.MeshStandardMaterial({ color: 0xd5d9df, metalness: 0.25, roughness: 0.75 }),
   )
   top.position.y = -0.04
@@ -57,7 +57,7 @@ function createWorkbench(): THREE.Group {
   workbench.add(top)
 
   const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(3.3, 0.08, 2.5),
+    new THREE.BoxGeometry(4.667, 0.08, 3.536),
     new THREE.MeshStandardMaterial({ color: 0x667085, metalness: 0.45, roughness: 0.55 }),
   )
   frame.position.y = -0.1
