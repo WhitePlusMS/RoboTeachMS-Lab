@@ -1,42 +1,45 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles } from '../core/robot/types'
-import { DEFAULT_JOINTS } from '../robots/kuka-like/robot-config'
-import { KukaSceneRobotModel } from './kuka-scene-model'
+import { ABB_DEFAULT_JOINTS } from '../robots/abb-irb1200/robot-config'
+import { AbbSceneRobotModel } from './abb-scene-model'
 import { createBaseAxes, createToolAxes } from './scene-helpers'
 import {
   appendTrajectoryPoint,
+  DEFAULT_TRAJECTORY_DISTANCE,
   DEFAULT_TRAJECTORY_LIMIT,
   type ScenePoint,
 } from './trajectory'
 
-/** KUKA 资产属于独立应用自己的 public 目录。 */
-export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'
-export const KUKA_MODEL_SCALE = 0.0943
-export const KUKA_JOINT_NODE_NAMES = [
-  '转台',
-  '大臂',
-  '小臂',
-  '回转机构',
-  '末端关节',
-  '快拆机器人端口',
+export const ABB_MODEL_URL = '/models/ABB_IRB1200_5_90.fbx'
+/** FBX 资产的单位基线是厘米；项目场景使用米，位姿面板再转换为毫米。 */
+export const ABB_MODEL_SCALE = 0.01
+export const ABB_BASE_NODE_NAME = 'dizuo'
+export const ABB_ACTIVE_JOINT_NODE_NAMES = [
+  'joint1',
+  'joint2',
+  'joint3',
+  'joint4',
+  'joint5',
+  'joint6',
 ] as const
+export const ABB_FLANGE_NODE_NAME = 'joint7'
 
-const KUKA_JOINT_AXES: Record<(typeof KUKA_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
-  转台: new THREE.Vector3(0, 0, 1),
-  大臂: new THREE.Vector3(0, 1, 0),
-  小臂: new THREE.Vector3(0, 1, 0),
-  回转机构: new THREE.Vector3(1, 0, 0),
-  末端关节: new THREE.Vector3(0, 1, 0),
-  快拆机器人端口: new THREE.Vector3(0, 0, 1),
+const ABB_JOINT_AXES: Record<(typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
+  joint1: new THREE.Vector3(0, 1, 0),
+  joint2: new THREE.Vector3(0, 0, 1),
+  joint3: new THREE.Vector3(0, 0, 1),
+  joint4: new THREE.Vector3(1, 0, 0),
+  joint5: new THREE.Vector3(0, 0, 1),
+  joint6: new THREE.Vector3(0, 1, 0),
 }
 
-export type KukaSceneStatus = 'loading' | 'ready' | 'error'
+export type AbbSceneStatus = 'loading' | 'ready' | 'error'
 
-export interface KukaSceneOptions {
-  onStatus?: (status: KukaSceneStatus) => void
+export interface AbbSceneOptions {
+  onStatus?: (status: AbbSceneStatus) => void
   onModel?: (model: RobotModel | null) => void
   onTrajectoryCount?: (count: number) => void
   showGrid?: boolean
@@ -44,7 +47,7 @@ export interface KukaSceneOptions {
   showTrajectory?: boolean
 }
 
-export interface KukaSceneController {
+export interface AbbSceneController {
   setJoints: (joints: JointAngles) => void
   setGridVisible: (visible: boolean) => void
   setCoordinateSystemsVisible: (visible: boolean) => void
@@ -53,7 +56,6 @@ export interface KukaSceneController {
   dispose: () => void
 }
 
-/** 在场景树中按名称查找节点，供模型适配和后续关节控制复用。 */
 export function findNode(root: THREE.Object3D, name: string): THREE.Object3D | null {
   let result: THREE.Object3D | null = null
   root.traverse((child) => {
@@ -62,44 +64,79 @@ export function findNode(root: THREE.Object3D, name: string): THREE.Object3D | n
   return result
 }
 
-/**
- * 根据 GLB 底座包围盒把模型抬到地面上方。
- * 计算使用模型原始单位，缩放后再应用到场景单位。
- */
-export function calculateModelLift(model: THREE.Group): number {
-  const baseNode = findNode(model, '固定底座')
+/** 仅用 dizuo 的包围盒计算抬升量，避免把底座误算成 J1。 */
+export function calculateAbbModelLift(model: THREE.Group): number {
+  const baseNode = findNode(model, ABB_BASE_NODE_NAME)
   const bounds = new THREE.Box3().setFromObject(baseNode ?? model)
   if (bounds.isEmpty()) return 0
-  return -bounds.min.y * KUKA_MODEL_SCALE
+  return -bounds.min.y * ABB_MODEL_SCALE
 }
 
-/** 将控制面板角度应用到已准备好的 KUKA Pivot 节点。 */
-export function applyJointAngles(root: THREE.Group, joints: JointAngles): void {
-  KUKA_JOINT_NODE_NAMES.forEach((name, index) => {
-    const pivot = findNode(root, `Pivot_${name}`)
-    const axis = KUKA_JOINT_AXES[name]
-    if (!(pivot instanceof THREE.Group)) return
-
-    const baseQuaternionArray = pivot.userData.baseQuaternion as
+/** 将六轴增量应用到 FBX 的 six active bones；底座和末端分支不被改写。 */
+export function applyAbbJointAngles(root: THREE.Group, joints: JointAngles): void {
+  ABB_ACTIVE_JOINT_NODE_NAMES.forEach((name, index) => {
+    const joint = findNode(root, name)
+    if (!joint) return
+    const baseQuaternionArray = joint.userData.baseQuaternion as
       | [number, number, number, number]
       | undefined
     const baseQuaternion = baseQuaternionArray
       ? new THREE.Quaternion(...baseQuaternionArray)
       : new THREE.Quaternion()
     const deltaQuaternion = new THREE.Quaternion().setFromAxisAngle(
-      axis,
+      ABB_JOINT_AXES[name],
       (joints[index] * Math.PI) / 180,
     )
-    pivot.quaternion.copy(baseQuaternion).multiply(deltaQuaternion)
+    joint.quaternion.copy(baseQuaternion).multiply(deltaQuaternion)
   })
+}
+
+/** 保存导入姿态，并按 dizuo 的中心和最低点把模型放到世界基座原点。 */
+export function prepareAbbModel(model: THREE.Group): THREE.Group {
+  const clone = model.clone(true)
+  clone.updateMatrixWorld(true)
+
+  const baseNode = findNode(clone, ABB_BASE_NODE_NAME)
+  const baseBounds = new THREE.Box3().setFromObject(baseNode ?? clone)
+  const baseCenter = baseBounds.getCenter(new THREE.Vector3())
+
+  clone.traverse((node) => {
+    if (node.name.startsWith('joint')) {
+      node.userData.baseQuaternion = node.quaternion.toArray()
+    }
+    if (node instanceof THREE.Mesh) {
+      node.castShadow = true
+      node.receiveShadow = true
+    }
+  })
+
+  const scaleGroup = new THREE.Group()
+  scaleGroup.name = 'ABB_Model_Scale'
+  scaleGroup.scale.setScalar(ABB_MODEL_SCALE)
+  if (!baseBounds.isEmpty()) {
+    scaleGroup.position.set(
+      -baseCenter.x * ABB_MODEL_SCALE,
+      -baseBounds.min.y * ABB_MODEL_SCALE,
+      -baseCenter.z * ABB_MODEL_SCALE,
+    )
+  }
+  scaleGroup.add(clone)
+
+  const root = new THREE.Group()
+  root.name = 'ABB_IRB1200_5_90'
+  root.userData.baseNodeName = ABB_BASE_NODE_NAME
+  root.userData.activeJointNodeNames = [...ABB_ACTIVE_JOINT_NODE_NAMES]
+  root.userData.flangeNodeName = ABB_FLANGE_NODE_NAME
+  root.add(scaleGroup)
+  return root
 }
 
 function createWorkbench(): THREE.Group {
   const workbench = new THREE.Group()
-  workbench.name = 'KUKA_Benchmark_Workbench'
+  workbench.name = 'ABB_Benchmark_Workbench'
 
   const top = new THREE.Mesh(
-    new THREE.BoxGeometry(4.525, 0.08, 3.394),
+    new THREE.BoxGeometry(2.4, 0.08, 2.4),
     new THREE.MeshStandardMaterial({ color: 0xd5d9df, metalness: 0.25, roughness: 0.75 }),
   )
   top.position.y = -0.04
@@ -107,123 +144,37 @@ function createWorkbench(): THREE.Group {
   workbench.add(top)
 
   const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(4.667, 0.08, 3.536),
+    new THREE.BoxGeometry(2.5, 0.08, 2.5),
     new THREE.MeshStandardMaterial({ color: 0x667085, metalness: 0.45, roughness: 0.55 }),
   )
   frame.position.y = -0.1
   frame.receiveShadow = true
   workbench.add(frame)
-
   return workbench
 }
 
 function createFallbackRobot(): THREE.Group {
   const root = new THREE.Group()
-  root.name = 'KUKA_Fallback_Robot'
+  root.name = 'ABB_Fallback_Robot'
 
-  const material = new THREE.MeshStandardMaterial({ color: 0xe6a400, metalness: 0.35, roughness: 0.5 })
   const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x343b48, metalness: 0.6, roughness: 0.35 })
-
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.48, 0.2, 32), darkMaterial)
-  base.position.y = 0.1
+  const yellowMaterial = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.35, roughness: 0.5 })
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.16, 32), darkMaterial)
+  base.position.y = 0.08
   base.castShadow = true
+  base.name = ABB_BASE_NODE_NAME
   root.add(base)
 
-  const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.55, 0.35), material)
-  shoulder.position.set(0, 0.45, 0)
-  shoulder.castShadow = true
-  root.add(shoulder)
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.05, 0.22), yellowMaterial)
+  arm.position.y = 0.65
+  arm.castShadow = true
+  root.add(arm)
 
-  const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.05, 0.28), material)
-  upperArm.position.set(0, 1.15, 0)
-  upperArm.rotation.z = -0.24
-  upperArm.castShadow = true
-  root.add(upperArm)
-
-  const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.95, 0.24), material)
-  forearm.position.set(0.2, 1.9, 0)
-  forearm.rotation.z = 0.38
-  forearm.castShadow = true
-  root.add(forearm)
-
-  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.45, 24), darkMaterial)
-  wrist.position.set(0.38, 2.52, 0)
-  wrist.rotation.z = Math.PI / 2
-  wrist.castShadow = true
-  root.add(wrist)
-
-  const tool = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.35, 0.18), darkMaterial)
-  tool.position.set(0.58, 2.52, 0)
+  const tool = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 0.14), darkMaterial)
+  tool.position.set(0.22, 1.18, 0)
   tool.castShadow = true
-
-  /**
-   * 占位模型没有真实 GLB 节点层级，因此为每个几何件建立同名 Pivot。
-   * 这样加载失败时控制面板仍能驱动占位几何，且不会影响正式模型适配。
-   */
-  const addFallbackJoint = (name: (typeof KUKA_JOINT_NODE_NAMES)[number], mesh: THREE.Mesh): void => {
-    const pivot = new THREE.Group()
-    pivot.name = `Pivot_${name}`
-    pivot.position.copy(mesh.position)
-    pivot.quaternion.copy(mesh.quaternion)
-    pivot.userData.baseQuaternion = pivot.quaternion.toArray()
-    mesh.position.set(0, 0, 0)
-    mesh.quaternion.identity()
-    pivot.add(mesh)
-    root.add(pivot)
-  }
-
-  addFallbackJoint('转台', base)
-  addFallbackJoint('大臂', shoulder)
-  addFallbackJoint('小臂', upperArm)
-  addFallbackJoint('回转机构', forearm)
-  addFallbackJoint('末端关节', wrist)
-  addFallbackJoint('快拆机器人端口', tool)
-
-  return root
-}
-
-function prepareModel(model: THREE.Group): THREE.Group {
-  const clone = model.clone(true)
-  const scaleGroup = new THREE.Group()
-  scaleGroup.name = 'KUKA_Model_Scale'
-  scaleGroup.scale.setScalar(KUKA_MODEL_SCALE)
-  scaleGroup.add(clone)
-
-  const root = new THREE.Group()
-  root.name = 'KUKA_Benchmark_Robot'
-  root.position.y = calculateModelLift(clone)
-  root.add(scaleGroup)
-
-  for (const jointName of KUKA_JOINT_NODE_NAMES) {
-    const node = findNode(clone, jointName)
-    if (!node?.parent) {
-      console.warn(`[KukaScene] 未找到关节节点: ${jointName}`)
-      continue
-    }
-
-    const parent = node.parent
-    const pivot = new THREE.Group()
-    pivot.name = `Pivot_${jointName}`
-    pivot.position.copy(node.position)
-    pivot.quaternion.copy(node.quaternion)
-    pivot.userData.baseQuaternion = node.quaternion.toArray()
-
-    parent.remove(node)
-    node.position.set(0, 0, 0)
-    node.quaternion.identity()
-    pivot.add(node)
-    parent.add(pivot)
-  }
-
-  applyJointAngles(root, DEFAULT_JOINTS)
-
-  root.traverse((node) => {
-    if (node instanceof THREE.Mesh) {
-      node.castShadow = true
-      node.receiveShadow = true
-    }
-  })
-
+  tool.name = ABB_FLANGE_NODE_NAME
+  root.add(tool)
   return root
 }
 
@@ -236,7 +187,7 @@ function configureRenderer(container: HTMLElement): THREE.WebGLRenderer {
   renderer.toneMappingExposure = 1.05
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
-  renderer.domElement.setAttribute('aria-label', 'KUKA 机器人三维场景')
+  renderer.domElement.setAttribute('aria-label', 'ABB IRB 1200-5/0.9 三维场景')
   container.appendChild(renderer.domElement)
   return renderer
 }
@@ -245,19 +196,19 @@ function configureLighting(scene: THREE.Scene): void {
   scene.add(new THREE.HemisphereLight(0xf6f8fb, 0x4b5563, 1.8))
 
   const keyLight = new THREE.DirectionalLight(0xffffff, 3.2)
-  keyLight.position.set(3.5, 5.5, 4)
+  keyLight.position.set(3, 4.5, 3)
   keyLight.castShadow = true
   keyLight.shadow.mapSize.set(2048, 2048)
   keyLight.shadow.camera.near = 0.1
-  keyLight.shadow.camera.far = 20
-  keyLight.shadow.camera.left = -5
-  keyLight.shadow.camera.right = 5
-  keyLight.shadow.camera.top = 5
-  keyLight.shadow.camera.bottom = -5
+  keyLight.shadow.camera.far = 15
+  keyLight.shadow.camera.left = -3
+  keyLight.shadow.camera.right = 3
+  keyLight.shadow.camera.top = 3
+  keyLight.shadow.camera.bottom = -3
   scene.add(keyLight)
 
   const fillLight = new THREE.DirectionalLight(0x9ab9e8, 1.4)
-  fillLight.position.set(-4, 3, -2)
+  fillLight.position.set(-3, 2.5, -2)
   scene.add(fillLight)
 }
 
@@ -265,7 +216,7 @@ function configureBaseScene(scene: THREE.Scene): void {
   scene.background = new THREE.Color(0x101827)
   scene.add(createWorkbench())
 
-  const grid = new THREE.GridHelper(8, 32, 0x64748b, 0x334155)
+  const grid = new THREE.GridHelper(4, 32, 0x64748b, 0x334155)
   grid.position.y = 0.002
   grid.name = 'Ground_Grid'
   scene.add(grid)
@@ -275,8 +226,7 @@ function configureBaseScene(scene: THREE.Scene): void {
   scene.add(axes)
 }
 
-/** 创建不依赖浏览器渲染器的基准场景树，便于初始化测试和后续场景适配复用。 */
-export function createBenchmarkScene(): THREE.Scene {
+export function createAbbBenchmarkScene(): THREE.Scene {
   const scene = new THREE.Scene()
   configureBaseScene(scene)
   configureLighting(scene)
@@ -286,7 +236,7 @@ export function createBenchmarkScene(): THREE.Scene {
 function configureCamera(container: HTMLElement): THREE.PerspectiveCamera {
   const aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1)
   const camera = new THREE.PerspectiveCamera(42, aspect, 0.01, 100)
-  camera.position.set(3.4, 2.35, 4.25)
+  camera.position.set(2.4, 1.55, 2.8)
   return camera
 }
 
@@ -297,21 +247,21 @@ function configureControls(camera: THREE.PerspectiveCamera, renderer: THREE.WebG
   controls.enablePan = true
   controls.enableZoom = true
   controls.enableRotate = true
-  controls.minDistance = 1.1
-  controls.maxDistance = 12
-  controls.target.set(0, 1.1, 0)
+  controls.minDistance = 0.5
+  controls.maxDistance = 8
+  controls.target.set(0, 0.75, 0)
   controls.update()
   return controls
 }
 
-export function createKukaScene(
+export function createAbbScene(
   container: HTMLElement,
-  options: KukaSceneOptions = {},
-): KukaSceneController {
+  options: AbbSceneOptions = {},
+): AbbSceneController {
   const onStatus = options.onStatus ?? (() => undefined)
   const onModel = options.onModel ?? (() => undefined)
   const onTrajectoryCount = options.onTrajectoryCount ?? (() => undefined)
-  const scene = createBenchmarkScene()
+  const scene = createAbbBenchmarkScene()
   const grid = scene.getObjectByName('Ground_Grid')
   const baseAxes = scene.getObjectByName('BaseAxesHelper')
   const showGrid = options.showGrid ?? true
@@ -339,7 +289,7 @@ export function createKukaScene(
   const camera = configureCamera(container)
   const renderer = configureRenderer(container)
   const controls = configureControls(camera, renderer)
-  const loader = new GLTFLoader()
+  const loader = new FBXLoader()
   const resizeObserver = new ResizeObserver(() => {
     const width = Math.max(container.clientWidth, 1)
     const height = Math.max(container.clientHeight, 1)
@@ -349,10 +299,11 @@ export function createKukaScene(
   })
   let animationFrame = 0
   let loadedModel: THREE.Group | null = null
-  let robotModel: KukaSceneRobotModel | null = null
-  let targetJoints: JointAngles = [...DEFAULT_JOINTS]
+  let robotModel: AbbSceneRobotModel | null = null
+  let targetJoints: JointAngles = [...ABB_DEFAULT_JOINTS]
   let toolAxes: THREE.Group | null = null
   let trajectoryPoints: ScenePoint[] = []
+  let lastTrajectoryPoint: ScenePoint | null = null
   let lastTrajectoryTime = 0
   let disposed = false
 
@@ -376,8 +327,7 @@ export function createKukaScene(
 
   function updateToolAxes(): void {
     if (!loadedModel || !toolAxes) return
-    const flange = findNode(loadedModel, 'Pivot_快拆机器人端口')
-      ?? findNode(loadedModel, '快拆机器人端口')
+    const flange = findNode(loadedModel, ABB_FLANGE_NODE_NAME)
     if (!flange) return
     loadedModel.updateMatrixWorld(true)
     const position = new THREE.Vector3()
@@ -391,24 +341,23 @@ export function createKukaScene(
   function sampleTrajectory(now: number): void {
     if (!loadedModel || now - lastTrajectoryTime < 50) return
     lastTrajectoryTime = now
-    const flange = findNode(loadedModel, 'Pivot_快拆机器人端口')
-      ?? findNode(loadedModel, '快拆机器人端口')
+    const flange = findNode(loadedModel, ABB_FLANGE_NODE_NAME)
     if (!flange) return
 
     loadedModel.updateMatrixWorld(true)
     const position = new THREE.Vector3()
     flange.getWorldPosition(position)
     const point: ScenePoint = [position.x, position.y, position.z]
-    const next = appendTrajectoryPoint(trajectoryPoints, point)
-    const previous = trajectoryPoints[trajectoryPoints.length - 1]
-    const current = next[next.length - 1]
-    const changed = next.length !== trajectoryPoints.length
-      || !previous
-      || previous[0] !== current[0]
-      || previous[1] !== current[1]
-      || previous[2] !== current[2]
-    if (!changed) return
+    const previousPoint = lastTrajectoryPoint
+    lastTrajectoryPoint = point
+    if (!showTrajectory || !previousPoint) return
+    if (Math.hypot(
+      point[0] - previousPoint[0],
+      point[1] - previousPoint[1],
+      point[2] - previousPoint[2],
+    ) < DEFAULT_TRAJECTORY_DISTANCE) return
 
+    const next = appendTrajectoryPoint(trajectoryPoints, point)
     trajectoryPoints = next
     refreshTrajectoryLine()
     onTrajectoryCount(trajectoryPoints.length)
@@ -418,17 +367,17 @@ export function createKukaScene(
   onStatus('loading')
 
   loader.load(
-    KUKA_MODEL_URL,
-    (gltf) => {
+    ABB_MODEL_URL,
+    (model) => {
       if (disposed) return
-      loadedModel = prepareModel(gltf.scene)
-      applyJointAngles(loadedModel, targetJoints)
-      robotModel = new KukaSceneRobotModel(loadedModel, applyJointAngles, targetJoints)
+      loadedModel = prepareAbbModel(model)
+      applyAbbJointAngles(loadedModel, targetJoints)
+      robotModel = new AbbSceneRobotModel()
       scene.add(loadedModel)
       attachToolAxes()
       onModel(robotModel)
       onStatus('ready')
-      console.info('[KukaScene] KUKA 基准模型加载完成')
+      console.info('[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，末端=joint7')
     },
     undefined,
     (error) => {
@@ -436,13 +385,11 @@ export function createKukaScene(
       const fallback = createFallbackRobot()
       scene.add(fallback)
       loadedModel = fallback
-      applyJointAngles(loadedModel, targetJoints)
-      // 占位模型的 Pivot 只服务可视化，不构成真实串联运动链；IK 继续使用 App 的 DH 模型。
       robotModel = null
       attachToolAxes()
       onModel(null)
       onStatus('error')
-      console.error('[KukaScene] KUKA 模型加载失败，已显示本地占位模型', error)
+      console.error('[AbbScene] ABB FBX 加载失败，已显示回退几何', error)
     },
   )
 
@@ -459,8 +406,7 @@ export function createKukaScene(
   return {
     setJoints: (joints: JointAngles) => {
       targetJoints = [...joints]
-      robotModel?.setCurrentJoints(targetJoints)
-      if (loadedModel) applyJointAngles(loadedModel, targetJoints)
+      if (loadedModel) applyAbbJointAngles(loadedModel, targetJoints)
     },
     setGridVisible: (visible: boolean) => {
       if (grid) grid.visible = visible
@@ -476,6 +422,7 @@ export function createKukaScene(
     },
     clearTrajectory: () => {
       trajectoryPoints = []
+      lastTrajectoryPoint = null
       refreshTrajectoryLine()
       onTrajectoryCount(0)
     },
@@ -496,7 +443,7 @@ export function createKukaScene(
       })
 
       renderer.domElement.remove()
-      console.info('[KukaScene] 场景资源已释放')
+      console.info('[AbbScene] ABB 场景资源已释放')
     },
   }
 }

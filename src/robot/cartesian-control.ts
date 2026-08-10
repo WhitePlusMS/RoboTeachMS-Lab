@@ -1,5 +1,6 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import { degToRad } from '../core/robot/math/angle'
+import { degToRad, radToDeg } from '../core/robot/math/angle'
+import { mat3Mul, rotationMatrixToEulerZYX } from '../core/robot/math/rotation3d'
 import { eulerZYXToMatrix } from '../core/robot/matrix4x4'
 import { solveIK, solvePositionOnlyIK } from '../core/robot/ik-solver'
 import type { RobotModel } from '../core/robot/robot-model'
@@ -10,7 +11,6 @@ import type {
   Pose,
   PoseDisplay,
 } from '../core/robot/types'
-import { KUKA_JOINT_RANGES } from '../robots/kuka-like/robot-config'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
 export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
@@ -28,63 +28,13 @@ const AXIS_INDEX: Record<CartesianAxis, number> = {
   rz: 2,
 }
 
-function degreesToRadians(value: number): number {
-  return (value * Math.PI) / 180
-}
-
-function radiansToDegrees(value: number): number {
-  return (value * 180) / Math.PI
-}
-
-function rotationFromEulerZYX(orientationDeg: [number, number, number]): number[][] {
-  const [rx, ry, rz] = orientationDeg.map(degreesToRadians)
-  const crx = Math.cos(rx)
-  const srx = Math.sin(rx)
-  const cry = Math.cos(ry)
-  const sry = Math.sin(ry)
-  const crz = Math.cos(rz)
-  const srz = Math.sin(rz)
-
-  return [
-    [cry * crz, crz * sry * srx - srz * crx, crz * sry * crx + srz * srx],
-    [cry * srz, srz * sry * srx + crz * crx, srz * sry * crx - crz * srx],
-    [-sry, cry * srx, cry * crx],
-  ]
-}
-
-function multiplyRotation(left: number[][], right: number[][]): number[][] {
-  return Array.from({ length: 3 }, (_, row) =>
-    Array.from({ length: 3 }, (_, column) =>
-      left[row].reduce((sum, value, index) => sum + value * right[index][column], 0),
-    ),
-  )
-}
-
 function rotationDelta(axis: CartesianAxis, degrees: number): number[][] {
-  const angle = degreesToRadians(degrees)
+  const angle = degToRad(degrees)
   const cosine = Math.cos(angle)
   const sine = Math.sin(angle)
   if (axis === 'rx') return [[1, 0, 0], [0, cosine, -sine], [0, sine, cosine]]
   if (axis === 'ry') return [[cosine, 0, sine], [0, 1, 0], [-sine, 0, cosine]]
   return [[cosine, -sine, 0], [sine, cosine, 0], [0, 0, 1]]
-}
-
-function eulerZYXFromRotation(rotation: number[][]): [number, number, number] {
-  const sy = -rotation[2][0]
-  const cy = Math.sqrt(rotation[0][0] ** 2 + rotation[1][0] ** 2)
-  const ry = Math.atan2(sy, cy)
-  if (cy > 1e-6) {
-    return [
-      radiansToDegrees(Math.atan2(rotation[2][1], rotation[2][2])),
-      radiansToDegrees(ry),
-      radiansToDegrees(Math.atan2(rotation[1][0], rotation[0][0])),
-    ]
-  }
-  return [
-    radiansToDegrees(Math.atan2(-rotation[1][2], rotation[1][1])),
-    radiansToDegrees(ry),
-    0,
-  ]
 }
 
 function transformVector(rotation: number[][], vector: [number, number, number]): [number, number, number] {
@@ -120,18 +70,21 @@ export function applyCartesianDelta(
     const localDelta: [number, number, number] = [0, 0, 0]
     localDelta[index] = delta
     const worldDelta = coordinateSystem === 'Tool'
-      ? transformVector(rotationFromEulerZYX(pose.orientationDeg), localDelta)
+      ? transformVector(eulerZYXToMatrix(pose.orientationDeg.map(degToRad) as [number, number, number]), localDelta)
       : localDelta
     worldDelta.forEach((value, component) => {
       nextPosition[component] += value
     })
   } else {
-    const currentRotation = rotationFromEulerZYX(pose.orientationDeg)
+    const currentRotation = eulerZYXToMatrix(
+      pose.orientationDeg.map(degToRad) as [number, number, number],
+    )
     const deltaRotation = rotationDelta(axis, delta)
     const nextRotation = coordinateSystem === 'Tool'
-      ? multiplyRotation(currentRotation, deltaRotation)
-      : multiplyRotation(deltaRotation, currentRotation)
-    nextOrientation.splice(0, 3, ...eulerZYXFromRotation(nextRotation))
+      ? mat3Mul(currentRotation, deltaRotation)
+      : mat3Mul(deltaRotation, currentRotation)
+    const nextEuler = rotationMatrixToEulerZYX(nextRotation).map(radToDeg) as [number, number, number]
+    nextOrientation.splice(0, 3, ...nextEuler)
   }
 
   return { positionMm: nextPosition, orientationDeg: nextOrientation }
@@ -149,7 +102,8 @@ export interface CartesianControlOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
   robotModel: Ref<RobotModel>
-  setJoints: (joints: JointAngles, isContinuous?: boolean) => void
+  jointRanges: readonly (readonly [number, number])[]
+  moveToJoints: (joints: JointAngles, isContinuous?: boolean) => void
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -169,8 +123,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const status = ref<CartesianStatus>('ready')
 
   const statusMessage = computed(() => {
-    if (status.value === 'solved') return '逆解完成，机器人已更新'
-    if (status.value === 'position-fallback') return '位置逆解完成，姿态未约束'
+    if (status.value === 'solved') return '逆解成功，目标运动已提交'
+    if (status.value === 'position-fallback') return '位置逆解成功，目标运动已提交（姿态未约束）'
     if (status.value === 'invalid') return '输入无效，已保留最近一次有效姿态'
     if (status.value === 'unreachable') return '目标不可达，已保留最近一次有效姿态'
     return '就绪'
@@ -183,10 +137,10 @@ export function useCartesianControl(options: CartesianControlOptions) {
       options.joints.value,
       model,
       {},
-      KUKA_JOINT_RANGES,
+      options.jointRanges,
     )
     if (solved) {
-      options.setJoints(solved, isContinuous)
+      options.moveToJoints(solved, isContinuous)
       status.value = 'solved'
       return
     }
@@ -196,10 +150,10 @@ export function useCartesianControl(options: CartesianControlOptions) {
         options.joints.value,
         model,
         {},
-        KUKA_JOINT_RANGES,
+        options.jointRanges,
       )
       if (fallback) {
-        options.setJoints(fallback, isContinuous)
+        options.moveToJoints(fallback, isContinuous)
         status.value = 'position-fallback'
         return
       }

@@ -6,7 +6,7 @@ import {
   useCartesianControl,
 } from './cartesian-control'
 import type { JointAngles, PoseDisplay } from '../core/robot/types'
-import { DEFAULT_JOINTS, KUKA_LIKE } from '../robots/kuka-like/robot-config'
+import { DEFAULT_JOINTS, KUKA_JOINT_RANGES, KUKA_LIKE } from '../robots/kuka-like/robot-config'
 import { DhRobotModel } from '../robots/kuka-like/dh-robot-model'
 
 const pose: PoseDisplay = {
@@ -36,7 +36,8 @@ describe('笛卡尔坐标增量', () => {
       joints,
       pose: poseRef,
       robotModel: ref(new DhRobotModel()),
-      setJoints: (next) => {
+      jointRanges: KUKA_JOINT_RANGES,
+      moveToJoints: (next) => {
         joints.value = [...next]
       },
     })
@@ -55,7 +56,8 @@ describe('笛卡尔坐标增量', () => {
       joints,
       pose: poseRef,
       robotModel: ref(new DhRobotModel()),
-      setJoints: (next) => {
+      jointRanges: KUKA_JOINT_RANGES,
+      moveToJoints: (next) => {
         joints.value = [...next]
       },
     })

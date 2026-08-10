@@ -3,10 +3,10 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles } from '../core/robot/types'
 import {
-  createKukaScene,
-  type KukaSceneController,
-  type KukaSceneStatus,
-} from '../scene/kuka-scene'
+  createAbbScene,
+  type AbbSceneController,
+  type AbbSceneStatus,
+} from '../scene/abb-scene'
 
 const props = defineProps<{
   joints: JointAngles
@@ -17,7 +17,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  status: [value: KukaSceneStatus]
+  status: [value: AbbSceneStatus]
   model: [value: RobotModel | null]
   'grid-change': [value: boolean]
   'coordinates-change': [value: boolean]
@@ -26,11 +26,11 @@ const emit = defineEmits<{
 }>()
 
 const viewport = ref<HTMLDivElement | null>(null)
-let controller: KukaSceneController | null = null
+let controller: AbbSceneController | null = null
 
 onMounted(() => {
   if (!viewport.value) return
-  controller = createKukaScene(viewport.value, {
+  controller = createAbbScene(viewport.value, {
     onStatus: (status) => emit('status', status),
     onModel: (model) => emit('model', model),
     onTrajectoryCount: (count) => emit('trajectory-count', count),
@@ -68,7 +68,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="scene-viewport">
-    <div ref="viewport" class="scene-canvas-host" role="img" aria-label="KUKA 机器人三维基准场景" />
+    <div ref="viewport" class="scene-canvas-host" role="img" aria-label="ABB IRB 1200-5/0.9 三维场景" />
     <div class="scene-aux-toolbar" role="toolbar" aria-label="场景辅助显示">
       <button
         type="button"
@@ -95,9 +95,6 @@ onBeforeUnmount(() => {
         @click="clearTrajectory"
       >清空轨迹</button>
     </div>
-    <span v-if="props.trajectoryCount > 0" class="scene-trajectory-count">
-      轨迹 {{ props.trajectoryCount }} 点
-    </span>
   </div>
 </template>
 

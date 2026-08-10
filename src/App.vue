@@ -7,14 +7,18 @@ import SceneViewport from './components/SceneViewport.vue'
 import { radToDeg } from './core/robot/math/angle'
 import type { RobotModel } from './core/robot/robot-model'
 import type { JointAngles, PoseDisplay } from './core/robot/types'
-import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from './robots/kuka-like/robot-config'
+import {
+  ABB_DEFAULT_JOINTS,
+  ABB_IRB1200_5_90_STANDARD_DH,
+  ABB_JOINT_RANGES,
+} from './robots/abb-irb1200/robot-config'
 import { adjustJointAngle, randomJointAngles, useJointControl } from './robot/joint-control'
 import { useMotion } from './robot/motion-control'
-import { DhRobotModel } from './robots/kuka-like/dh-robot-model'
-import type { KukaSceneStatus } from './scene/kuka-scene'
+import { AbbDhRobotModel } from './robots/abb-irb1200/dh-robot-model'
+import type { AbbSceneStatus } from './scene/abb-scene'
 import { useCartesianControl } from './robot/cartesian-control'
 
-const sceneStatus = ref<KukaSceneStatus>('loading')
+const sceneStatus = ref<AbbSceneStatus>('loading')
 const showGrid = ref(true)
 const showCoordinateSystems = ref(true)
 const showTrajectory = ref(false)
@@ -27,7 +31,11 @@ const {
   setJoint: setJointImmediate,
   setJoints: setJointsImmediate,
   setStep,
-} = useJointControl()
+} = useJointControl({
+  config: ABB_IRB1200_5_90_STANDARD_DH,
+  defaultJoints: ABB_DEFAULT_JOINTS,
+  jointRanges: ABB_JOINT_RANGES,
+})
 
 const {
   startEasedAnimation,
@@ -45,17 +53,17 @@ function setJoint(index: number, value: number): void {
 }
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
-  const next = adjustJointAngle(joints.value, index, direction, jointStep.value, KUKA_JOINT_RANGES)
+  const next = adjustJointAngle(joints.value, index, direction, jointStep.value, ABB_JOINT_RANGES)
   if (isContinuous) startSpeedLimitedAnimation(next)
   else startEasedAnimation(next)
 }
 
 function reset(): void {
-  startEasedAnimation([...DEFAULT_JOINTS])
+  startEasedAnimation([...ABB_DEFAULT_JOINTS])
 }
 
 function randomize(): void {
-  startEasedAnimation(randomJointAngles(KUKA_JOINT_RANGES))
+  startEasedAnimation(randomJointAngles(ABB_JOINT_RANGES))
 }
 
 function animateCartesianJoints(next: JointAngles, isContinuous = false): void {
@@ -63,7 +71,7 @@ function animateCartesianJoints(next: JointAngles, isContinuous = false): void {
   else startEasedAnimation(next)
 }
 
-const fallbackRobotModel = new DhRobotModel()
+const fallbackRobotModel = new AbbDhRobotModel()
 const robotModel = shallowRef<RobotModel>(fallbackRobotModel)
 const pose = computed<PoseDisplay>(() => {
   const modelPose = robotModel.value.forwardKinematics(joints.value)
@@ -89,11 +97,17 @@ const {
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
-} = useCartesianControl({ joints, pose, robotModel, setJoints: animateCartesianJoints })
+} = useCartesianControl({
+  joints,
+  pose,
+  robotModel,
+  jointRanges: ABB_JOINT_RANGES,
+  moveToJoints: animateCartesianJoints,
+})
 
 const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'
-  if (sceneStatus.value === 'error') return '已切换占位模型'
+  if (sceneStatus.value === 'error') return '已切换 ABB 回退模型'
   return '正在加载模型'
 })
 </script>
@@ -103,8 +117,8 @@ const statusLabel = computed(() => {
     <header class="app-header">
       <div>
         <p class="eyebrow">ROBOT PROGRAMMING LAB · SKELETON</p>
-        <h1>KUKA 机器人基准场景</h1>
-        <p class="subtitle">ABB 编程仿真前端的独立 Vue3 骨架</p>
+        <h1>ABB IRB 1200-5/0.9 教学场景</h1>
+        <p class="subtitle">基于 ABB 官方规格的六轴编程仿真前端</p>
       </div>
       <span class="status-pill" :class="`status-${sceneStatus}`">
         <span class="status-dot" aria-hidden="true" />
@@ -112,11 +126,11 @@ const statusLabel = computed(() => {
       </span>
     </header>
 
-    <section class="workspace" aria-label="机器人基准工作台">
+    <section class="workspace" aria-label="ABB IRB 1200-5/0.9 工作台">
       <aside class="info-panel">
         <div class="panel-heading">
           <span class="panel-kicker">MODEL</span>
-          <h2>KUKA-6DOF</h2>
+          <h2>IRB 1200-5/0.9</h2>
         </div>
 
         <dl class="model-facts">

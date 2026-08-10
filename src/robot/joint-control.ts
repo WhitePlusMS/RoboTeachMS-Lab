@@ -6,11 +6,18 @@ import {
   KUKA_JOINT_RANGES,
   KUKA_LIKE,
 } from '../robots/kuka-like/robot-config'
+import type { RobotConfig } from '../core/robot/types'
 
 export const JOINT_STEPS = [0.1, 1, 5, 10] as const
 export type JointStep = (typeof JOINT_STEPS)[number]
 export type JointDirection = -1 | 1
 export type JointRange = readonly [number, number]
+
+export interface JointControlOptions {
+  config?: RobotConfig
+  defaultJoints?: JointAngles
+  jointRanges?: readonly JointRange[]
+}
 
 export function clampJointAngle(index: number, value: number, ranges: readonly JointRange[] = KUKA_JOINT_RANGES): number {
   if (!Number.isFinite(value) || !ranges[index]) return ranges[index]?.[0] ?? 0
@@ -54,13 +61,16 @@ export function isJointStep(value: number): value is JointStep {
 }
 
 /** Vue 状态层只暴露机器人命令，不把 Three.js 节点泄漏给控制面板。 */
-export function useJointControl() {
-  const joints = ref<JointAngles>([...DEFAULT_JOINTS])
+export function useJointControl(options: JointControlOptions = {}) {
+  const config = options.config ?? KUKA_LIKE
+  const ranges = options.jointRanges ?? KUKA_JOINT_RANGES
+  const defaultJoints = options.defaultJoints ?? DEFAULT_JOINTS
+  const joints = ref<JointAngles>([...defaultJoints])
   const jointStep = ref<JointStep>(1)
-  const pose = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
+  const pose = computed(() => poseFromJoints(joints.value, config))
 
   function setJoint(index: number, value: number): void {
-    joints.value = setJointAngle(joints.value, index, value)
+    joints.value = setJointAngle(joints.value, index, value, ranges)
   }
 
   function setJoints(next: JointAngles): void {
@@ -68,7 +78,7 @@ export function useJointControl() {
   }
 
   function adjustJoint(index: number, direction: JointDirection): void {
-    joints.value = adjustJointAngle(joints.value, index, direction, jointStep.value)
+    joints.value = adjustJointAngle(joints.value, index, direction, jointStep.value, ranges)
   }
 
   function setStep(value: number): void {
@@ -76,17 +86,17 @@ export function useJointControl() {
   }
 
   function reset(): void {
-    joints.value = [...DEFAULT_JOINTS]
+    joints.value = [...defaultJoints]
   }
 
   function randomize(): void {
-    joints.value = randomJointAngles()
+    joints.value = randomJointAngles(ranges)
   }
 
   return {
     joints,
     jointStep,
-    jointRanges: KUKA_JOINT_RANGES,
+    jointRanges: ranges,
     pose,
     setJoint,
     setJoints,
