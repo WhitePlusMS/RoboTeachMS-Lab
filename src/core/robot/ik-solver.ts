@@ -8,7 +8,6 @@ import type { IKSolverConfig, JointAngles, Pose } from './types'
 /** 原项目使用的 Levenberg-Marquardt 阻尼最小二乘配置。 */
 export const DEFAULT_IK_CONFIG: IKSolverConfig = {
   maxIterations: 100,
-  tolerance: 1e-3,
   posTolerance: 1,
   oriTolerance: 0.01,
   damping: 0.1,

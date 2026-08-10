@@ -5,7 +5,6 @@ export const DEFAULT_MOTION_CONFIG: MotionConfig = {
   jointSpeedLimit: 60,
   ikAnimDuration: 800,
   snapThreshold: 0.1,
-  longPressThrottle: 50,
 }
 
 /** 单击和目标姿态切换使用的 easeInOutCubic 缓动。 */

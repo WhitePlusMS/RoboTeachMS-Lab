@@ -43,12 +43,10 @@ export interface MotionConfig {
   jointSpeedLimit: number
   ikAnimDuration: number
   snapThreshold: number
-  longPressThrottle: number
 }
 
 export interface IKSolverConfig {
   maxIterations: number
-  tolerance: number
   posTolerance: number
   oriTolerance: number
   damping: number
