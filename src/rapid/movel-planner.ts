@@ -1,9 +1,14 @@
-import { planCartesianPath } from '../robot/cartesian-path-planner'
-import type { MotionResult } from '../robot/motion-runner'
-import type { RobotModel } from '../robot/robot-model'
-import type { JointAngles } from '../robot/types'
-import { robTargetToPose, validateMotionInput, type MotionPlanError } from './plan-shared'
-import type { StructuredMoveL } from './rapid-types'
+import { planCartesianPath } from '../robotics/cartesian-path-planner.ts'
+import type { MotionResult } from '../robotics/motion-runner.ts'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles } from '../robotics/types.ts'
+import {
+  robTargetToPose,
+  simulateDurationMs,
+  validateMotionInput,
+  type MotionPlanError,
+} from './plan-shared.ts'
+import type { StructuredMoveL } from './rapid-types.ts'
 
 export type MoveLPlanResult =
   | { ok: true; waypoints: JointAngles[]; durationMs: number }
@@ -61,19 +66,12 @@ export function planMoveL(
   }
 
   // 仿真时长近似：TCP 起点到终点距离 / v_tcp，转毫秒并保证正的有限值。
-  const startPose = model.forwardKinematics(currentJoints)
-  if (!startPose) {
+  const durationMs = simulateDurationMs(model, currentJoints, movel.target.trans, movel.speed.v_tcp)
+  if (durationMs === null) {
     return { ok: false, error: { kind: 'unreachable', message: '机器人模型不可用或正解失败' } }
   }
-  const distance = Math.hypot(
-    movel.target.trans[0] - startPose.position[0],
-    movel.target.trans[1] - startPose.position[1],
-    movel.target.trans[2] - startPose.position[2],
-  )
-  const durationMs = (distance / movel.speed.v_tcp) * 1000
-  const clampedDuration = Number.isFinite(durationMs) && durationMs >= 0 ? Math.max(durationMs, 1) : 1
 
-  return { ok: true, waypoints, durationMs: clampedDuration }
+  return { ok: true, waypoints, durationMs }
 }
 
 /**

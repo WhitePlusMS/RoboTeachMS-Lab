@@ -1,14 +1,15 @@
-import { solveIK } from '../robot/ik-solver'
-import type { MotionResult } from '../robot/motion-runner'
-import type { RobotModel } from '../robot/robot-model'
-import type { JointAngles } from '../robot/types'
+import { solveIK } from '../robotics/ik-solver.ts'
+import type { MotionResult } from '../robotics/motion-runner.ts'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles } from '../robotics/types.ts'
 import {
   isJointAtLimit,
   robTargetToPose,
+  simulateDurationMs,
   validateMotionInput,
   type MotionPlanError,
-} from './plan-shared'
-import type { StructuredMoveJ } from './rapid-types'
+} from './plan-shared.ts'
+import type { StructuredMoveJ } from './rapid-types.ts'
 
 export type MoveJPlanResult =
   | { ok: true; joints: JointAngles; durationMs: number }
@@ -71,19 +72,12 @@ export function planMoveJ(
   }
 
   // 仿真时长近似：TCP 距离 / v_tcp，转毫秒并保证正的有限值。
-  const startPose = model.forwardKinematics(currentJoints)
-  if (!startPose) {
+  const durationMs = simulateDurationMs(model, currentJoints, movej.target.trans, movej.speed.v_tcp)
+  if (durationMs === null) {
     return { ok: false, error: { kind: 'unreachable', message: '机器人模型不可用或正解失败' } }
   }
-  const distance = Math.hypot(
-    movej.target.trans[0] - startPose.position[0],
-    movej.target.trans[1] - startPose.position[1],
-    movej.target.trans[2] - startPose.position[2],
-  )
-  const durationMs = (distance / movej.speed.v_tcp) * 1000
-  const clampedDuration = Number.isFinite(durationMs) && durationMs > 0 ? Math.max(durationMs, 1) : 1
 
-  return { ok: true, joints, durationMs: clampedDuration }
+  return { ok: true, joints, durationMs }
 }
 
 /**

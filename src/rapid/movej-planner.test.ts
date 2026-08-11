@@ -1,28 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '../robot/motion-runner'
-import { ManualMotionClock } from '../robot/manual-motion-clock'
-import { AbbDhRobotModel } from '../../robots/abb-irb1200/dh-robot-model'
-import { ABB_JOINT_RANGES } from '../../robots/abb-irb1200/robot-config'
-import type { JointAngles } from '../robot/types'
-import { executeMoveJ, planMoveJ } from './movej-planner'
+import { createMotionRunner } from '../robotics/motion-runner.ts'
+import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
+import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles } from '../robotics/types.ts'
+import { executeMoveJ, planMoveJ } from './movej-planner.ts'
 import {
   defaultTool0,
   defaultWobj0,
   defaultZoneFine,
+  NO_EXTERNAL_AXIS,
   type RobTarget,
   type StructuredMoveJ,
   type ToolData,
-} from './rapid-types'
+  type WobjData,
+} from './rapid-types.ts'
 
 const ABB_MODEL = new AbbDhRobotModel()
 const AT_HOME: JointAngles = [0, 0, 0, 0, 0, 0]
 
-/** 固定可达 robtarget：从 home [451,713,0] 移动到 [500,600,100]，单位四元数姿态。 */
+/** 固定可达 robtarget：从 home [451,713,0] 移动到 [500,600,100]，单位 RAPID 四元数姿态。 */
 const REACHABLE_TARGET: RobTarget = {
   trans: [500, 600, 100],
-  rot: [0, 0, 0, 1],
+  rot: [1, 0, 0, 0],
   robconf: [0, 0, 0, 0],
-  extax: [0, 0, 0, 0, 0, 0],
+  extax: [...NO_EXTERNAL_AXIS],
 }
 
 function makeMoveJ(overrides: Partial<StructuredMoveJ> = {}): StructuredMoveJ {
@@ -79,8 +81,8 @@ describe('planMoveJ 数据与配置校验', () => {
   it('非默认工具返回 unsupported-option', () => {
     const customTool: ToolData = {
       robhold: true,
-      frame: { trans: [0, 0, 0], rot: [0, 0, 1, 0] },
-      tload: { mass: 0, cog: [0, 0, 0], aom: [0, 0, 0] },
+      tframe: { trans: [0, 0, 0], rot: [1, 0, 0, 0] },
+      tload: { mass: 1, cog: [0, 0, 0], aom: [1, 0, 0, 0], ix: 0, iy: 0, iz: 0 },
     }
     const result = planMoveJ(makeMoveJ({ tool: customTool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
     expect(result.ok).toBe(false)
@@ -204,9 +206,9 @@ describe('executeMoveJ 经 MotionRunner 完成一个 ABB 目标', () => {
     let runEasedCalls = 0
     const badTarget: RobTarget = {
       trans: [5000, 5000, 5000],
-      rot: [0, 0, 0, 1],
+      rot: [1, 0, 0, 0],
       robconf: [0, 0, 0, 0],
-      extax: [0, 0, 0, 0, 0, 0],
+      extax: [...NO_EXTERNAL_AXIS],
     }
     const outcome = await executeMoveJ(makeMoveJ({ target: badTarget }), {
       model: ABB_MODEL,
@@ -222,5 +224,82 @@ describe('executeMoveJ 经 MotionRunner 完成一个 ABB 目标', () => {
     if (!outcome.ok) expect(outcome.error.kind).toBe('unreachable')
     expect(runEasedCalls).toBe(0)
     expect(clock.pendingFrameCount()).toBe(0)
+  })
+})
+
+describe('planMoveJ 补齐的结构/数值/配置输入校验', () => {
+  it('非零 robconf 返回 unsupported-option，消息指出 robconf', () => {
+    const target: RobTarget = { ...REACHABLE_TARGET, robconf: [0, 1, 0, 0] }
+    const result = planMoveJ(makeMoveJ({ target }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.kind).toBe('unsupported-option')
+      expect(result.error.message).toContain('robconf')
+    }
+  })
+
+  it('全零 extax 不再被当成“未使用”，返回 unsupported-option', () => {
+    const target: RobTarget = { ...REACHABLE_TARGET, extax: [0, 0, 0, 0, 0, 0] }
+    const result = planMoveJ(makeMoveJ({ target }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.kind).toBe('unsupported-option')
+      expect(result.error.message).toContain('extax')
+    }
+  })
+
+  it('畸形 tuple 长度返回 invalid-data', () => {
+    const wrongTrans = { ...REACHABLE_TARGET, trans: [500, 600] } as unknown as RobTarget
+    const wrongRot = { ...REACHABLE_TARGET, rot: [1, 0, 0] } as unknown as RobTarget
+    expect(planMoveJ(makeMoveJ({ target: wrongTrans }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES).ok).toBe(false)
+    expect(planMoveJ(makeMoveJ({ target: wrongRot }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES).ok).toBe(false)
+  })
+
+  it('speeddata 任一速度字段≤0 返回 invalid-data', () => {
+    for (const field of ['v_ori', 'v_leax', 'v_reax'] as const) {
+      const speed = { v_tcp: 100, v_ori: 100, v_leax: 100, v_reax: 100, [field]: 0 }
+      const result = planMoveJ(makeMoveJ({ speed }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error.kind).toBe('invalid-data')
+    }
+  })
+
+  it('zone 数值非有限返回 invalid-data', () => {
+    const zone = { ...defaultZoneFine(), pzoneTcp: NaN }
+    const result = planMoveJ(makeMoveJ({ zone }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.kind).toBe('invalid-data')
+  })
+
+  it('负载 aom 零四元数返回 invalid-data', () => {
+    const tool: ToolData = {
+      robhold: true,
+      tframe: { trans: [0, 0, 0], rot: [1, 0, 0, 0] },
+      tload: { mass: 0, cog: [0, 0, 0], aom: [0, 0, 0, 0], ix: 0, iy: 0, iz: 0 },
+    }
+    const result = planMoveJ(makeMoveJ({ tool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.kind).toBe('invalid-data')
+  })
+
+  it('非默认 ufmec 返回 unsupported-option', () => {
+    const wobj: WobjData = { ...defaultWobj0(), ufmec: 'mech1' }
+    const result = planMoveJ(makeMoveJ({ wobj }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.kind).toBe('unsupported-option')
+      expect(result.error.message).toContain('wobj0')
+    }
+  })
+
+  it('非默认工具 frame 返回 unsupported-option（frame 分支）', () => {
+    const tool: ToolData = {
+      robhold: true,
+      tframe: { trans: [10, 0, 0], rot: [1, 0, 0, 0] },
+      tload: { mass: 0, cog: [0, 0, 0], aom: [1, 0, 0, 0], ix: 0, iy: 0, iz: 0 },
+    }
+    const result = planMoveJ(makeMoveJ({ tool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.kind).toBe('unsupported-option')
   })
 })
