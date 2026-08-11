@@ -1,5 +1,105 @@
 # 更新日志
 
+## 2026-08-11 — 内置演示程序升级为更复杂的搬运循环
+
+- 修改 `src/robot/builtin-program.ts`：把内置演示程序从 3 条（MoveJ → MoveL → MoveJ）升级为 7 条的“取件 → 转移 → 放件”搬运循环，全部沿用现有 `tool0`/`wobj0`/`fine`、无外部轴：① MoveJ 高速接近取件点上方 → ② MoveL 低速下降取件 → ③ MoveL 低速提起 → ④ MoveJ 高速转移到放件点上方 → ⑤ MoveL 低速下降放件 → ⑥ MoveL 低速提起 → ⑦ MoveJ 高速返回高位姿态点。
+  - 拆分出 `FAST_SPEED`（v_tcp=150）与 `WORK_SPEED`（v_tcp=60）两种速级：接近/转移用较快速，取放/定位用较慢速，便于观察段落差异，也更能证明结构化执行链按序推进、速级随指令变化。
+  - 目标点更远且取向区分：取件点位于 home 前左 `(100,-100)`、0° 姿态，放件点位于 home 后右 `(-100,100)`、绕工具 Z 回转 90°（新增 `yaw(deg)` 四元数辅助函数），两工位相距约 280 mm 且姿态相差 90°，形成经典的“抓取后回转 90° 再放置”；`targetPos` 增加可选 `rot` 参数。工作高度取 z≈25/60（低于此高度时远点的 MoveL 笛卡尔直线路径会不可达，已通过规划器探明并避开）。
+  - 目标点固定、可读、基于 home 零位 TCP 偏移，并用真实规划器 + ABB 模型逐一验证全部 7 条（含 90° 姿态的 MoveL 下降/提起）均可规划成功。
+- 新增 `src/robot/builtin-program.test.ts`：回归测试，校验内置程序每条 MoveJ/MoveL 目标点经 ABB 模型规划均可达，防止手写目标点后续越界。
+- 修改 `e2e/abb-program.spec.ts`：完整运行用例的程序指针断言由 3 改为 7（七条指令全部完成），describe 标题更新为“搬运循环”。
+- 修改原因：让页面内置演示程序更接近真实 ABB 搬运程序的结构，覆盖多段 MoveJ/MoveL 交替、两种速级、较远工位与 90° 回转放件，更好演示结构化执行链，同时仍严格限定在当前已有实现（结构化 MoveJ/MoveL、tool0/wobj0/fine、无外部轴）范围内。
+- 影响：程序执行语义（`ProgramExecutor` 串行推进、暂停/停止/复位）不变；仅内置演示程序内容、e2e 指针断言与新增可达性回归测试。`npm run check` 通过；`npm test` 通过（17 个文件、102 passed / 1 个既有 expected-fail）；目标点先经临时 vitest 探明 MoveL 可达包络后再定格。
+
+## 2026-08-11 — Ticket 06 在现有页面跑通内置结构化 ABB 程序
+
+- 新增 `src/robot/builtin-program.ts`：内置演示程序 `createBuiltinProgram()`，固定、可读、经 ABB 模型验证可达的 MoveJ → MoveL → MoveJ，全部使用 `tool0`/`wobj0`/`fine`、无外部轴；目标值固定（基于 home 零位 TCP 偏移，不是运行时从当前 FK 临时生成的“假”目标）。`v_tcp=60` 便于在教学中观察每条运动与暂停冻结。
+- 新增 `src/robot/program-control.ts`：`useProgramController` 把 Vue 无关的 `ProgramExecutor` 接到现有 `MotionRunner`、ABB `RobotModel` 与共享 `joints` 状态上。只负责构造程序、发出控制命令与同步快照（100ms 轮询刷新 `snapshot`，终止后自动停止轮询），不新增动画循环/IK/路径规划/通用 store。`stopActiveProgram()` 供手动关节/笛卡尔命令在活动程序时先终止程序，避免争用同一 MotionRunner。
+- 新增 `src/components/ProgramControlPanel.vue`：显示程序状态、程序指针、运动指针与当前规划错误，提供运行/暂停/继续/停止/复位按钮，按钮可用性与 `ProgramExecutor` 状态一致（idle 仅运行、running 暂停+停止、paused 继续+停止、终止态复位），并发出对应命令事件。
+- 新增 `src/components/ProgramControlPanel.test.ts`：覆盖按钮可用性、控制命令映射、状态/指针显示、规划错误显示。
+- 修改 `src/App.vue`：`useMotion` 补充 `pauseMotion/resumeMotion/getMotionStatus`，创建 `programControl` 并把 `ProgramControlPanel` 接入侧栏；手动关节（滑块/步进/随机/回零）与笛卡尔控制入口先调用 `programControl.stopActiveProgram()`，确保手动运动与程序不并发、切换手动后旧程序不继续推进。
+- 修改 `src/style.css`：新增 `program-panel` 样式块（状态/指针/按钮/错误展示）。
+- 新增 `e2e/abb-program.spec.ts`（1920×1080 viewport）：验证完整运行后状态 `已完成` 且程序指针=3、运动中暂停后关节冻结/继续完成同一次运动、停止后不推进到下一指令且复位不移动机器人。
+- 修改原因：在现有 ABB 教学页面跑通内置结构化程序的最小控制面板，使用户能运行、暂停、继续、停止、复位并观察状态与指针随真实三维机器人运动变化。
+- 影响：UI 只复用既有 MotionRunner、ABB RobotModel、关节状态与 ProgramExecutor；未新增第二个 runner、复制关节状态或直接操作 Three.js 关节节点；未加入代码编辑器/parser/持久化/zone blending，也无后端接口或 DTO。内置程序只用于证明结构化执行链。
+- 验证结果：`npm run check`、`npm test`（16 文件、101 passed / 1 个既有 expected-fail）、`npm run build`、`npm run test:e2e`（8 passed，含既有 5 条回归与新增 3 条程序用例）全部通过；临时启动的 `vite preview` 已终止，端口 4173 确认无 LISTEN、已释放。
+
+## 2026-08-11 — Ticket 05 补齐程序暂停、继续、停止与复位
+
+- 修改 `src/core/rapid/program-executor.ts`：
+  - `ProgramState` 增加 `paused`；`ProgramExecutionSeam` 增加 `pause/resume/stop`（委托给底层运动，即 UI seam 中的 MotionRunner），ProgramExecutor 只把这些命令委托给 seam，不含 RAF/IK/路径采样/Vue ref/UI 文案/回零。
+  - `pause` 仅在 `running` 时把状态改为 `paused` 并委托当前运动；指针与未完成的运动 Promise 保持不变。`resume` 仅在 `paused` 时恢复同一次运动与同一条执行链，不重新规划、不重复提交、不创建第二个执行 Promise。`stop` 在 `running/paused` 时只委托当前运动停止，**不直接改写程序状态**（避免“旧 async 链在 stop/reset 后再次写状态”的竞态），终止结果由执行链恢复后统一结算为 `stopped`，programPointer 不增加、后续指令不执行。
+  - 重复 `pause/resume/stop` 幂等，不抛与状态竞争有关的异常。
+  - `reset` 仅在无活动运动的 `idle/completed/stopped/error` 清理状态、指针与错误；在 `running/paused` 不做任何修改（调用方必须先 stop）。reset 不移动机器人、不回零、不清空场景轨迹、不重新规划程序。
+- 修改 `src/core/rapid/program-executor.test.ts`：为 fake seam 实现 pause/resume/stop（stop 把挂起 execute 结算为 stopped，模拟 MotionRunner 结算；pause/resume 记账），并新增：运行中 pause 委托且指针/未完成 Promise 不变、暂停后停止不推进、重复命令幂等、completed/error 后 reset 回到 idle、active 态 reset 不做修改、以及真实 MoveJ/MoveL 暂停冻结关节/继续完成/暂停后停止的集成测试。
+- 修改原因：为结构化 ProgramExecutor 提供稳定状态快照与执行控制，使上层能运行、暂停、继续、停止并复位程序，同时保证暂停属于同一次运动、停止不推进程序。
+- 影响：`ProgramExecutionSeam` 的 execute-only 接口扩展为包含控制命令，现仅有测试调用方已一次性迁移；快照仍只含状态、程序指针、运动指针与当前错误，不加日志历史/百分比/motionId/订阅器/暂停原因栈。未实现单步、断点、速度倍率或持久化。
+- 验证结果：`npm run check` 通过；`npm test` 通过（15 个测试文件、94 passed / 1 个既有 expected-fail）。未运行长期驻留服务。
+
+## 2026-08-11 — Ticket 04 串行执行结构化 MoveJ/MoveL 程序
+
+- 新增 `src/core/rapid/program-executor.ts`：领域层 `ProgramExecutor`（不依赖 Vue/Three.js），接受结构化 MoveJ/MoveL 数组和注入的 `ProgramExecutionSeam.execute` seam。`ProgramExecutionSeam` 只要求 `execute(instruction) => Promise<InstructionOutcome>`，ProgramExecutor 不含 FK/IK/路径采样/关节插值/RAF/通用队列/UI 文案。
+- 状态与指针语义：
+  - `ProgramState`：`idle | running | completed | stopped | error`（暂停由下一票补充）。
+  - `programPointer` 为下一条允许执行的指令索引，仅当前运动返回 `completed` 后加一；`motionPointer` 为当前规划/运动指令索引，无活动指令时为 `null`。
+  - 最后一条完成后 `programPointer === 长度`、`motionPointer === null`、状态 `completed`；空程序确定进入 `completed` 且指针为 0。
+  - 运动返回 `stopped` 不算完成：指针不增、motionPointer 清空、程序进入 `stopped`，后续指令不执行。
+  - 规划错误进入 `error`，快照保存准确指令索引、稳定错误码（=规划错误 kind）与可读消息，后续指令不执行。
+  - `run()` 仅从 `idle` 启动，运行中/终止时幂等返回当前状态，不产生第二条执行链，并 resolve 为最终终止状态。
+  - `getSnapshot()` 返回稳定快照（state/programPointer/motionPointer/error），调用方不能改写内部状态。
+- 新增 `src/core/rapid/program-executor.test.ts`：通过可控 fake seam 覆盖空程序、MoveJ→MoveL→MoveJ 串行与“当前未完成不调用下一条”、stopped 不推进、规划错误索引、重复 run 幂等、getSnapshot 不可变；并用真实规划器 + ABB 模型 + 手动 MotionClock 做 MoveJ→MoveL→MoveJ 集成测试。
+- 修改原因：让只含结构化 MoveJ/MoveL 的内存程序按顺序执行，并向调用方暴露稳定的程序状态、程序指针、运动指针与错误。
+- 影响：MotionRunner 仍只拥有一个活动运动，不增加内部队列；ProgramExecutor 是程序顺序唯一所有者，单条 async 执行链维护顺序。未实现暂停/继续/停止/复位（下一票）、RAPID parser、zone blending 或通用队列。
+- 验证结果：`npm run check` 通过；`npm test` 通过（15 个测试文件、85 passed / 1 个既有 expected-fail）。未运行长期驻留服务。
+
+## 2026-08-11 — Ticket 03 用结构化 MoveL 执行一条 ABB 直线路径
+
+- 新增 `src/core/rapid/plan-shared.ts`：抽取 MoveJ/MoveL 共享的规划错误类型（`MotionPlanErrorKind`/`MotionPlanError`）、统一数据与配置校验 `validateMotionInput`（先数据后配置：非有限值/零长度四元数/非正 `v_tcp` → `invalid-data`，非默认工具/工件/非 fine/外部轴 → `unsupported-option`）、`robTargetToPose`（把 robtarget.trans/rot 归一化转换为 Pose）与 `isJointAtLimit`（关节范围边界启发式）。`movej-planner.ts` 改为复用该共享模块，删除重复的私有校验器。
+- 新增 `src/core/rapid/movel-planner.ts`：`planMoveL` 复用 Ticket 02 的类型与共享校验，直接调用现有 `planCartesianPath`（不新增直线插值/SLERP/逐点 IK/构型跳变实现）；规划失败（空路径/不可达/奇异附近/waypoint 上限/构型跳变）统一在运动启动前映射为 `unreachable` 规划错误，关节不变。时长为 TCP 起点到终点距离 / `v_tcp`（转毫秒并保证正的有限值），零距离时长被钳位为 1ms。`executeMoveL` 注入 `runTrajectory` seam，整组 waypoint 只调用一次 MotionRunner 轨迹入口并原样返回 `completed/stopped`。
+- 修改 `src/core/robot/math/rotation3d.ts`：新增共享 `rotationMatrixToQuaternion`（旋转矩阵转四元数，标量在最后，与 robtarget.rot 形状一致）；`src/core/robot/cartesian-path-planner.ts` 改为导入它并删除其私有 `rotationToQuaternion` 副本，满足“旋转数学提取到共享 seam、不复制公式”。
+- 新增 `src/core/rapid/movel-planner.test.ts`：覆盖 5mm 位置 MoveL 的 TCP 横向/终点误差满足现有路径阈值、10° 姿态 MoveL 保持连续 waypoint 且不超 5° 最大关节步长、运动中停止返回 `stopped` 且停止后不再推进、零距离行为、`v_tcp` 按声明公式改变整条轨迹时长、不可达/构型跳变规划失败不调用 `runTrajectory`，以及 `invalid-data`/`unsupported-option` 边界。
+- 修改原因：让结构化 MoveL 复用现有笛卡尔路径规划器，通过 MotionRunner 一次提交整条轨迹并统一等待完成/停止。
+- 影响：`plan-shared` 同时被 MoveJ/MoveL 引用，避免复制类型与校验器；未新建路径规划器/IK/轨迹播放器/动作队列/帧循环，未触碰页面。
+- 验证结果：`npm run check` 通过；`npm test` 通过（14 个测试文件、78 passed / 1 个既有 expected-fail）；既有 cartesian-path-planner 回归测试保持通过。未运行长期驻留服务。
+
+## 2026-08-11 — Ticket 02 用结构化 MoveJ 执行一个 ABB 目标
+
+- 新增 `src/core/rapid/rapid-types.ts`：领域层 ABB RAPID 结构化数据类型，不依赖 Vue/Three.js。定义 `RobTarget`（毫米 `trans`、四元数 `rot`、四项 `robconf`、六项 `extax`）、`SpeedData`（`v_tcp` 等 ABB 单位）、`ZoneData`（`finep` 与六个 zone 数值字段）、`tooldata`/`wobjdata` 记录形状，以及携带目标/速度/zone/工具/工件的 `StructuredMoveJ`、`StructuredMoveL`。提供 `defaultTool0`、`defaultWobj0`、`defaultZoneFine` 与 `isDefaultTool0`/`isDefaultWobj0` 判定。
+- 新增 `src/core/rapid/movej-planner.ts`：
+  - `MotionPlanErrorKind` 可辨识联合，至少区分 `invalid-data`、`unsupported-option`、`unreachable`、`joint-limit`，作为规划错误而非 MotionRunner 的 `failed` 结果。
+  - `planMoveJ` 纯函数：IK 前校验非有限数值、零长度四元数、非正 `v_tcp` 返回 `invalid-data`；非默认工具/工件、非 fine zone、外部轴返回 `unsupported-option`；复用现有 `solveIK` 与 ABB `RobotModel`（不复制 DLS/Jacobian/FK/限位），把 `robtarget.rot` 归一化后经现有 `quaternionToRotationMatrix` 转为旋转矩阵；不可达返回 `unreachable`，IK 解被夹在关节范围边界返回 `joint-limit`。时长用明确记录的仿真近似 TCP 距离/`v_tcp`（转毫秒，保证正的有限值）。
+  - `executeMoveJ` 注入 `runEased` 执行 seam，规划成功后只通过缓动入口提交关节目标并原样返回 `completed/stopped`；规划错误不启动任何请求帧。
+- 新增 `src/core/robot/manual-motion-clock.ts`：测试用手动时钟，供后续程序执行器与 UI 测试复用。
+- 新增 `src/core/rapid/movej-planner.test.ts`：覆盖数据处于领域层、`invalid-data`/`unsupported-option` 校验、`v_tcp` 按 距离/`v_tcp` 改变时长、固定可达 `robtarget` 完成 MoveJ 并由 FK 校验终点位置与姿态、停止 MoveJ 返回 `stopped`、规划错误不启动请求帧也不调用 `runEased`。
+- 修改原因：让解析后的结构化 MoveJ 能复用现有机器人模型与 IK 真正驱动三维机器人，并暴露统一 `completed/stopped` 结果供上层等待。
+- 影响：`movel` 指令类型已在本票先行定义，供 Ticket 03 直接复用；未建立第二套 Pose/FK/IK/Jacobian/关节范围/动画系统，未触碰 `App.vue` 或页面控制。
+- 验证结果：`npm run check`（vue-tsc）通过；`npm test` 通过（13 个测试文件、71 passed / 1 个既有 expected-fail）。未运行长期驻留服务。
+
+## 2026-08-11 — Ticket 01 补齐 MotionRunner 可观察生命周期
+
+- 修改 `src/core/robot/motion-runner.ts`：为 `startEased`、`startSpeedLimited`、`startTrajectory` 补齐类型严格的 `Promise<MotionResult>` 终止返回值（`completed | stopped`），新增 `pause`、`resume`、`getStatus` 与 `MotionStatus`（`idle | running | paused`），并把 `MotionResult` 暴露为领域类型。
+- 生命周期语义：
+  - 每种启动方法都返回终止 Promise；自然到达终点解析一次 `completed` 并回到 `idle`，不残留请求帧。
+  - 同模式连续目标更新会复用当前帧循环和不带未完成 Promise（长按不卡顿基础），并从当前实际关节继续。
+  - 切换运动模式时先结算旧运动为 `stopped`，新模式拥有独立 Promise，且始终只存在一个待执行帧循环。
+  - 暂停冻结当前关节与剩余运动、累计暂停时长；继续后仍属于同一次运动和同一个 Promise，缓动/轨迹进度排除暂停时间，限速运动恢复首帧通过重置 `lastTime` 避免把整段暂停换算成关节步长。
+  - `pause`、`resume`、`stop` 对不适用状态幂等；`stop` 保持停止瞬间关节值并回到 `idle`。
+  - 空 waypoint 轨迹明确抛出参数错误，不返回永远不结算的 Promise，也不改变现有运动状态。
+- 修改 `src/robot/motion-control.ts`：Vue 时钟 adapter 暴露 `pauseMotion`、`resumeMotion`、`getMotionStatus`，并重新导出 `MotionResult`、`MotionStatus`；仍只有一个 runner，只负责注入浏览器 RAF 和卸载清理。
+- 修改 `src/core/robot/motion-runner.test.ts`：保留既有 8 个测试，并新增自然完成、显式停止、模式切换、同模式连续目标返回同一 Promise、缓动/轨迹/限速暂停继续、幂等命令、空轨迹错误、暂停中停止和 `getStatus` 全状态覆盖。
+- 修改原因：让当前手动控制和后续 RAPID 程序执行器都能可靠等待同一套运动生命周期。
+- 影响：`App.vue` 等现有调用者通过 `motion-control` adapter 调用，启动方法返回的 Promise 被忽略，行为不变；未新建第二个 runner、RAF 循环、动作队列、事件总线或 Vue 专属运动状态机。
+- 验证结果：`npm run check`（vue-tsc）通过；`npm test` 通过（12 个测试文件、59 passed / 1 个既有 expected-fail，位于未改动的 ik-solver.test.ts）。未启动 `npm run dev` 或任何长期驻留服务。
+
+## 2026-08-11 — 发布结构化 RAPID 运动执行任务集
+
+- 新增 `.scratch/abb-rapid-motion-execution/issues/`，按依赖顺序发布 6 张 `ready-for-agent` 本地 ticket：MotionRunner 可观察生命周期、结构化 MoveJ、结构化 MoveL、串行 ProgramExecutor、程序控制状态以及页面内置程序演示。
+- 每张 ticket 均补充已有实现与复用边界、精确状态语义、首期支持范围、禁止重复实现项、可勾选验收标准和验证命令，使小模型无需依赖对话上下文即可执行。
+- 阻塞链为 `01 → 02 → 03 → 04 → 05 → 06`；其中 03 同时显式依赖 01、02，04 显式依赖 02、03。当前 frontier 只有 01。
+- 修改原因：用户需要把已确认的 MotionRunner 最小生命周期及结构化 MoveJ/MoveL 程序执行方案拆成小模型可直接领取的 tracer-bullet tickets，并重点防止重复创建 MotionRunner、IK、路径规划、帧循环和通用队列。
+- 设计影响：首期只支持已解析的结构化指令、`tool0 + wobj0 + fine`；非默认工具/工件、zone、外部轴和未支持配置必须明确报错。本任务集不包含 RAPID 文本 parser、编辑器、持久化、MoveC 或 zone blending。
+- 业务影响：未修改 `src`、测试、依赖或运行时行为；本次只新增任务说明与更新日志。
+
 ## 2026-08-11 — 定案 MotionRunner 最小可观察生命周期
 
 - 修改 `.scratch/abb-teaching-simulation/issues/07-motion-runner-observable-lifecycle.md`：将决策票标记为已解决，确定运动提交返回 `Promise<'completed' | 'stopped'>`，暂停/继续保持同一次运动，并只暴露 `idle/running/paused` 状态。
