@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2026-08-11 — 定案 MotionRunner 最小可观察生命周期
+
+- 修改 `.scratch/abb-teaching-simulation/issues/07-motion-runner-observable-lifecycle.md`：将决策票标记为已解决，确定运动提交返回 `Promise<'completed' | 'stopped'>`，暂停/继续保持同一次运动，并只暴露 `idle/running/paused` 状态。
+- 修改 `.scratch/abb-teaching-simulation/map.md`：把 MotionRunner 生命周期加入已确认决策，收窄仍未明确的问题；暂停/停止语义不再与程序指针、错误恢复混写。
+- 新增 `.scratch/abb-teaching-simulation/issues/08-structured-movej-movel-contract.md`：把下一阶段限定为 RAPID 数据形状、MoveJ/MoveL 规划边界、规划失败和 fine/zone 首期语义，本轮不提前作答。
+- 修改 `CONTEXT.md`：补充“运动状态”和“运动结果”，明确它们分别不是程序状态，也不包含 `paused/replaced/failed`。
+- 修改原因：简单 RAPID 只需要可靠等待一条运动完成、支持暂停/继续/停止并判断是否可以推进程序；丰富快照、订阅、motionId、暂停原因栈、时间戳 waypoint 和队列目前没有用例支撑。
+- 设计影响：MotionRunner 保持为只执行已校验关节目标/waypoint 的深模块；IK、不可达、限位、speeddata、fine/zone 和 RAPID 错误均留在 MoveJ/MoveL 规划层或程序执行层。
+- 业务影响：未修改 `src`、测试、依赖或运行时行为；本次只完成方案定案和后续票拆分。
+
 ## 2026-08-11 — 固化运动执行生命周期术语
 
 - 新增根目录 `CONTEXT.md`，记录 ABB 教学编程仿真上下文中“运动执行、完成、停止、暂停”的统一定义。
