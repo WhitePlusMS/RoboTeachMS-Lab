@@ -20,27 +20,6 @@ export const DEFAULT_IK_CONFIG: IKSolverConfig = {
   orientationScale: 100,
 }
 
-export function isReachable(
-  targetPos: [number, number, number],
-  model: RobotModel,
-  margin = 50,
-): boolean {
-  if (!model.isAvailable()) return true
-  const seeds: JointAngles[] = [
-    [0, 0, 0, 0, 0, 0],
-    [0, -30, 60, 0, 0, 0],
-    [0, -45, 90, 0, 0, 0],
-    [90, -30, 60, 0, 0, 0],
-    [-90, -30, 60, 0, 0, 0],
-  ]
-  let maxReach = 0
-  for (const seed of seeds) {
-    const pose = model.forwardKinematics(seed)
-    if (pose) maxReach = Math.max(maxReach, Math.hypot(...pose.position))
-  }
-  return Math.hypot(...targetPos) <= maxReach + margin
-}
-
 function clampJoints(
   joints: JointAngles,
   ranges: readonly (readonly [number, number])[] | undefined,
@@ -136,63 +115,6 @@ export function solveIK(
     )
 
     if (candidateErrorNorm < errorNorm) {
-      for (let index = 0; index < 6; index += 1) joints[index] = candidate[index]
-      lambda = Math.max(lambda * cfg.lambdaDecay, 1e-6)
-    } else {
-      lambda *= cfg.lambdaGrow
-    }
-    if (lambda > cfg.maxLambda) return null
-  }
-  return null
-}
-
-/** 原项目的 3-DOF 位置-only IK 回退。 */
-export function solvePositionOnlyIK(
-  targetPos: [number, number, number],
-  initialJointsDeg: JointAngles,
-  model: RobotModel,
-  solverConfig: Partial<IKSolverConfig> = {},
-  jointRanges?: readonly (readonly [number, number])[],
-): JointAngles | null {
-  if (!model.isAvailable()) return null
-
-  const cfg = { ...DEFAULT_IK_CONFIG, ...solverConfig }
-  const joints = clampJoints([...initialJointsDeg] as JointAngles, jointRanges)
-  let lambda = cfg.damping
-
-  for (let iter = 0; iter < cfg.maxIterations; iter += 1) {
-    const currentPose = model.forwardKinematics(joints)
-    if (!currentPose) return null
-    let error = [
-      targetPos[0] - currentPose.position[0],
-      targetPos[1] - currentPose.position[1],
-      targetPos[2] - currentPose.position[2],
-    ]
-    error = clampVectorMagnitude(error, cfg.errorClampPos)
-    const errorNorm = Math.hypot(...error)
-    if (errorNorm < cfg.posTolerance) return joints
-
-    const fullJacobian = model.estimateJacobian(joints)
-    if (!fullJacobian) return null
-    const matrix = new Matrix([fullJacobian[0], fullJacobian[1], fullJacobian[2]])
-    const transpose = matrix.transpose()
-    const lhs = transpose.mmul(matrix).add(Matrix.eye(6).mul(lambda))
-    const rhs = transpose.mmul(Matrix.columnVector(error))
-    let delta = solve(lhs, rhs, true).to1DArray()
-    delta = clampDegStep(delta, radToDeg(cfg.maxStepRad))
-    const candidate = clampJoints(
-      joints.map((value, index) => value + delta[index]) as JointAngles,
-      jointRanges,
-    )
-    const candidatePose = model.forwardKinematics(candidate)
-    if (!candidatePose) return null
-    const candidateError = clampVectorMagnitude([
-      targetPos[0] - candidatePose.position[0],
-      targetPos[1] - candidatePose.position[1],
-      targetPos[2] - candidatePose.position[2],
-    ], cfg.errorClampPos)
-    const candidateNorm = Math.hypot(...candidateError)
-    if (candidateNorm < errorNorm) {
       for (let index = 0; index < 6; index += 1) joints[index] = candidate[index]
       lambda = Math.max(lambda * cfg.lambdaDecay, 1e-6)
     } else {

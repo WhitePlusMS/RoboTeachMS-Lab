@@ -1,7 +1,7 @@
-import { DEFAULT_MOTION_CONFIG, lerpJoints } from './motion-smoothing'
+import { DEFAULT_MOTION_CONFIG, easeInOutCubic, lerpJoints } from './motion-smoothing'
 import type { JointAngles, MotionConfig } from './types'
 
-type MotionType = 'none' | 'joint-eased' | 'joint-speed'
+type MotionType = 'none' | 'joint-eased' | 'joint-speed' | 'joint-trajectory'
 
 /**
  * 动画时钟接缝。
@@ -25,6 +25,7 @@ export interface MotionRunnerOptions {
 export interface MotionRunner {
   startEased: (target: JointAngles, duration?: number) => void
   startSpeedLimited: (target: JointAngles) => void
+  startTrajectory: (waypoints: readonly JointAngles[], duration?: number) => void
   stop: () => void
 }
 
@@ -41,6 +42,7 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
   let startTime = 0
   let lastTime: number | null = null
   let animationDuration = config.ikAnimDuration
+  let trajectoryJoints: JointAngles[] = []
 
   function requestFrame(callback: () => void): void {
     frameId = options.clock.requestFrame(callback)
@@ -92,6 +94,22 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     else requestFrame(runSpeedLimited)
   }
 
+  function runTrajectory(): void {
+    const elapsed = options.clock.now() - startTime
+    const progress = easeInOutCubic(Math.min(Math.max(elapsed / animationDuration, 0), 1))
+    const segmentPosition = progress * (trajectoryJoints.length - 1)
+    const segmentIndex = Math.min(Math.floor(segmentPosition), trajectoryJoints.length - 2)
+    const segmentProgress = segmentPosition - segmentIndex
+    const start = trajectoryJoints[segmentIndex]
+    const end = trajectoryJoints[segmentIndex + 1]
+    options.setJoints(start.map((value, index) =>
+      value + (end[index] - value) * segmentProgress,
+    ) as JointAngles)
+
+    if (progress < 1) requestFrame(runTrajectory)
+    else finish()
+  }
+
   function startEased(target: JointAngles, duration = config.ikAnimDuration): void {
     targetJoints = [...target]
     startJoints = [...options.getCurrentJoints()]
@@ -116,5 +134,22 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     requestFrame(runSpeedLimited)
   }
 
-  return { startEased, startSpeedLimited, stop }
+  function startTrajectory(waypoints: readonly JointAngles[], duration = config.ikAnimDuration): void {
+    if (waypoints.length === 0) return
+    trajectoryJoints = [
+      [...options.getCurrentJoints()] as JointAngles,
+      ...waypoints.map((waypoint) => [...waypoint] as JointAngles),
+    ]
+    startTime = options.clock.now()
+    animationDuration = Math.max(duration, 1)
+
+    if (activeType === 'joint-trajectory') return
+
+    cancelFrame()
+    activeType = 'joint-trajectory'
+    lastTime = null
+    requestFrame(runTrajectory)
+  }
+
+  return { startEased, startSpeedLimited, startTrajectory, stop }
 }

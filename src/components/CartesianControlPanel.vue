@@ -108,7 +108,7 @@ onBeforeUnmount(stopPress)
         <h2 id="cartesian-panel-title">笛卡尔位姿控制</h2>
       </div>
       <span class="control-status" :class="`cartesian-status-${props.status}`">
-        {{ props.status === 'solved' ? 'IK OK' : props.status === 'position-fallback' ? 'POS IK' : props.status.toUpperCase() }}
+        {{ props.status === 'solved' ? 'PATH OK' : props.status.toUpperCase() }}
       </span>
     </div>
 

@@ -2,7 +2,7 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { degToRad, radToDeg } from '../core/robot/math/angle'
 import { mat3Mul, rotationMatrixToEulerZYX } from '../core/robot/math/rotation3d'
 import { eulerZYXToMatrix } from '../core/robot/matrix4x4'
-import { solveIK, solvePositionOnlyIK } from '../core/robot/ik-solver'
+import { planCartesianPath } from '../core/robot/cartesian-path-planner'
 import type { RobotModel } from '../core/robot/robot-model'
 import type {
   CartesianAxis,
@@ -17,7 +17,7 @@ export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
 export type CartesianDirection = -1 | 1
 export type PositionStep = (typeof POSITION_STEPS)[number]
 export type OrientationStep = (typeof ORIENTATION_STEPS)[number]
-export type CartesianStatus = 'ready' | 'solved' | 'position-fallback' | 'invalid' | 'unreachable'
+export type CartesianStatus = 'ready' | 'solved' | 'invalid' | 'unreachable'
 
 const AXIS_INDEX: Record<CartesianAxis, number> = {
   x: 0,
@@ -103,7 +103,7 @@ export interface CartesianControlOptions {
   pose: ComputedRef<PoseDisplay>
   robotModel: Ref<RobotModel>
   jointRanges: readonly (readonly [number, number])[]
-  moveToJoints: (joints: JointAngles, isContinuous?: boolean) => void
+  moveToTrajectory: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -123,40 +123,23 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const status = ref<CartesianStatus>('ready')
 
   const statusMessage = computed(() => {
-    if (status.value === 'solved') return '逆解成功，目标运动已提交'
-    if (status.value === 'position-fallback') return '位置逆解成功，目标运动已提交（姿态未约束）'
+    if (status.value === 'solved') return '笛卡尔路径规划成功，目标运动已提交'
     if (status.value === 'invalid') return '输入无效，已保留最近一次有效姿态'
-    if (status.value === 'unreachable') return '目标不可达，已保留最近一次有效姿态'
+    if (status.value === 'unreachable') return '路径不可达或接近奇异构型，已保留最近一次有效姿态'
     return '就绪'
   })
 
-  function solveTarget(target: PoseDisplay, positionOnlyFallback: boolean, isContinuous: boolean): void {
-    const model = options.robotModel.value
-    const solved = solveIK(
+  function solveTarget(target: PoseDisplay, isContinuous: boolean): void {
+    const trajectory = planCartesianPath(
       toRobotPose(target),
       options.joints.value,
-      model,
-      {},
+      options.robotModel.value,
       options.jointRanges,
     )
-    if (solved) {
-      options.moveToJoints(solved, isContinuous)
+    if (trajectory) {
+      options.moveToTrajectory(trajectory, isContinuous)
       status.value = 'solved'
       return
-    }
-    if (positionOnlyFallback) {
-      const fallback = solvePositionOnlyIK(
-        target.positionMm,
-        options.joints.value,
-        model,
-        {},
-        options.jointRanges,
-      )
-      if (fallback) {
-        options.moveToJoints(fallback, isContinuous)
-        status.value = 'position-fallback'
-        return
-      }
     }
     status.value = 'unreachable'
   }
@@ -172,7 +155,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
       step,
       coordinateSystem.value,
     )
-    solveTarget(target, axis === 'x' || axis === 'y' || axis === 'z', isContinuous)
+    solveTarget(target, isContinuous)
   }
 
   function setField(axis: CartesianAxis, value: number): void {
@@ -186,7 +169,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     if (axis === 'x' || axis === 'y' || axis === 'z') target.positionMm[AXIS_INDEX[axis]] = value
     else target.orientationDeg[AXIS_INDEX[axis]] = value
-    solveTarget(target, axis === 'x' || axis === 'y' || axis === 'z', false)
+    solveTarget(target, false)
   }
 
   function setCoordinateSystem(value: CoordinateSystem): void {

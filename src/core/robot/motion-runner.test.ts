@@ -118,4 +118,23 @@ describe('Motion Runner', () => {
     expect(joints).toEqual(stoppedAt)
     expect(clock.pendingFrameCount()).toBe(0)
   })
+
+  it('按统一时间轴平滑执行笛卡尔规划得到的关节 waypoint', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    runner.startTrajectory([jointsAt(10), jointsAt(20)], 100)
+    clock.advanceBy(50)
+    expect(joints).toEqual(jointsAt(10))
+    expect(clock.pendingFrameCount()).toBe(1)
+
+    clock.advanceBy(50)
+    expect(joints).toEqual(jointsAt(20))
+    expect(clock.pendingFrameCount()).toBe(0)
+  })
 })
