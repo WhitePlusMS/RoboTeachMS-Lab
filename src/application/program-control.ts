@@ -1,16 +1,23 @@
 import { onBeforeUnmount, ref, type Ref } from 'vue'
-import type { MotionResult, MotionStatus } from '../core/robot/motion-runner'
-import type { RobotModel } from '../core/robot/robot-model'
-import type { JointAngles } from '../core/robot/types'
-import type { StructuredMotionInstruction } from '../core/rapid/rapid-types'
-import { executeMoveJ } from '../core/rapid/movej-planner'
-import { executeMoveL } from '../core/rapid/movel-planner'
+import type { MotionResult } from '../robotics/motion-runner.ts'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles } from '../robotics/types.ts'
+import { executeMoveJ } from '../rapid/movej-planner.ts'
+import { executeMoveL } from '../rapid/movel-planner.ts'
+import type { StructuredMotionInstruction } from '../rapid/rapid-types.ts'
+import {
+  parseRapidProgram,
+  type RapidDiagnostic,
+  type RapidExecutableInstruction,
+  type RapidSourceRange,
+} from '../rapid/rapid-parser.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,
+  type ProgramError,
   type ProgramExecutionSeam,
   type ProgramSnapshot,
-} from '../core/rapid/program-executor'
+} from '../rapid/program-executor.ts'
 
 /** 程序控制器可用的 MotionRunner 能力子集（由现有 useMotion 提供）。 */
 export interface ProgramControllerMotion {
@@ -22,19 +29,27 @@ export interface ProgramControllerMotion {
   stopAnimation: () => void
   pauseMotion: () => void
   resumeMotion: () => void
-  getMotionStatus: () => MotionStatus
 }
 
 export interface ProgramControllerOptions {
-  program: readonly StructuredMotionInstruction[]
+  source: Ref<string>
   robotModel: Ref<RobotModel>
   joints: Ref<JointAngles>
   jointRanges: readonly (readonly [number, number])[]
   motion: ProgramControllerMotion
 }
 
+export interface ProgramControllerError extends ProgramError {
+  sourceRange?: RapidSourceRange
+}
+
+export interface ProgramControllerSnapshot extends Omit<ProgramSnapshot, 'error'> {
+  error: ProgramControllerError | null
+  diagnostics: readonly RapidDiagnostic[]
+}
+
 export interface ProgramController {
-  snapshot: Ref<ProgramSnapshot>
+  snapshot: Ref<ProgramControllerSnapshot>
   run: () => void
   pause: () => void
   resume: () => void
@@ -74,12 +89,24 @@ export function useProgramController(options: ProgramControllerOptions): Program
     resume: () => options.motion.resumeMotion(),
     stop: () => options.motion.stopAnimation(),
   }
-  const executor = createProgramExecutor([...options.program], seam)
-  const snapshot = ref<ProgramSnapshot>(executor.getSnapshot())
+  let executor = createProgramExecutor([], seam)
+  let loadedProgram: readonly RapidExecutableInstruction[] = []
+  let diagnostics: readonly RapidDiagnostic[] = []
+  const snapshot = ref<ProgramControllerSnapshot>(createSnapshot())
   let pollTimer: number | null = null
 
+  function createSnapshot(): ProgramControllerSnapshot {
+    const base = executor.getSnapshot()
+    const sourceRange = base.error ? loadedProgram[base.error.index]?.sourceRange : undefined
+    return {
+      ...base,
+      error: base.error ? { ...base.error, sourceRange } : null,
+      diagnostics,
+    }
+  }
+
   function sync(): void {
-    snapshot.value = executor.getSnapshot()
+    snapshot.value = createSnapshot()
   }
 
   function startPolling(): void {
@@ -102,11 +129,31 @@ export function useProgramController(options: ProgramControllerOptions): Program
   function run(): void {
     // 仅从 idle 启动；按钮可用性会限制，这里仍做防御。
     if (executor.getSnapshot().state !== 'idle') return
+    const parsed = parseRapidProgram(options.source.value)
+    diagnostics = parsed.diagnostics
+    if (!parsed.canExecute) {
+      loadedProgram = []
+      snapshot.value = { ...createSnapshot(), state: 'error', error: null }
+      console.warn('[ABB-PROGRAM] RAPID 源程序诊断阻止运行', parsed.diagnostics.length)
+      return
+    }
+
+    loadedProgram = parsed.program
+    diagnostics = []
+    executor = createProgramExecutor(loadedProgram, seam)
+    console.info('[ABB-PROGRAM] 程序开始')
     const promise = executor.run()
     sync()
     startPolling()
-    // 程序终止后再同步一次快照并停止轮询。
-    void promise.then(() => {
+    // 程序终止后再同步一次快照、停止轮询并记录终止事件。
+    void promise.then((final) => {
+      if (final === 'completed') {
+        console.info('[ABB-PROGRAM] 程序完成')
+      } else if (final === 'stopped') {
+        console.info('[ABB-PROGRAM] 程序停止')
+      } else if (final === 'error') {
+        console.error('[ABB-PROGRAM] 程序规划错误', executor.getSnapshot().error?.message)
+      }
       sync()
       stopPolling()
     })
@@ -115,31 +162,38 @@ export function useProgramController(options: ProgramControllerOptions): Program
   function pause(): void {
     executor.pause()
     sync()
+    console.info('[ABB-PROGRAM] 暂停')
   }
 
   function resume(): void {
     executor.resume()
     sync()
+    console.info('[ABB-PROGRAM] 继续')
   }
 
-  function stop(): void {
+  /** 在活动程序时发出停止请求：只委托一次并记录；终止由执行链微任务结算。 */
+  function requestStop(): void {
     executor.stop()
+    console.info('[ABB-PROGRAM] 停止请求')
     // 终止由执行链在微任务中结算，用一次宏任务刷新快照以反映 stopped。
     window.setTimeout(sync, 0)
   }
 
+  function stop(): void {
+    stopActiveProgram()
+  }
+
   function reset(): void {
     executor.reset()
+    loadedProgram = []
+    diagnostics = []
     sync()
     stopPolling()
   }
 
   function stopActiveProgram(): void {
     const state = executor.getSnapshot().state
-    if (state === 'running' || state === 'paused') {
-      executor.stop()
-      window.setTimeout(sync, 0)
-    }
+    if (state === 'running' || state === 'paused') requestStop()
   }
 
   onBeforeUnmount(stopPolling)

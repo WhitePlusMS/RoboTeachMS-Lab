@@ -5,21 +5,21 @@ import CoordinateInfoPanel from './components/CoordinateInfoPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
 import ProgramControlPanel from './components/ProgramControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
-import { radToDeg } from './core/robot/math/angle'
-import type { RobotModel } from './core/robot/robot-model'
-import type { JointAngles, PoseDisplay } from './core/robot/types'
+import { radToDeg } from './robotics/math/angle.ts'
+import type { RobotModel } from './robotics/robot-model.ts'
+import type { JointAngles, PoseDisplay } from './robotics/types.ts'
 import {
   ABB_DEFAULT_JOINTS,
   ABB_IRB1200_5_90_STANDARD_DH,
   ABB_JOINT_RANGES,
-} from './robots/abb-irb1200/robot-config'
-import { adjustJointAngle, randomJointAngles, useJointControl } from './robot/joint-control'
-import { useMotion } from './robot/motion-control'
-import { useProgramController } from './robot/program-control'
-import { createBuiltinProgram } from './robot/builtin-program'
-import { AbbDhRobotModel } from './robots/abb-irb1200/dh-robot-model'
-import type { AbbSceneStatus } from './scene/abb-scene'
-import { useCartesianControl } from './robot/cartesian-control'
+} from './robot-models/abb-irb1200/robot-config.ts'
+import { adjustJointAngle, randomJointAngles, useJointControl } from './application/joint-control.ts'
+import { useMotion } from './application/motion-control.ts'
+import { useProgramController } from './application/program-control.ts'
+import { createBuiltinRapidSource } from './application/builtin-program.ts'
+import { AbbDhRobotModel } from './robot-models/abb-irb1200/dh-robot-model.ts'
+import type { AbbSceneStatus } from './scene/abb-scene.ts'
+import { useCartesianControl } from './application/cartesian-control.ts'
 
 const sceneStatus = ref<AbbSceneStatus>('loading')
 const showGrid = ref(true)
@@ -48,7 +48,6 @@ const {
   stopAnimation,
   pauseMotion,
   resumeMotion,
-  getMotionStatus,
 } = useMotion({
   getCurrentJoints: () => joints.value,
   setJoints: setJointsImmediate,
@@ -85,6 +84,7 @@ function animateCartesianTrajectory(trajectory: readonly JointAngles[], isContin
 
 const fallbackRobotModel = new AbbDhRobotModel()
 const robotModel = shallowRef<RobotModel>(fallbackRobotModel)
+const rapidSource = ref(createBuiltinRapidSource())
 const pose = computed<PoseDisplay>(() => {
   const modelPose = robotModel.value.forwardKinematics(joints.value)
   if (!modelPose) return fallbackPose.value
@@ -98,9 +98,9 @@ function handleRobotModel(model: RobotModel | null): void {
   robotModel.value = model ?? fallbackRobotModel
 }
 
-/** 内置结构化 ABB 程序控制器；只复用既有 MotionRunner、ABB 模型与 joint 状态。 */
+/** RAPID 源程序控制器；解析结果只在运行时生成，运动链继续复用既有模块。 */
 const programControl = useProgramController({
-  program: createBuiltinProgram(),
+  source: rapidSource,
   robotModel,
   joints,
   jointRanges: ABB_JOINT_RANGES,
@@ -110,7 +110,6 @@ const programControl = useProgramController({
     stopAnimation,
     pauseMotion,
     resumeMotion,
-    getMotionStatus,
   },
 })
 const programSnapshot = programControl.snapshot
@@ -212,11 +211,13 @@ const statusLabel = computed(() => {
 
         <ProgramControlPanel
           :snapshot="programSnapshot"
+          :source="rapidSource"
           @run="programControl.run()"
           @pause="programControl.pause()"
           @resume="programControl.resume()"
           @stop="programControl.stop()"
           @reset="programControl.reset()"
+          @source-change="rapidSource = $event"
         />
       </aside>
 

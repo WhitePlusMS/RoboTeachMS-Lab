@@ -2,20 +2,23 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramControlPanel from './ProgramControlPanel.vue'
-import type { ProgramSnapshot } from '../core/rapid/program-executor'
+import type { ProgramControllerSnapshot } from '../application/program-control.ts'
 
-function snapshot(overrides: Partial<ProgramSnapshot> = {}): ProgramSnapshot {
+const SOURCE = 'MODULE Demo ENDMODULE'
+
+function snapshot(overrides: Partial<ProgramControllerSnapshot> = {}): ProgramControllerSnapshot {
   return {
     state: 'idle',
     programPointer: 0,
     motionPointer: null,
     error: null,
+    diagnostics: [],
     ...overrides,
   }
 }
 
-function mountPanel(value: ProgramSnapshot) {
-  return mount(ProgramControlPanel, { props: { snapshot: value } })
+function mountPanel(value: ProgramControllerSnapshot) {
+  return mount(ProgramControlPanel, { props: { snapshot: value, source: SOURCE } })
 }
 
 describe('ProgramControlPanel 按钮可用性与命令映射', () => {
@@ -87,5 +90,38 @@ describe('ProgramControlPanel 状态与指针显示', () => {
     )
     expect(wrapper.text()).toContain('错误')
     expect(wrapper.get('.program-panel').text()).toContain('指令 1 · unreachable — 目标不可达')
+  })
+
+  it('编辑 RAPID 源程序并在活动程序期间锁定编辑器', async () => {
+    const idle = mountPanel(snapshot())
+    await idle.get('textarea').setValue('MODULE Changed ENDMODULE')
+    expect(idle.emitted('source-change')?.[0]).toEqual(['MODULE Changed ENDMODULE'])
+
+    const running = mountPanel(snapshot({ state: 'running', motionPointer: 0 }))
+    expect(running.get('textarea').attributes('disabled')).toBeDefined()
+  })
+
+  it('显示 RAPID 静态诊断的位置和代码', () => {
+    const wrapper = mountPanel(
+      snapshot({
+        state: 'error',
+        diagnostics: [
+          {
+            code: 'undefined-symbol',
+            severity: 'error',
+            message: '未定义 robtarget missing',
+            range: {
+              start: { offset: 10, line: 4, column: 15 },
+              end: { offset: 17, line: 4, column: 22 },
+            },
+          },
+        ],
+      }),
+    )
+
+    expect(wrapper.get('[aria-label="RAPID 诊断"]').text()).toContain(
+      '行 4 列 15 · undefined-symbol',
+    )
+    expect(wrapper.get('[aria-label="RAPID 诊断"]').text()).toContain('未定义 robtarget missing')
   })
 })
