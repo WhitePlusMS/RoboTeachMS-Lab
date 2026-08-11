@@ -17,6 +17,7 @@ import {
   findNode,
   prepareAbbModel,
 } from '../src/scene/abb-scene.ts'
+import { abbBaseFrameToSceneFrame, ABB_FLANGE_TO_FBX_TOOL } from '../src/scene/abb-scene-transform.ts'
 import { extractAbbFbxCalibration } from '../src/scene/abb-fbx-calibration.ts'
 
 async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Promise<{
@@ -140,13 +141,15 @@ function frameAxisZ(frameRotation: number[][]): [number, number, number] {
 }
 
 test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
-  test('验证FBX工具与ABB候选DH正解闭环', async ({}, testInfo) => {
+  test('核心 ABB 基座法兰经唯一场景显示转换后与 FBX 机械法兰闭环', async ({}, testInfo) => {
     const bytes = fs.readFileSync('public/models/ABB_IRB1200_5_90.fbx')
     const model = new FBXLoader().parse(
       bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       '',
     )
     const prepared = prepareAbbModel(model)
+    // 核心 FK 末端是 ABB 基座坐标的机械法兰；与 FBX 视觉位姿对照时，
+    // 经唯一场景显示转换（ABB→Three.js）再组合 flange→joint7 视觉工具变换。
     const tool = findNode(prepared, ABB_TOOL_NODE_NAME)
     expect(tool).not.toBeNull()
     if (!tool) return
@@ -181,9 +184,11 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
       applyAbbJointAngles(prepared, joints)
       prepared.updateMatrixWorld(true)
       const actual = readVisualToolPose(tool)
-      const expectedMatrix = forwardAbbKinematicsDegrees(joints)
+      // 核心 DH 给出 ABB 基座法兰 frame：先经唯一场景显示转换映射到 Three.js，再组合
+      // flange→FBX joint7 视觉工具变换；FBX 世界坐标还包含 dizuo 支架，因此对位置 Y 叠加 baseHeightMm。
+      const expectedMatrix = abbBaseFrameToSceneFrame(forwardAbbKinematicsDegrees(joints))
+        .multiply(ABB_FLANGE_TO_FBX_TOOL)
       const expectedPose = extractPose(expectedMatrix)
-      // DH 以机器人安装面为原点；FBX 世界坐标还包含模型自带的 dizuo 支架。
       const expectedScenePosition: [number, number, number] = [
         expectedPose.position[0],
         expectedPose.position[1] + baseHeightMm,
@@ -240,7 +245,8 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     applyAbbJointAngles(prepared, zeroJoints)
     prepared.updateMatrixWorld(true)
     const zeroPositions = nodes.map((node) => readNodePosition(node as THREE.Object3D))
-    const zeroDhFrames = forwardAbbKinematicsFramesDegrees(zeroJoints)
+    // 核心 DH 输出 ABB 基座 frame，经唯一场景显示转换映射到 Three.js 后再与 FBX 场景轴比较。
+    const zeroDhFrames = forwardAbbKinematicsFramesDegrees(zeroJoints).map(abbBaseFrameToSceneFrame)
 
     const measurements = ABB_ACTIVE_JOINT_NODE_NAMES.slice(1).map((jointName, index) => {
       const jointIndex = index + 1
@@ -257,7 +263,7 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
         zeroDhFrames[nextNodeIndex].getPosition(),
         zeroDhFrames[jointIndex].getPosition(),
       )
-      const movedDhFrames = forwardAbbKinematicsFramesDegrees(movedJoints)
+      const movedDhFrames = forwardAbbKinematicsFramesDegrees(movedJoints).map(abbBaseFrameToSceneFrame)
       const dhMovedLink = subtractVector(
         movedDhFrames[nextNodeIndex].getPosition(),
         movedDhFrames[jointIndex].getPosition(),
