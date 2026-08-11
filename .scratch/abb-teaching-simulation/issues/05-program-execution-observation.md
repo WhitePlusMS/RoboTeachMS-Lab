@@ -2,7 +2,7 @@
 
 Type: grilling
 Status: open
-Blocked by: 02, 03
+Blocked by: None
 Part of: ../map.md
 
 ## Question
@@ -19,4 +19,3 @@ Part of: ../map.md
 - 解释执行器与现有 MotionRunner、CartesianMotionPlanner、Scene controller 的 seam。
 
 这里解决的是教学观察语义，不是构建一个通用动作队列或工业控制 runtime。
-

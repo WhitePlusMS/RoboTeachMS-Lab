@@ -1,5 +1,76 @@
 # 更新日志
 
+## 2026-08-11 — 依据小模型代码审查的 ABB Profile/坐标/RAPID 收尾实现
+
+> 本轮落实 `.scratch/abb-profile-coordinate-semantics/reviews/01-small-model-code-review-fix-guide.md` 的六步修复，按红灯测试与最小修复顺序执行，只改动允许范围内的文件。
+
+- **Step 1 删除 JointRange 兼容入口**：`src/application/joint-control.ts` 删除标注“兼容既有使用者”的 `export type { JointRange }` 转导；唯一调用者 `src/components/JointControlPanel.vue` 改为直接从 `src/robotics/robot-profile.ts` 导入领域类型。`rg "JointRange" src` 后领域定义仅存于 `robotics/robot-profile`，application 层不再转导。
+- **Step 2 ABB 关节范围源头严格六元 tuple**：`src/robot-models/abb-irb1200/robot-config.ts` 的 `ABB_JOINT_RANGES` 由 `Object.values(...).map(...) as readonly[]` 改为声明为 `SixAxisJointRanges` 并显式引用六个具名 DH 关节的 `thetaRange` 构造；`robot-profile.ts` 删除 `as SixAxisJointRanges` 强断言。任一关节项被删除都会产生编译错误，范围数值仍只存在于 DH 配置单一来源。
+- **Step 3 收紧唯一 profile 不可变契约**：`src/robotics/robot-profile.ts` 的 `RobotProfile` 字段全部 `readonly`，回零关节状态 `defaultJoints` 一次性更名为 `homeJoints`（只读六元 tuple `Readonly<JointAngles>`），不在 application 保留旧字段别名。`joint-control.ts`、`App.vue`、`cartesian-control.test.ts`、`robot-profile.test.ts` 同步迁移；`robot-profile.test.ts` 新增 `@ts-expect-error` 编译期证明 profile 字段与 `homeJoints` 元素不可改写。
+- **Step 4 场景状态不改变运动学 profile**：新增 `src/application/app-profile-stability.test.ts`（`@vue/test-utils` 挂载 `App.vue` 并 stub `SceneViewport`，不启动真实 WebGL/FBX），依次发出 `loading/ready/error` 三种场景状态，断言模块级 `ABB_IRB1200_PROFILE` 与其 `model` 不被替换、回零与可控单关节变更的正解结果不变；并断言场景组件不存在 `model` prop/emit 交换通道。`robot-profile.test.ts` 删除了“重复读取同一属性仍相等”的恒真单例断言。
+- **Step 5 内置 RAPID 三点几何验收**：`src/application/builtin-program.test.ts` 从 `ABB_IRB1200_PROFILE` 取得 model/jointRanges/homeJoints（不再自行组合 `new AbbDhRobotModel() + ABB_JOINT_RANGES + [0..0]`），断言 `pApproach=[451,150,680]`、`pWork=[451,150,630]`、`pRest=[451,0,807.1]` 三个字面量；第一条 MoveJ 终点 FK 位置/旋转矩阵姿态误差满足既有 IK 容差；第二条 MoveL 逐 waypoint FK 验证 X/Y 横向极小、沿 ABB 基座 Z 轴下降约 50mm、终点误差与相邻 waypoint 任一关节 ≤5° 上限；第三条 MoveJ 从 MoveL 末 waypoint 起再以 FK 验证 pRest。全部复用既有 `robTargetToPose`/`orientationError`，未复制姿态算法。
+- **Step 6 修正场景视觉工具转换断言**：`src/scene/abb-scene-transform.test.ts` 由“只检查矩阵常数 93.902208”改为断言零位场景机械法兰 `[451,807.1,0]` 与测试内显式 `场景法兰 frame × ABB_FLANGE_TO_FBX_TOOL` 得到的视觉工具 `[451,713.197792,0]`，并断言两处差异（93.902208mm）来自显式视觉变换，防止未来核心 FK 又乘入偏移。
+- **未改动**：KUKA 模型/场景/测试（保留）；RAPID parser、MoveJ/MoveL 规划实现、ProgramExecutor、MotionRunner、IK/路径采样；ABB 坐标变换与美工逻辑；仅为删除旧 `JointRange` 入口调整直接导入调用者。
+- **验证结果**：`npm run check` 通过；`npm test` 通过（23 个测试文件、157 passed / 1 个既有 expected-fail，较上一轮新增 6 passed 与 1 个测试文件）；`npm run build` 通过（仅既有大 chunk 提示）；`git diff --check` 通过；临时 `vite preview` 后 `npx playwright test` 全部 10 passed（含场景就绪、六轴控制、程序闭环、FBX/DH 闭环、页面位姿闭环），preview 已终止并确认 4173 端口释放。
+- 里程碑三张票 `01/02/03` 状态由 `ready-for-agent` 更新为 `resolved`（不修改旧里程碑票据）。
+
+## 2026-08-11 — 审查 ABB Profile/坐标/RAPID 三票实现并生成小模型修复指导
+
+- 以 `50989f1` 为固定点审查当前未提交工作区，规格来源为 `.scratch/abb-profile-coordinate-semantics/` 的地图和三张线性票；按 `code-review` 分离 Standards 与 Spec 两条审查轴，并完整纳入 5 个未跟踪 TypeScript 文件。
+- Standards 轴发现：`src/application/joint-control.ts` 保留明确的 `JointRange` 兼容转导，违反“不做向后兼容”；`src/robot-models/abb-irb1200/robot-profile.ts` 将变长数组强断言为六轴 tuple，长度未由类型系统证明。另记录唯一 profile 字段可变、场景视觉工具测试标题与实际覆盖不一致两项健壮性问题。
+- Spec 轴发现：内置 RAPID 测试只证明三条指令可规划，未锁定 Ticket 03 要求的 MoveJ FK 终点、MoveL ABB Z 轴直线/横向误差/终点误差/waypoint 步长；现有 profile 单例测试未覆盖 Ticket 01 要求的场景 `loading/ready/error` 不替换运动学 profile。未发现 ABB 坐标变换方向错误、KUKA 被删除或未要求的功能扩张。
+- 新增 `.scratch/abb-profile-coordinate-semantics/reviews/01-small-model-code-review-fix-guide.md`：按红灯测试与最小修复顺序，详细规定兼容入口删除、严格六元 tuple、profile 不可变性、场景状态集成测试、RAPID 三点几何验收和视觉工具显式组合测试，并列出允许修改范围、禁止重复实现和最终验证步骤；本轮不修改业务代码。
+- 主模型复验：`npm run check`、`npm test`、`npm run build` 均通过，测试结果为 22 文件、151 passed、1 expected fail；构建仅有既有大 chunk 提示。只读检查未发现 4173/5173 监听，未启动或终止任何服务。首次端口读取因空进程 ID 返回命令错误，随后使用空结果安全命令复核为 `NO_LISTENERS_4173_5173`。
+
+## 2026-08-11 — Ticket 02+03 分离 ABB 基座/机械法兰与场景显示坐标，并跑通 RAPID tool0/wobj0 闭环
+
+> 说明：这两张线性票因坐标语义强耦合而一并完成——ticket 02 把核心 FK 改为 ABB 基座机械法兰后，旧的场景坐标内置 RAPID 目标立即不可达，因此必须在同一改动里按 ticket 03 更新内置目标，系统与单测/E2E 才能保持绿色。执行与验收已分别按票记录。
+
+- 修改 `src/robot-models/abb-irb1200/abb-kinematics.ts`（核心坐标修正）：`forwardAbbKinematicsFrames` 从基座单位矩阵开始累乘，不再预乘 `ABB_DH_BASE_TO_SCENE`；`forwardAbbKinematics` 返回第六轴机械法兰 frame，不再乘入 FBX `joint7` 视觉工具变换；从本模块删除 `ABB_DH_BASE_TO_SCENE` 与 `ABB_FLANGE_TO_TOOL`。零位机械法兰约 `[451,0,807.1]` mm（Z 上）。
+- 新增 `src/scene/abb-scene-transform.ts`：唯一、纯函数可测的显示 adapter，含 `ABB_BASE_TO_SCENE`（ABB Z 上→Three.js Y 上固定旋转）、`ABB_FLANGE_TO_FBX_TOOL`（flange→joint7 视觉工具，含 93.902208 mm 偏移）与 `abbBaseFrameToSceneFrame`；核心 FK 不携带这三者，只有与 FBX 对照或显示工具节点时才组合。
+- 修改 `src/scene/abb-dh-debug-chain.ts`：核心 FK 返回 ABB 基座 frame，显示前经 `abbBaseFrameToSceneFrame` 映射到 Three.js（不再手写 `[x,z,-y]`）。
+- 修改 `src/application/builtin-program.ts`（ticket 03）：默认 RAPID 三个 robtarget 改为 ABB 基座/机械法兰字面量 `pApproach=[451,150,680]`、`pWork=[451,150,630]`（沿 ABB 基座 Z 向下 50mm 的 MoveL）、`pRest=[451,0,807.1]`（近零位休止点），均单位四元数、extax 六个 9E9、继续 `tool0/wobj0`；不再与 Three.js/FBX `joint7` 视觉偏移挂钩。
+- 完成方式：核心 FK 坐标改动后，旧的场景坐标规划目标/测试常量在全套件中不可达，因此按 ticket 03 逐一改为可达 ABB 基座目标——`movej-planner.test.ts`（`REACHABLE_TARGET`、时长距离）、`program-executor.test.ts`（`REACHABLE`）、`rapid/cartesian-path-planner.test.ts` 与 `rapid/movel-planner.test.ts` 的「跨构型跳变拒绝」改用 ABB 基座下腕部奇异样本 `[15,-20,30,0,-90,-300]`、`movej-planner.test.ts` 终点校验改为按旋转矩阵比较 robtarget 姿态（`orientationError`）而非欧拉角（ABB 基座下单位旋转的 euler 表示不唯一）。
+- 修改 `src/robot-models/abb-irb1200/abb-kinematics.test.ts`、新增 `src/scene/abb-scene-transform.test.ts`：零位七帧位置改为 ABB 基座坐标、关节轴经场景显示转换后与 FBX 对齐、显示 adapter 纯函数断言。
+- 修改 `e2e/abb-irb1200.spec.ts`（ticket 02/03）：test 4 改为「核心 ABB 基座法兰经唯一场景显示转换后与 FBX 视觉位姿闭环」——DB flange 经 `abbBaseFrameToSceneFrame` 再组合 `ABB_FLANGE_TO_FBX_TOOL` 对照 FBX `joint7`；test 2 的 DH frames 经场景显示转换后与 FBX 场景轴同框比较；test 5 页面位姿零位现为 `[451,0,807.1]` 并与 ABB DH 正解闭环。
+- 未改动：KUKA 运动学/场景/测试（保留，未迁移到 ABB 坐标约定）；`rapid-parser`、`ProgramExecutor`、`MotionRunner`、IK/路径采样算法（只因坐标语义变化更新常量与期望值）。
+- 修改原因：落实 `.scratch/abb-profile-coordinate-semantics/issues/02-abb-base-flange-scene-adapter.md` 与 `03-rapid-tool0-wobj0-base-frame-program.md`——ABB 机器人基座/机械法兰成为 FK/IK/RAPID/笛卡尔唯一空间真值，Three.js/FBX/dizuo/`joint7` 仅属场景显示；按「不做向后兼容」一次性迁移并让编译器暴露遗漏。
+- 影响：页面正解坐标面板与 World/Tool 笛卡尔操作现在读取与解释 ABB 基座机械法兰；三维 FBX 六轴转动方向、支架抬升与视觉工具保持原样；RAPID 内置程序在 ABB 基座语义下完整运行 MoveJ→MoveL→MoveJ。
+- 验证结果：`npm run check` 通过；`npm test` 通过（22 个测试文件、151 passed、1 个既有 expected-fail）；`npm run build` 通过；临时 Vite preview 后 `npx playwright test` 全部 10 passed（含核心/显示位姿闭环、页面位姿、World/Tool 直线、程序完成/暂停/停止/诊断阻止/锁定）；preview 进程已终止并确认 4173 无监听；`git diff --check` 通过。
+
+## 2026-08-11 — Ticket 01 用单一 RobotProfile 驱动 ABB 操作链
+
+- 新增 `src/robotics/robot-profile.ts`：在厂家无关机器人领域层定义严格类型的 `RobotProfile`（`id`、`displayName`、`model: RobotModel`、六轴 `jointRanges`、`defaultJoints`）与只读 6 元组范围类型 `SixAxisJointRanges`/`JointRange`；不引入 `any`，也不吸收 DH、FBX、颜色或 RAPID 默认值。
+- 新增 `src/robot-models/abb-irb1200/robot-profile.ts`：导出唯一 `ABB_IRB1200_PROFILE` 单例，直接复用既有型号名称（`ABB_IRB1200_5_90_STANDARD_DH.name`）、一体化 `AbbDhRobotModel`、`ABB_JOINT_RANGES` 与 `ABB_DEFAULT_JOINTS`，未复制任何数值。
+- 修改 `src/application/joint-control.ts`：`JointControlOptions` 由 `config/defaultJoints/jointRanges` 收敛为单个 `profile`；回零与范围取自 `profile`，位姿改由 `profile.model.forwardKinematics` 作为唯一 FK 来源驱动（原 `poseFromJoints(RobotConfig)` 路径移除），并保留 `resolve` 的 KUKA 纯函数默认值。
+- 修改 `src/application/cartesian-control.ts`、`src/application/program-control.ts`：选项由 `robotModel: Ref<RobotModel>` + `jointRanges` 收敛为 `profile`；`solveTarget` 与 `execute` 直接从 `profile.model`/`profile.jointRanges` 复用既有 `planCartesianPath`/`planMoveJ`/`planMoveL` 与 MotionRunner，不新增规划器或品牌分支。
+- 修改 `src/App.vue`：页面只选择一次 `ABB_IRB1200_PROFILE`，关节/笛卡尔/程序控制全部从同一个 profile 获得模型与限制；删除自行创建 `AbbDhRobotModel` 回退、`robotModel` shallowRef、`handleRobotModel` 与 `@model` 订阅，场景不再充当运动学来源；状态文案「已切换 ABB 回退模型」改为纯显示语义「场景几何加载失败，使用占位显示」。
+- 修改 `src/components/SceneViewport.vue`、`src/scene/abb-scene.ts`：移除 `@model`/`onModel` 事件与 `AbbSceneOptions.onModel`，场景只保留 `onStatus`/显示开关/轨迹计数，纯显示职责。
+- 删除 `src/scene/abb-scene-model.ts`（`AbbSceneRobotModel` 包装器）：唯一调用方即被删除的场景模型发布路径，删除后无死代码。
+- 更新测试 `src/application/cartesian-control.test.ts`、`src/application/program-control.test.ts`：改为传入 profile（ABB 用 `ABB_IRB1200_PROFILE`，KUKA 测试按票允许用既有 KUKA 模型/常量构造局部 profile）；新增 `src/robot-models/abb-irb1200/robot-profile.test.ts` 覆盖唯一单例、字段复用既有常量、只读 6 轴范围、零位落界、模块级稳定单例与单模型 FK。
+- 修改原因：落实 `.scratch/abb-profile-coordinate-semantics/issues/01-robot-profile-application-seam.md`——消除「场景决定运动学」链，让 FK/Jacobian 与关节/笛卡尔/RAPID 操作统一走 `RobotProfile`；按「不做向后兼容」，一次性迁移调用方并由编译器暴露遗漏。
+- 影响：关节、笛卡尔、RAPID 程序现在共享 `ABB_IRB1200_PROFILE.model` 与限制；Three.js/FBX 场景加载成功、失败或未完成时应用使用的 `RobotModel` 对象恒为 profile 内模型；尚未改动 FK 数学、ABB 坐标转换（留在 Ticket 02）；KUKA 源码、配置与测试保留并按既有常量构造局部 profile 测试。
+- 验证结果：`npm run check` 通过；`npm test` 通过（21 个测试文件、148 passed、1 个既有 expected-fail）；`npm run build` 通过；临时 Vite preview 后 `npx playwright test` 全部 10 passed（覆盖场景就绪、六轴控制、坐标辅助、程序闭环），preview 进程已终止并确认 4173 无监听。
+
+## 2026-08-11 — Wayfinder 确认 ABB 资产基准已完成，进入 profile 契约前沿
+
+- 修改 `.scratch/abb-teaching-simulation/issues/02-robot-profile-contract.md`：按 Wayfinder 的单票推进规则认领“确定机器人 profile 与单位坐标契约”；本轮只分析并决定 profile seam，不修改业务代码，也不提前关闭后续结构化运动、解析器或教学观察票。
+- Git/验证核对：当前 `master` HEAD 为 `50989f1 feat(ui): RAPID 源程序编辑区样式`；`npm run check`、`npm test`、`npm run build` 均成功，单元/组件测试为 20 个文件、143 passed、1 expected fail。构建仅保留既有的大于 500 kB chunk 提示，npm PowerShell 包装脚本的用户目录权限提示未影响退出码。
+- 架构观察：现有 `RobotConfig` 保存 DH、关节范围和展示颜色，`RobotModel` 仅暴露 FK/Jacobian，调用方另行传递 `jointRanges`；同时 ABB FK 当前输出已转换到 Three.js Y-up 并乘入 FBX `joint7` 视觉工具偏移。它与 RAPID `wobj0/tool0` 应基于机器人基座/机械法兰的语义尚未形成明确契约，因此 profile 与坐标 seam 是下一步实际前沿。
+- 修改 `CONTEXT.md`：根据用户“以 ABB 操作为主、Three.js 仅用于显示”的决定，新增“ABB 机器人基座坐标”“机械法兰位姿”“场景显示适配”三个领域术语。明确核心运动学与 RAPID 使用 ABB 坐标真值、`tool0` 以机械法兰为单位变换、FBX/Three.js 只承担显示映射；影响是后续 profile 设计和实现不得继续把场景 Y-up 或 `joint7` 视觉偏移当作 RAPID 位姿。
+- 修改 `CONTEXT.md`：用户接受毫米位置、度关节角、旋转矩阵姿态真值，以及最小机器人 profile 契约；新增“机器人 profile”和“厂家 adapter”术语。profile 只聚合型号身份、运动学模型、关节范围和回零关节状态，不吸收 DH、FBX、颜色或场景节点。
+- 多厂家边界：KUKA 代码明确保留，不删除、不重构，也不纳入当前 ABB 里程碑；通用 `robotics` seam 为未来多厂家留下位置，但当前不建设 profile 注册中心、厂家选择 UI 或额外厂家实现。
+- 完成 Wayfinder 决策票 `.scratch/abb-teaching-simulation/issues/02-robot-profile-contract.md`：记录用户确认的 ABB 基座/机械法兰真值、单位与姿态、最小 `RobotProfile`、厂家 adapter 职责、KUKA 保留边界，以及 `Base→Flange = Base→WorkObject × WorkObject→TargetTCP × inverse(Flange→ToolTCP)` 组合关系；票据标记 resolved，并解除旧地图中“程序解释执行与运动观察语义”“结构化 MoveJ/MoveL 与运动规划契约”的 profile 依赖。
+- 新增独立里程碑目录 `.scratch/abb-profile-coordinate-semantics/map.md`：新里程碑“ABB Profile 与坐标语义修正闭环”不放入原 `.scratch/abb-teaching-simulation/`；地图单独记录目标、实施边界、验收边界和明确范围外事项，并通过链接复用已关闭 profile 决策，避免复制两份决策正文。
+- 只读目录检查发现旧 `.scratch/abb-rapid-motion-execution/` 只有 `issues/`、没有 `map.md`，读取该不存在文件返回错误；未产生文件写入或运行服务。新里程碑不沿用这一缺口，明确提供独立地图入口。
+- 新增 `.scratch/abb-profile-coordinate-semantics/issues/01-robot-profile-application-seam.md`、`02-abb-base-flange-scene-adapter.md`、`03-rapid-tool0-wobj0-base-frame-program.md`：经用户确认，将新里程碑拆为三张线性 tracer 票据，分别唯一负责 profile 注入 seam、ABB 基座/机械法兰到场景显示 seam、RAPID `tool0/wobj0` 端到端程序。每票详细列出已有模块复用点、禁止重复实现、严格验收项、验证命令、KUKA 保留边界和 `UPDATE_LOG.md` 要求，供小模型按阻塞顺序独立执行。
+- 小模型可执行性终审：按 `claude-small-model-check` 逐票完整复核，三票结论均为 `READY`。验收归属互斥：第一票独占 profile/application seam，第二票独占 ABB→Three.js 场景坐标 seam，第三票独占 RAPID 示例与程序 E2E；不存在需要继续正式拆票的双状态机，也不存在适合临时并行 fanout 的共享写集。`git diff --check` 通过。
+- 修改 `.scratch/abb-teaching-simulation/issues/01-abb1200-model-asset-baseline.md`：根据仓库现有用户提供的 `ABB_IRB1200_5_90.fbx`、场景适配器、ABB profile、单元测试和 Playwright E2E 证据，将资产基准票从 claimed 标记为 resolved，并记录经典 `IRB 1200-5/0.9`、`dizuo`/`joint1..joint7` 层级、厘米到场景比例、关节范围、单位以及“候选 DH 是运动学真值、FBX 仅视觉资产”的边界。
+- 修改 `.scratch/abb-teaching-simulation/map.md`：将资产基准加入 Decisions so far，移除已经完成的具体型号/模型资产未决项，保留机器人 profile、结构化运动和 RAPID 契约作为后续前沿。
+- 修改原因：用户指出资产与 ABB 基准阶段已经完成；核对确认当前实现确实具备可追溯的模型文件、节点结构、比例、轴向、关节范围、场景加载和运动学回归证据，旧地图状态已落后于代码事实。
+- 影响：不修改运行时代码；Wayfinder 下一张可推进的决策票变为 `02-robot-profile-contract.md`。用户提供 FBX 的第三方再分发授权仍不在本次技术闭环中宣称，若未来公开发布模型需单独审查。
+- 修改 `.scratch/abb-teaching-simulation/issues/02-robot-profile-contract.md`：资产基准票已解决，解除 profile 契约票的 `Blocked by: 01`，使其成为当前唯一未阻塞的下一张决策票；不替该 HITL 票预先填写答案。
+
 ## 2026-08-11 — 完成 RAPID 文本执行闭环最小实现
 
 - 新增 `src/rapid/rapid-parser.ts`：实现首期 RAPID 文本子集的词法扫描、大小写不敏感关键字、`!` 行注释、单 `MODULE`、无参数 `PROC main()`、`CONST/PERS robtarget`、`MoveJ/MoveL`、`v50/v100/v200`、`fine`、`tool0`、默认 `wobj0` 与 `\\WObj:=wobj0` 解析；完成点位符号解析、重复/未定义名称、记录长度/有限数值、非法尾逗号、不支持语法和模块尾随内容诊断，并为每条合法运动保留源码范围与原文。
