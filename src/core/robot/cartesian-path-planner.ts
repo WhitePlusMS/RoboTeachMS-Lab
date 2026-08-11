@@ -2,7 +2,7 @@ import { solveIK } from './ik-solver'
 import {
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
-  type RotationMatrix,
+  rotationMatrixToQuaternion,
 } from './math/rotation3d'
 import type { RobotModel } from './robot-model'
 import type { JointAngles, Pose } from './types'
@@ -17,45 +17,6 @@ type Quaternion = [number, number, number, number]
 function normalizeQuaternion(quaternion: Quaternion): Quaternion {
   const length = Math.hypot(...quaternion)
   return quaternion.map((value) => value / length) as Quaternion
-}
-
-function rotationToQuaternion(rotation: RotationMatrix): Quaternion {
-  const trace = rotation[0][0] + rotation[1][1] + rotation[2][2]
-  let quaternion: Quaternion
-  if (trace > 0) {
-    const scale = Math.sqrt(trace + 1) * 2
-    quaternion = [
-      (rotation[2][1] - rotation[1][2]) / scale,
-      (rotation[0][2] - rotation[2][0]) / scale,
-      (rotation[1][0] - rotation[0][1]) / scale,
-      scale / 4,
-    ]
-  } else if (rotation[0][0] > rotation[1][1] && rotation[0][0] > rotation[2][2]) {
-    const scale = Math.sqrt(1 + rotation[0][0] - rotation[1][1] - rotation[2][2]) * 2
-    quaternion = [
-      scale / 4,
-      (rotation[0][1] + rotation[1][0]) / scale,
-      (rotation[0][2] + rotation[2][0]) / scale,
-      (rotation[2][1] - rotation[1][2]) / scale,
-    ]
-  } else if (rotation[1][1] > rotation[2][2]) {
-    const scale = Math.sqrt(1 + rotation[1][1] - rotation[0][0] - rotation[2][2]) * 2
-    quaternion = [
-      (rotation[0][1] + rotation[1][0]) / scale,
-      scale / 4,
-      (rotation[1][2] + rotation[2][1]) / scale,
-      (rotation[0][2] - rotation[2][0]) / scale,
-    ]
-  } else {
-    const scale = Math.sqrt(1 + rotation[2][2] - rotation[0][0] - rotation[1][1]) * 2
-    quaternion = [
-      (rotation[0][2] + rotation[2][0]) / scale,
-      (rotation[1][2] + rotation[2][1]) / scale,
-      scale / 4,
-      (rotation[1][0] - rotation[0][1]) / scale,
-    ]
-  }
-  return normalizeQuaternion(quaternion)
 }
 
 function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number): Quaternion {
@@ -99,8 +60,8 @@ export function planCartesianPath(
     targetPose.position[1] - startPose.position[1],
     targetPose.position[2] - startPose.position[2],
   )
-  const startQuaternion = rotationToQuaternion(startPose.rotation)
-  const targetQuaternion = rotationToQuaternion(targetPose.rotation)
+  const startQuaternion = rotationMatrixToQuaternion(startPose.rotation)
+  const targetQuaternion = rotationMatrixToQuaternion(targetPose.rotation)
   const quaternionDot = Math.abs(startQuaternion.reduce(
     (sum, value, index) => sum + value * targetQuaternion[index],
     0,

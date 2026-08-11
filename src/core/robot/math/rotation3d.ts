@@ -41,6 +41,52 @@ export function rotationMatrixToEulerZYX(rotation: RotationMatrix): [number, num
   return [Math.atan2(-rotation[1][2], rotation[1][1]), ry, 0]
 }
 
+/**
+ * 旋转矩阵转四元数 (x, y, z, w)，标量 w 在最后；与 RAPID robtarget.rot 记录形状一致。
+ * 输出会归一化，输入需接近正交矩阵。
+ */
+export function rotationMatrixToQuaternion(
+  rotation: RotationMatrix,
+): [number, number, number, number] {
+  const trace = rotation[0][0] + rotation[1][1] + rotation[2][2]
+  let quaternion: [number, number, number, number]
+  if (trace > 0) {
+    const scale = Math.sqrt(trace + 1) * 2
+    quaternion = [
+      (rotation[2][1] - rotation[1][2]) / scale,
+      (rotation[0][2] - rotation[2][0]) / scale,
+      (rotation[1][0] - rotation[0][1]) / scale,
+      scale / 4,
+    ]
+  } else if (rotation[0][0] > rotation[1][1] && rotation[0][0] > rotation[2][2]) {
+    const scale = Math.sqrt(1 + rotation[0][0] - rotation[1][1] - rotation[2][2]) * 2
+    quaternion = [
+      scale / 4,
+      (rotation[0][1] + rotation[1][0]) / scale,
+      (rotation[0][2] + rotation[2][0]) / scale,
+      (rotation[2][1] - rotation[1][2]) / scale,
+    ]
+  } else if (rotation[1][1] > rotation[2][2]) {
+    const scale = Math.sqrt(1 + rotation[1][1] - rotation[0][0] - rotation[2][2]) * 2
+    quaternion = [
+      (rotation[0][1] + rotation[1][0]) / scale,
+      scale / 4,
+      (rotation[1][2] + rotation[2][1]) / scale,
+      (rotation[0][2] - rotation[2][0]) / scale,
+    ]
+  } else {
+    const scale = Math.sqrt(1 + rotation[2][2] - rotation[0][0] - rotation[1][1]) * 2
+    quaternion = [
+      (rotation[0][2] + rotation[2][0]) / scale,
+      (rotation[1][2] + rotation[2][1]) / scale,
+      scale / 4,
+      (rotation[1][0] - rotation[0][1]) / scale,
+    ]
+  }
+  const length = Math.hypot(...quaternion)
+  return quaternion.map((value) => value / length) as [number, number, number, number]
+}
+
 /** 从目标旋转到当前旋转的轴角误差，保持原项目定义。 */
 export function orientationError(
   targetRotation: RotationMatrix,
