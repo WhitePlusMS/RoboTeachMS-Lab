@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { MotionClock, MotionResult } from './motion-runner'
-import { createMotionRunner } from './motion-runner'
-import type { JointAngles } from './types'
+import type { MotionClock, MotionResult } from './motion-runner.ts'
+import { createMotionRunner } from './motion-runner.ts'
+import type { JointAngles } from './types.ts'
 
 class ManualMotionClock implements MotionClock {
   private currentTime = 0
@@ -387,3 +387,108 @@ const _typeCheck: Promise<MotionResult> = (() => {
   return runner.startEased(jointsAt(1))
 })()
 void _typeCheck
+
+describe('Motion Runner 暂停后 retarget 的时间轴', () => {
+  it('eased 暂停→继续→运行中 retarget 按新 duration 完成，且始终单帧循环', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startEased(jointsAt(10), 100)
+    clock.advanceBy(30)
+    runner.pause()
+    clock.advanceBy(5000)
+    runner.resume()
+
+    // 运行中同模式 retarget：从当前关节按新 duration(100) 重新开始，忽略历史暂停。
+    runner.startEased(jointsAt(0), 100)
+    expect(clock.pendingFrameCount()).toBeLessThanOrEqual(1)
+    clock.advanceBy(100)
+
+    expect(await result).toBe('completed')
+    expect(joints).toEqual(jointsAt(0))
+    expect(clock.pendingFrameCount()).toBe(0)
+  })
+
+  it('eased 暂停中 retarget 保持 paused、不创建 RAF，resume 后按新 duration 完成', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startEased(jointsAt(10), 100)
+    clock.advanceBy(30)
+    runner.pause()
+    clock.advanceBy(5000)
+
+    runner.startEased(jointsAt(0), 50)
+    expect(runner.getStatus()).toBe('paused')
+    expect(clock.pendingFrameCount()).toBe(0)
+
+    runner.resume()
+    expect(runner.getStatus()).toBe('running')
+    clock.advanceBy(50)
+    expect(await result).toBe('completed')
+    expect(joints).toEqual(jointsAt(0))
+  })
+
+  it('trajectory 暂停中 retarget 复用 Promise，resume 后准确到新终点', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(5)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startTrajectory([jointsAt(15), jointsAt(25)], 100)
+    clock.advanceBy(30)
+    runner.pause()
+    clock.advanceBy(3000)
+
+    // 暂停中同模式 retarget：更新轨迹与时间轴，复用原 Promise，状态保持 paused。
+    const retarget = runner.startTrajectory([jointsAt(35), jointsAt(45)], 80)
+    expect(retarget).toBe(result)
+    expect(runner.getStatus()).toBe('paused')
+    expect(clock.pendingFrameCount()).toBe(0)
+
+    runner.resume()
+    clock.advanceBy(80)
+    expect(await result).toBe('completed')
+    expect(joints).toEqual(jointsAt(45))
+    expect(clock.pendingFrameCount()).toBe(0)
+  })
+
+  it('eased 暂停中 retarget 后不额外等待历史暂停时间（暂停时间不影响新目标）', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    runner.startEased(jointsAt(10), 60)
+    clock.advanceBy(20)
+    runner.pause()
+    clock.advanceBy(10_000)
+
+    // 暂停很久后 retarget 到零姿态，resume 应立即从进度 0 开始（新 duration 1000）。
+    const result = runner.startEased(jointsAt(0), 1000)
+    runner.resume()
+    // 只推进 1ms 也不应一次性跳到终点（历史暂停被清零）。
+    clock.advanceBy(1)
+    expect(joints[0]).toBeLessThan(10)
+    expect(joints[0]).toBeGreaterThanOrEqual(0)
+    clock.advanceBy(999)
+    expect(await result).toBe('completed')
+    expect(joints).toEqual(jointsAt(0))
+  })
+})

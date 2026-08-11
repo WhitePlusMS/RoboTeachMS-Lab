@@ -1,5 +1,5 @@
-import { DEFAULT_MOTION_CONFIG, easeInOutCubic, lerpJoints } from './motion-smoothing'
-import type { JointAngles, MotionConfig } from './types'
+import { DEFAULT_MOTION_CONFIG, easeInOutCubic, lerpJoints } from './motion-smoothing.ts'
+import type { JointAngles, MotionConfig } from './types.ts'
 
 /**
  * 运动状态：只有空闲、运行、暂停三种。它不是 RAPID 程序状态。
@@ -180,6 +180,9 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     startJoints = [...options.getCurrentJoints()]
     startTime = options.clock.now()
     animationDuration = Math.max(duration, 1)
+    // 同模式 retarget 建立新的时间轴：清空历史暂停累计与暂停点，避免 effectiveElapsed 变负。
+    totalPausedTime = 0
+    pausedAt = null
 
     // 同类型连续目标：复用当前帧循环与未完成 Promise（长按不卡顿的基础）。
     if (activeType === 'joint-eased' && active) return active.promise
@@ -212,6 +215,9 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     ]
     startTime = options.clock.now()
     animationDuration = Math.max(duration, 1)
+    // 同模式 retarget 建立新的时间轴：清空历史暂停累计与暂停点，避免 effectiveElapsed 变负。
+    totalPausedTime = 0
+    pausedAt = null
 
     if (activeType === 'joint-trajectory' && active) return active.promise
 
