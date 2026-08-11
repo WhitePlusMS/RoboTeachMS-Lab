@@ -626,7 +626,7 @@ h1 {
   }
 }
 
-/* 结构化内置程序控制面板 */
+/* RAPID 文本程序控制面板 */
 .program-panel {
   display: grid;
   gap: 14px;
@@ -648,6 +648,54 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 13px;
   font-weight: 700;
+}
+
+.rapid-source-editor {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  background: #020617;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: vertical;
+}
+
+.rapid-source-editor:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline-offset: 1px;
+}
+
+.rapid-source-editor:disabled {
+  color: #94a3b8;
+  background: #0f172a;
+}
+
+.program-hint,
+.rapid-diagnostics {
+  margin: -6px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rapid-diagnostics {
+  padding: 10px 12px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #0d1526;
+}
+
+.rapid-diagnostics p,
+.rapid-diagnostics ul {
+  margin: 0;
+}
+
+.rapid-diagnostics ul {
+  padding-left: 18px;
+  color: #fca5a5;
 }
 
 .program-stats {
@@ -738,4 +786,3 @@ button:disabled {
   color: #fca5a5;
   background: rgba(127, 29, 29, 0.3);
 }
-
