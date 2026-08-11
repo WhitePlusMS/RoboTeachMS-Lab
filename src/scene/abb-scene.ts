@@ -1,10 +1,8 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import type { RobotModel } from '../robotics/robot-model.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import { ABB_DEFAULT_JOINTS } from '../robot-models/abb-irb1200/robot-config.ts'
-import { AbbSceneRobotModel } from './abb-scene-model.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
 import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
 import {
@@ -43,7 +41,6 @@ export type AbbSceneStatus = 'loading' | 'ready' | 'error'
 
 export interface AbbSceneOptions {
   onStatus?: (status: AbbSceneStatus) => void
-  onModel?: (model: RobotModel | null) => void
   onTrajectoryCount?: (count: number) => void
   showGrid?: boolean
   showCoordinateSystems?: boolean
@@ -268,7 +265,6 @@ export function createAbbScene(
   options: AbbSceneOptions = {},
 ): AbbSceneController {
   const onStatus = options.onStatus ?? (() => undefined)
-  const onModel = options.onModel ?? (() => undefined)
   const onTrajectoryCount = options.onTrajectoryCount ?? (() => undefined)
   const scene = createAbbBenchmarkScene()
   const grid = scene.getObjectByName('Ground_Grid')
@@ -309,7 +305,6 @@ export function createAbbScene(
   })
   let animationFrame = 0
   let loadedModel: THREE.Group | null = null
-  let robotModel: AbbSceneRobotModel | null = null
   let targetJoints: JointAngles = [...ABB_DEFAULT_JOINTS]
   const dhDebugChain = createAbbDhDebugChain()
   dhDebugChain.group.visible = showDhDebug
@@ -388,10 +383,8 @@ export function createAbbScene(
       const fbxBaseHeightMm = loadedModel.userData.fbxBaseHeightMm
       if (typeof fbxBaseHeightMm === 'number') dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
       applyAbbJointAngles(loadedModel, targetJoints)
-      robotModel = new AbbSceneRobotModel()
       scene.add(loadedModel)
       attachToolAxes()
-      onModel(robotModel)
       onStatus('ready')
       console.info('[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，机械法兰=joint6，工具=joint7')
     },
@@ -401,9 +394,7 @@ export function createAbbScene(
       const fallback = createFallbackRobot()
       scene.add(fallback)
       loadedModel = fallback
-      robotModel = null
       attachToolAxes()
-      onModel(null)
       onStatus('error')
       console.error('[AbbScene] ABB FBX 加载失败，已显示回退几何', error)
     },
@@ -449,7 +440,6 @@ export function createAbbScene(
     },
     dispose: () => {
       disposed = true
-      onModel(null)
       window.cancelAnimationFrame(animationFrame)
       resizeObserver.disconnect()
       controls.dispose()

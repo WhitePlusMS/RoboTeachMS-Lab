@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest'
+import type { RobotProfile } from '../../robotics/robot-profile.ts'
+import { AbbDhRobotModel } from './dh-robot-model.ts'
+import { ABB_IRB1200_PROFILE } from './robot-profile.ts'
+import {
+  ABB_DEFAULT_JOINTS,
+  ABB_IRB1200_5_90_STANDARD_DH,
+  ABB_JOINT_RANGES,
+} from './robot-config.ts'
+
+describe('ABB IRB 1200 profile seam', () => {
+  it('唯一 profile 复用既有型号名称、一体化 DH 模型、关节范围与回零关节，不复制任何数值', () => {
+    const profile: RobotProfile = ABB_IRB1200_PROFILE
+    expect(profile.id).toBe('abb-irb1200-5-0.9')
+    expect(profile.displayName).toBe(ABB_IRB1200_5_90_STANDARD_DH.name)
+    expect(profile.model).toBeInstanceOf(AbbDhRobotModel)
+    expect(profile.jointRanges).toBe(ABB_JOINT_RANGES)
+    expect(profile.homeJoints).toBe(ABB_DEFAULT_JOINTS)
+  })
+
+  it('只聚合契约字段：型号身份、一体模型、关节范围与回零状态', () => {
+    const profile = ABB_IRB1200_PROFILE as RobotProfile
+    expect(Object.keys(profile).sort()).toEqual(['displayName', 'homeJoints', 'id', 'jointRanges', 'model'])
+  })
+
+  it('六轴关节范围结构固定且零位落在范围内', () => {
+    expect(ABB_IRB1200_PROFILE.jointRanges).toHaveLength(6)
+    ABB_IRB1200_PROFILE.jointRanges.forEach((range) => {
+      expect(range[0]).toBeLessThan(range[1])
+    })
+    ABB_IRB1200_PROFILE.homeJoints.forEach((angle, index) => {
+      const [min, max] = ABB_IRB1200_PROFILE.jointRanges[index]
+      expect(angle).toBeGreaterThanOrEqual(min)
+      expect(angle).toBeLessThanOrEqual(max)
+    })
+  })
+
+  it('零位正解由 profile 内的单一模型驱动', () => {
+    expect(
+      ABB_IRB1200_PROFILE.model.forwardKinematics([...ABB_IRB1200_PROFILE.homeJoints]),
+    ).not.toBeNull()
+  })
+
+  it('编译期证明 profile 字段与 homeJoints 元素不可被调用者替换/改写', () => {
+    // 以下两处赋值必须产生类型错误，防止单例被误写污染所有控制器。
+    // @ts-expect-error - RobotProfile 字段只读，禁止替换共享模型/范围/回零状态。
+    ABB_IRB1200_PROFILE.model = new AbbDhRobotModel()
+    // @ts-expect-error - homeJoints 为只读回零关节 tuple，禁止元素改写。
+    ABB_IRB1200_PROFILE.homeJoints[0] = 10
+  })
+})

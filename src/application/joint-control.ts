@@ -1,22 +1,16 @@
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '../robotics/kinematics.ts'
-import type { JointAngles } from '../robotics/types.ts'
-import {
-  DEFAULT_JOINTS,
-  KUKA_JOINT_RANGES,
-  KUKA_LIKE,
-} from '../robot-models/kuka-like/robot-config.ts'
-import type { RobotConfig } from '../robotics/types.ts'
+import { radToDeg } from '../robotics/math/angle.ts'
+import type { JointRange, RobotProfile } from '../robotics/robot-profile.ts'
+import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
+import { KUKA_JOINT_RANGES } from '../robot-models/kuka-like/robot-config.ts'
 
 export const JOINT_STEPS = [0.1, 1, 5, 10] as const
 export type JointStep = (typeof JOINT_STEPS)[number]
 export type JointDirection = -1 | 1
-export type JointRange = readonly [number, number]
 
 export interface JointControlOptions {
-  config?: RobotConfig
-  defaultJoints?: JointAngles
-  jointRanges?: readonly JointRange[]
+  /** 关节控制从其唯一运行契约获得关节范围、回零状态与一体运动学模型。 */
+  profile: RobotProfile
 }
 
 export function clampJointAngle(index: number, value: number, ranges: readonly JointRange[] = KUKA_JOINT_RANGES): number {
@@ -61,13 +55,22 @@ export function isJointStep(value: number): value is JointStep {
 }
 
 /** Vue 状态层只暴露机器人命令，不把 Three.js 节点泄漏给控制面板。 */
-export function useJointControl(options: JointControlOptions = {}) {
-  const config = options.config ?? KUKA_LIKE
-  const ranges = options.jointRanges ?? KUKA_JOINT_RANGES
-  const defaultJoints = options.defaultJoints ?? DEFAULT_JOINTS
-  const joints = ref<JointAngles>([...defaultJoints])
+export function useJointControl(options: JointControlOptions) {
+  const { profile } = options
+  const ranges = profile.jointRanges
+  const homeJoints = profile.homeJoints
+  const joints = ref<JointAngles>([...homeJoints])
   const jointStep = ref<JointStep>(1)
-  const pose = computed(() => poseFromJoints(joints.value, config))
+  const pose = computed<PoseDisplay>(() => {
+    const current = profile.model.forwardKinematics(joints.value)
+    if (!current) {
+      return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
+    }
+    return {
+      positionMm: [...current.position] as PoseDisplay['positionMm'],
+      orientationDeg: current.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+    }
+  })
 
   function setJoint(index: number, value: number): void {
     joints.value = setJointAngle(joints.value, index, value, ranges)
@@ -86,7 +89,7 @@ export function useJointControl(options: JointControlOptions = {}) {
   }
 
   function reset(): void {
-    joints.value = [...defaultJoints]
+    joints.value = [...homeJoints]
   }
 
   function randomize(): void {

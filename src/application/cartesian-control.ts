@@ -3,7 +3,7 @@ import { degToRad, radToDeg } from '../robotics/math/angle.ts'
 import { mat3Mul, rotationMatrixToEulerZYX } from '../robotics/math/rotation3d.ts'
 import { eulerZYXToMatrix } from '../robotics/matrix4x4.ts'
 import { planCartesianPath } from '../robotics/cartesian-path-planner.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
+import type { RobotProfile } from '../robotics/robot-profile.ts'
 import type {
   CartesianAxis,
   CoordinateSystem,
@@ -101,8 +101,7 @@ export function isOrientationStep(value: number): value is OrientationStep {
 export interface CartesianControlOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
-  robotModel: Ref<RobotModel>
-  jointRanges: readonly (readonly [number, number])[]
+  profile: RobotProfile
   moveToTrajectory: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
 }
 
@@ -133,8 +132,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
     const trajectory = planCartesianPath(
       toRobotPose(target),
       options.joints.value,
-      options.robotModel.value,
-      options.jointRanges,
+      options.profile.model,
+      options.profile.jointRanges,
     )
     if (trajectory) {
       options.moveToTrajectory(trajectory, isContinuous)

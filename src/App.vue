@@ -1,26 +1,20 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef } from 'vue'
+import { computed, ref } from 'vue'
 import CartesianControlPanel from './components/CartesianControlPanel.vue'
 import CoordinateInfoPanel from './components/CoordinateInfoPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
 import ProgramControlPanel from './components/ProgramControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
-import { radToDeg } from './robotics/math/angle.ts'
-import type { RobotModel } from './robotics/robot-model.ts'
-import type { JointAngles, PoseDisplay } from './robotics/types.ts'
-import {
-  ABB_DEFAULT_JOINTS,
-  ABB_IRB1200_5_90_STANDARD_DH,
-  ABB_JOINT_RANGES,
-} from './robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles } from './robotics/types.ts'
+import { ABB_IRB1200_PROFILE } from './robot-models/abb-irb1200/robot-profile.ts'
 import { adjustJointAngle, randomJointAngles, useJointControl } from './application/joint-control.ts'
 import { useMotion } from './application/motion-control.ts'
 import { useProgramController } from './application/program-control.ts'
 import { createBuiltinRapidSource } from './application/builtin-program.ts'
-import { AbbDhRobotModel } from './robot-models/abb-irb1200/dh-robot-model.ts'
 import type { AbbSceneStatus } from './scene/abb-scene.ts'
 import { useCartesianControl } from './application/cartesian-control.ts'
 
+const profile = ABB_IRB1200_PROFILE
 const sceneStatus = ref<AbbSceneStatus>('loading')
 const showGrid = ref(true)
 const showCoordinateSystems = ref(true)
@@ -31,15 +25,11 @@ const {
   joints,
   jointStep,
   jointRanges,
-  pose: fallbackPose,
+  pose,
   setJoint: setJointImmediate,
   setJoints: setJointsImmediate,
   setStep,
-} = useJointControl({
-  config: ABB_IRB1200_5_90_STANDARD_DH,
-  defaultJoints: ABB_DEFAULT_JOINTS,
-  jointRanges: ABB_JOINT_RANGES,
-})
+} = useJointControl({ profile })
 
 const {
   startEasedAnimation,
@@ -62,19 +52,19 @@ function setJoint(index: number, value: number): void {
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
   programControl.stopActiveProgram()
-  const next = adjustJointAngle(joints.value, index, direction, jointStep.value, ABB_JOINT_RANGES)
+  const next = adjustJointAngle(joints.value, index, direction, jointStep.value, profile.jointRanges)
   if (isContinuous) startSpeedLimitedAnimation(next)
   else startEasedAnimation(next)
 }
 
 function reset(): void {
   programControl.stopActiveProgram()
-  startEasedAnimation([...ABB_DEFAULT_JOINTS])
+  startEasedAnimation([...profile.homeJoints])
 }
 
 function randomize(): void {
   programControl.stopActiveProgram()
-  startEasedAnimation(randomJointAngles(ABB_JOINT_RANGES))
+  startEasedAnimation(randomJointAngles(profile.jointRanges))
 }
 
 function animateCartesianTrajectory(trajectory: readonly JointAngles[], isContinuous = false): void {
@@ -82,28 +72,13 @@ function animateCartesianTrajectory(trajectory: readonly JointAngles[], isContin
   startCartesianTrajectory(trajectory, isContinuous ? 140 : undefined)
 }
 
-const fallbackRobotModel = new AbbDhRobotModel()
-const robotModel = shallowRef<RobotModel>(fallbackRobotModel)
 const rapidSource = ref(createBuiltinRapidSource())
-const pose = computed<PoseDisplay>(() => {
-  const modelPose = robotModel.value.forwardKinematics(joints.value)
-  if (!modelPose) return fallbackPose.value
-  return {
-    positionMm: modelPose.position,
-    orientationDeg: modelPose.euler.map(radToDeg) as [number, number, number],
-  }
-})
 
-function handleRobotModel(model: RobotModel | null): void {
-  robotModel.value = model ?? fallbackRobotModel
-}
-
-/** RAPID 源程序控制器；解析结果只在运行时生成，运动链继续复用既有模块。 */
+/** RAPID 源程序控制器；解析结果只在运行时生成，运动链从同一 profile 获取模型与限制。 */
 const programControl = useProgramController({
   source: rapidSource,
-  robotModel,
+  profile,
   joints,
-  jointRanges: ABB_JOINT_RANGES,
   motion: {
     startEasedAnimation,
     startCartesianTrajectory,
@@ -128,14 +103,13 @@ const {
 } = useCartesianControl({
   joints,
   pose,
-  robotModel,
-  jointRanges: ABB_JOINT_RANGES,
+  profile,
   moveToTrajectory: animateCartesianTrajectory,
 })
 
 const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'
-  if (sceneStatus.value === 'error') return '已切换 ABB 回退模型'
+  if (sceneStatus.value === 'error') return '场景几何加载失败，使用占位显示'
   return '正在加载模型'
 })
 </script>
@@ -230,7 +204,6 @@ const statusLabel = computed(() => {
           :show-trajectory="showTrajectory"
           :trajectory-count="trajectoryCount"
           @status="sceneStatus = $event"
-          @model="handleRobotModel"
           @grid-change="showGrid = $event"
           @coordinates-change="showCoordinateSystems = $event"
           @dh-debug-change="showDhDebug = $event"

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { RobotModel } from '../robotics/robot-model.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import {
   createAbbScene,
@@ -19,7 +18,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   status: [value: AbbSceneStatus]
-  model: [value: RobotModel | null]
   'grid-change': [value: boolean]
   'coordinates-change': [value: boolean]
   'dh-debug-change': [value: boolean]
@@ -34,7 +32,6 @@ onMounted(() => {
   if (!viewport.value) return
   controller = createAbbScene(viewport.value, {
     onStatus: (status) => emit('status', status),
-    onModel: (model) => emit('model', model),
     onTrajectoryCount: (count) => emit('trajectory-count', count),
     showGrid: props.showGrid,
     showCoordinateSystems: props.showCoordinateSystems,

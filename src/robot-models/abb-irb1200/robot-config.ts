@@ -1,3 +1,4 @@
+import type { SixAxisJointRanges } from '../../robotics/robot-profile.ts'
 import type { JointAngles, RobotConfig } from '../../robotics/types.ts'
 
 /**
@@ -22,6 +23,16 @@ export const ABB_IRB1200_5_90_STANDARD_DH: RobotConfig = {
 }
 
 export const ABB_DEFAULT_JOINTS: JointAngles = [0, 0, 0, 0, 0, 0]
-export const ABB_JOINT_RANGES = Object.values(ABB_IRB1200_5_90_STANDARD_DH.dhParams).map(
-  (dh) => dh.thetaRange,
-) as readonly (readonly [number, number])[]
+
+/**
+ * 六轴关节范围在源头声明为严格六元 tuple，由六个具名 DH 关节的 thetaRange 显式构造。
+ * 删除任一关节项会立即产生 TypeScript 编译错误，范围数值仍只存在于 DH 配置的单一来源。
+ */
+export const ABB_JOINT_RANGES: SixAxisJointRanges = [
+  ABB_IRB1200_5_90_STANDARD_DH.dhParams.joint1.thetaRange,
+  ABB_IRB1200_5_90_STANDARD_DH.dhParams.joint2.thetaRange,
+  ABB_IRB1200_5_90_STANDARD_DH.dhParams.joint3.thetaRange,
+  ABB_IRB1200_5_90_STANDARD_DH.dhParams.joint4.thetaRange,
+  ABB_IRB1200_5_90_STANDARD_DH.dhParams.joint5.thetaRange,
+  ABB_IRB1200_5_90_STANDARD_DH.dhParams.joint6.thetaRange,
+]

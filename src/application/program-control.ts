@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref, type Ref } from 'vue'
 import type { MotionResult } from '../robotics/motion-runner.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
+import type { RobotProfile } from '../robotics/robot-profile.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import { executeMoveJ } from '../rapid/movej-planner.ts'
 import { executeMoveL } from '../rapid/movel-planner.ts'
@@ -33,9 +33,8 @@ export interface ProgramControllerMotion {
 
 export interface ProgramControllerOptions {
   source: Ref<string>
-  robotModel: Ref<RobotModel>
+  profile: RobotProfile
   joints: Ref<JointAngles>
-  jointRanges: readonly (readonly [number, number])[]
   motion: ProgramControllerMotion
 }
 
@@ -68,16 +67,16 @@ export function useProgramController(options: ProgramControllerOptions): Program
   async function execute(instruction: StructuredMotionInstruction): Promise<InstructionOutcome> {
     if (instruction.kind === 'movej') {
       return executeMoveJ(instruction, {
-        model: options.robotModel.value,
+        model: options.profile.model,
         currentJoints: () => [...options.joints.value],
-        jointRanges: options.jointRanges,
+        jointRanges: options.profile.jointRanges,
         runEased: (target, durationMs) => options.motion.startEasedAnimation(target, durationMs),
       })
     }
     return executeMoveL(instruction, {
-      model: options.robotModel.value,
+      model: options.profile.model,
       currentJoints: () => [...options.joints.value],
-      jointRanges: options.jointRanges,
+      jointRanges: options.profile.jointRanges,
       runTrajectory: (waypoints, durationMs) =>
         options.motion.startCartesianTrajectory(waypoints, durationMs),
     })

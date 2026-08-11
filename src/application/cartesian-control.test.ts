@@ -8,9 +8,19 @@ import {
 } from './cartesian-control.ts'
 import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
 import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
-import { DEFAULT_JOINTS, KUKA_JOINT_RANGES, KUKA_LIKE } from '../robot-models/kuka-like/robot-config.ts'
+import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
+import type { RobotProfile, SixAxisJointRanges } from '../robotics/robot-profile.ts'
+import { KUKA_JOINT_RANGES, KUKA_LIKE, DEFAULT_JOINTS } from '../robot-models/kuka-like/robot-config.ts'
 import { DhRobotModel } from '../robot-models/kuka-like/dh-robot-model.ts'
+
+/** 测试用 KUKA 局部 profile；沿用既有 KUKA 模型与常量，不迁移 KUKA 实现。 */
+const KUKA_PROFILE: RobotProfile = {
+  id: 'test-kuka',
+  displayName: KUKA_LIKE.name,
+  model: new DhRobotModel(),
+  jointRanges: KUKA_JOINT_RANGES as SixAxisJointRanges,
+  homeJoints: DEFAULT_JOINTS,
+}
 
 const pose: PoseDisplay = {
   positionMm: [100, 200, 300],
@@ -38,8 +48,7 @@ describe('笛卡尔坐标增量', () => {
     const control = useCartesianControl({
       joints,
       pose: poseRef,
-      robotModel: ref(new DhRobotModel()),
-      jointRanges: KUKA_JOINT_RANGES,
+      profile: KUKA_PROFILE,
       moveToTrajectory: (trajectory) => {
         const finalJoints = trajectory[trajectory.length - 1]
         if (finalJoints) joints.value = [...finalJoints]
@@ -59,8 +68,7 @@ describe('笛卡尔坐标增量', () => {
     const control = useCartesianControl({
       joints,
       pose: poseRef,
-      robotModel: ref(new DhRobotModel()),
-      jointRanges: KUKA_JOINT_RANGES,
+      profile: KUKA_PROFILE,
       moveToTrajectory: (trajectory) => {
         const finalJoints = trajectory[trajectory.length - 1]
         if (finalJoints) joints.value = [...finalJoints]
@@ -88,8 +96,7 @@ describe('笛卡尔坐标增量', () => {
     const control = useCartesianControl({
       joints,
       pose: poseRef,
-      robotModel: ref(model),
-      jointRanges: ABB_JOINT_RANGES,
+      profile: ABB_IRB1200_PROFILE,
       moveToTrajectory: (trajectory) => {
         submittedTrajectory = trajectory
       },

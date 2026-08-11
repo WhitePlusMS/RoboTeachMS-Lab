@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
-import { ref, shallowRef } from 'vue'
-import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
+import { ref } from 'vue'
+import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
 import { createMotionRunner, type MotionResult, type MotionRunner } from '../robotics/motion-runner.ts'
 import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
 import type { JointAngles } from '../robotics/types.ts'
@@ -32,14 +30,11 @@ describe('program-control adapter', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { motion, calls, settle } = makeMotion()
 
-    const model = shallowRef<RobotModel>(new AbbDhRobotModel())
     const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
-    // 传入的 motion 对象不含 getMotionStatus：能编译即证明接口不再要求它。
     const ctrl = useProgramController({
       source: ref(createBuiltinRapidSource()),
-      robotModel: model,
+      profile: ABB_IRB1200_PROFILE,
       joints,
-      jointRanges: ABB_JOINT_RANGES,
       motion,
     })
 
@@ -83,7 +78,6 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
       getCurrentJoints: () => [...joints.value],
       setJoints: (next) => { joints.value = [...next] },
     })
-    const model = shallowRef<RobotModel>(new AbbDhRobotModel())
     const motion: ProgramControllerMotion = {
       startEasedAnimation: (target, duration) => runner.startEased(target, duration),
       startCartesianTrajectory: (waypoints, duration) => runner.startTrajectory(waypoints, duration),
@@ -93,9 +87,8 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
     }
     const ctrl = useProgramController({
       source: ref(createBuiltinRapidSource()),
-      robotModel: model,
+      profile: ABB_IRB1200_PROFILE,
       joints,
-      jointRanges: ABB_JOINT_RANGES,
       motion,
     })
     return { clock, joints, runner, ctrl }
