@@ -1,5 +1,5 @@
 import { onBeforeUnmount } from 'vue'
-import { createMotionRunner, type MotionClock } from '../core/robot/motion-runner'
+import { createMotionRunner, type MotionClock, type MotionResult, type MotionStatus } from '../core/robot/motion-runner'
 import type { JointAngles, MotionConfig } from '../core/robot/types'
 
 export interface MotionControlOptions {
@@ -24,5 +24,11 @@ export function useMotion(options: MotionControlOptions) {
     startEasedAnimation: runner.startEased,
     startSpeedLimitedAnimation: runner.startSpeedLimited,
     startCartesianTrajectory: runner.startTrajectory,
+    pauseMotion: runner.pause,
+    resumeMotion: runner.resume,
+    getMotionStatus: runner.getStatus,
   }
 }
+
+// 重新导出类型，便于上层以显式类型消费生命周期能力。
+export type { MotionResult, MotionStatus }

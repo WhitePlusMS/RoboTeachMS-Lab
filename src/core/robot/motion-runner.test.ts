@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { MotionClock } from './motion-runner'
+import type { MotionClock, MotionResult } from './motion-runner'
 import { createMotionRunner } from './motion-runner'
 import type { JointAngles } from './types'
 
@@ -117,6 +117,7 @@ describe('Motion Runner', () => {
 
     expect(joints).toEqual(stoppedAt)
     expect(clock.pendingFrameCount()).toBe(0)
+    expect(runner.getStatus()).toBe('idle')
   })
 
   it('按统一时间轴平滑执行笛卡尔规划得到的关节 waypoint', () => {
@@ -137,4 +138,252 @@ describe('Motion Runner', () => {
     expect(joints).toEqual(jointsAt(20))
     expect(clock.pendingFrameCount()).toBe(0)
   })
+
+  it('缓动自然完成只解析一次 completed，状态回到 idle', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    expect(runner.getStatus()).toBe('idle')
+    const result = runner.startEased(jointsAt(10), 100)
+    expect(runner.getStatus()).toBe('running')
+    clock.advanceBy(100)
+
+    expect(await result).toBe('completed')
+    expect(runner.getStatus()).toBe('idle')
+    expect(clock.pendingFrameCount()).toBe(0)
+  })
+
+  it('显式停止只解析一次 stopped，保持停止瞬间关节并回到 idle', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startEased(jointsAt(10), 100)
+    clock.advanceBy(40)
+    const stoppedAt = [...joints]
+    runner.stop()
+
+    expect(await result).toBe('stopped')
+    expect(joints).toEqual(stoppedAt)
+    expect(runner.getStatus()).toBe('idle')
+  })
+
+  it('模式切换时旧 Promise 解析为 stopped，新模式独立并始终单帧循环', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+      motionConfig: { jointSpeedLimit: 1000, ikAnimDuration: 800, snapThreshold: 0.01 },
+    })
+
+    const eased = runner.startEased(jointsAt(10), 100)
+    clock.advanceBy(50)
+    expect(clock.pendingFrameCount()).toBe(1)
+
+    const decelerated = runner.startSpeedLimited(jointsAt(20))
+    expect(clock.pendingFrameCount()).toBe(1)
+
+    expect(await eased).toBe('stopped')
+    expect(runner.getStatus()).toBe('running')
+    clock.advanceBy(100)
+    expect(runner.getStatus()).toBe('idle')
+    expect(await decelerated).toBe('completed')
+  })
+
+  it('同模式连续更新目标返回同一个未完成 Promise', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const first = runner.startEased(jointsAt(10), 200)
+    clock.advanceBy(100)
+    const second = runner.startEased(jointsAt(20), 200)
+    expect(second).toBe(first)
+    clock.advanceBy(200)
+    expect(await first).toBe('completed')
+  })
+
+  it('暂停期间不改变关节，继续后排除暂停时间准确到达原目标', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startEased(jointsAt(10), 100)
+    clock.advanceBy(30)
+    expect(joints[0]).toBeCloseTo(1.08)
+
+    runner.pause()
+    const pausedAt = [...joints]
+    expect(runner.getStatus()).toBe('paused')
+    expect(clock.pendingFrameCount()).toBe(0)
+
+    // 暂停期间时钟继续前进，但关节冻结。
+    clock.advanceBy(5000)
+    expect(joints).toEqual(pausedAt)
+
+    runner.resume()
+    expect(runner.getStatus()).toBe('running')
+    // 排除 5000ms 暂停后，剩余 70ms 应推进到终点。
+    clock.advanceBy(70)
+    expect(joints[0]).toBeCloseTo(10)
+    expect(await result).toBe('completed')
+  })
+
+  it('轨迹暂停期间不推进，继续后准确到达终点', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(5)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startTrajectory([jointsAt(15), jointsAt(25)], 100)
+    clock.advanceBy(30)
+    runner.pause()
+    const pausedAt = [...joints]
+    clock.advanceBy(3000)
+    expect(joints).toEqual(pausedAt)
+
+    runner.resume()
+    clock.advanceBy(70)
+    expect(joints).toEqual(jointsAt(25))
+    expect(await result).toBe('completed')
+  })
+
+  it('限速运动暂停继续后关节增量不因暂停时间跳变', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+      motionConfig: { jointSpeedLimit: 10, ikAnimDuration: 800, snapThreshold: 0.01 },
+    })
+
+    runner.startSpeedLimited(jointsAt(2))
+    clock.advanceBy(100)
+    expect(joints[0]).toBeCloseTo(1)
+
+    runner.pause()
+    clock.advanceBy(5000)
+    expect(joints[0]).toBeCloseTo(1)
+
+    runner.resume()
+    clock.advanceBy(100)
+    // 只推进 100ms 步长，不因 5 秒暂停产生 5 度跳变。
+    expect(joints[0]).toBeCloseTo(2)
+  })
+
+  it('pause/resume/stop 对不适用状态幂等', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    expect(runner.getStatus()).toBe('idle')
+    runner.pause()
+    runner.resume()
+    runner.stop()
+    expect(runner.getStatus()).toBe('idle')
+    expect(clock.pendingFrameCount()).toBe(0)
+
+    runner.startEased(jointsAt(5), 100)
+    runner.pause()
+    expect(runner.getStatus()).toBe('paused')
+    runner.pause()
+    expect(runner.getStatus()).toBe('paused')
+    // 重复 resume 之后的 stop 仍保持幂等。
+    runner.resume()
+    runner.resume()
+    expect(runner.getStatus()).toBe('running')
+    runner.stop()
+    expect(runner.getStatus()).toBe('idle')
+  })
+
+  it('空 waypoint 轨迹抛出参数错误且不改变现有运动状态', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    expect(runner.getStatus()).toBe('idle')
+    expect(() => runner.startTrajectory([])).toThrow()
+    expect(runner.getStatus()).toBe('idle')
+    expect(clock.pendingFrameCount()).toBe(0)
+  })
+
+  it('暂停中停止解析为 stopped 并回到 idle', async () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    const result = runner.startEased(jointsAt(10), 100)
+    clock.advanceBy(20)
+    runner.pause()
+    runner.stop()
+    expect(runner.getStatus()).toBe('idle')
+    expect(await result).toBe('stopped')
+  })
+
+  it('getStatus 覆盖运行、暂停、继续、停止与自然完成', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => { joints = [...next] },
+    })
+
+    expect(runner.getStatus()).toBe('idle')
+    runner.startEased(jointsAt(10), 100)
+    expect(runner.getStatus()).toBe('running')
+    runner.pause()
+    expect(runner.getStatus()).toBe('paused')
+    runner.resume()
+    expect(runner.getStatus()).toBe('running')
+    runner.stop()
+    expect(runner.getStatus()).toBe('idle')
+  })
 })
+
+// 明确引用结果类型，保证 Promise<MotionResult> 是严格类型而非 any。
+const _typeCheck: Promise<MotionResult> = (() => {
+  const clock = new ManualMotionClock()
+  const runner = createMotionRunner({
+    clock,
+    getCurrentJoints: () => jointsAt(0),
+    setJoints: () => {},
+  })
+  return runner.startEased(jointsAt(1))
+})()
+void _typeCheck
