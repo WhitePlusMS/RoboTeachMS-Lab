@@ -1,5 +1,148 @@
 # 更新日志
 
+## 2026-08-11 — 完成 RAPID 文本执行闭环最小实现
+
+- 新增 `src/rapid/rapid-parser.ts`：实现首期 RAPID 文本子集的词法扫描、大小写不敏感关键字、`!` 行注释、单 `MODULE`、无参数 `PROC main()`、`CONST/PERS robtarget`、`MoveJ/MoveL`、`v50/v100/v200`、`fine`、`tool0`、默认 `wobj0` 与 `\\WObj:=wobj0` 解析；完成点位符号解析、重复/未定义名称、记录长度/有限数值、非法尾逗号、不支持语法和模块尾随内容诊断，并为每条合法运动保留源码范围与原文。
+- 修改 `src/application/program-control.ts`：把编辑区 RAPID 源文本作为唯一输入，运行前完整解析；存在诊断时进入错误快照且不启动 MotionRunner；合法文本转换为现有结构化 MoveJ/MoveL 后复用既有规划器和 ProgramExecutor；运行/暂停期间由面板锁定源文本，规划错误附带对应源码范围。
+- 修改 `src/application/builtin-program.ts`、`src/application/builtin-program.test.ts`：内置演示改为真实 RAPID `MODULE TeachingDemo` 文本，固定执行 MoveJ → MoveL → MoveJ，并通过 parser 后按顺序验证可达性。
+- 修改 `src/components/ProgramControlPanel.vue`、`src/components/ProgramControlPanel.test.ts`、`src/App.vue`、`src/style.css`：新增 RAPID 文本编辑区、诊断列表、源码位置、运行锁定和运行控制；保持现有单向状态传递与 MotionRunner 抢占策略。
+- 修改 `e2e/abb-program.spec.ts`：覆盖三条 RAPID 文本完整执行、暂停/继续、停止不推进、诊断阻止运动、活动期间锁定编辑器；共 5 条程序 E2E 通过。新增 `src/rapid/rapid-parser.test.ts` 覆盖有效语料、源码范围、静态诊断、重复/非法数据、唯一入口、模块尾随内容和尾逗号；修改 `src/application/program-control.test.ts`、`src/components/ProgramControlPanel.test.ts` 适配文本输入并验证控制器/UI 契约。
+- 修改 `README.md`：更新当前范围为 ABB IRB 1200 与 RAPID 文本仿真，补充首期支持能力和目录分层说明。
+- 修改原因：落实 Wayfinder 已确认的“RAPID 文本执行闭环”里程碑；保持首期边界，不引入完整 RAPID 编译器、控制流、MoveC/MoveAbsJ、用户 tooldata/wobjdata、持久化、编辑器框架或控制器通信。
+- 修改影响：RAPID 源程序现在是程序执行的唯一事实源；错误源程序在运动前被拒绝，合法文本继续复用已验证的 MoveJ/MoveL、IK、路径采样和 MotionRunner 生命周期；不改变现有 FK/IK 和手动运动语义。
+- 验证结果：`npm test` 通过（20 个文件、141 passed、1 个既有 expected-fail）；`npm run check`、`npm run build`、`git diff --check` 通过；临时 Vite preview 后完整 `npx playwright test` 通过（10 passed），预览进程已终止并确认 4173 无监听；用户原有 4174 服务未触碰。npm/npx 输出的 `Test-Path` 权限提示来自本机包装脚本，不影响命令结果。
+
+## 2026-08-11 — 依据代码评审的收尾修正
+
+- 修改 `src/rapid/plan-shared.ts`：抽取共用仿真时长助手 `simulateDurationMs(model, currentJoints, trans, vTcp)`，统一“正解失败返回 null + 距离/v_tcp 转毫秒 + 有限性/正时长钳位”逻辑；`movej-planner.ts` 与 `movel-planner.ts` 改为复用该助手，删除两处逐字重复的时长计算块（原两处 `> 0` 与 `>= 0` 钳位条件不一致，属隐性缺陷）。
+- 修改 `src/application/program-control.ts`：`stop()` 直接委托给 `stopActiveProgram()`，消除两个逐字节相同的方法体。
+- 修改 `src/application/program-control.test.ts`：把“程序运行时手动抢占”从单一 `startEased` 用例扩展为按四类手动命令逐一验证（关节单步/随机姿态/机器人回零走 eased、笛卡尔命令走 trajectory），每类都断言：活动程序先停止、手动运动完成、始终 ≤1 个活动运动、旧程序最终 stopped 且指针不增加、无残留请求帧；连同既有“程序暂停时抢占”与“idle 无操作”覆盖评审指出的 Ticket 05 抢占测试缺口。
+- 修改原因：代码评审（Standards：movej/movel 时长重复与钳位条件分叉、program-control stop 重复；Spec：Ticket 05 手动抢占只覆盖 2/5 场景）。
+- 影响：`planMoveJ/planMoveL` 返回的 `durationMs` 语义不变（零距离仍钳位为 1ms）；`ProgramController.stop` 行为不变；测试文件新增参数化抢占用例。未改业务行为，无新增依赖。
+- 验证结果：`npm run check` 通过；`npm test` 通过（20 文件、139 passed / 1 个既有 expected-fail，重复运行稳定）；`git diff --check` 通过。
+
+## 2026-08-11 — Ticket 06 一次性重命名目录
+
+- 目录重构（`git mv`，纯机械移动，不改业务行为）：
+  - `src/core/robot` → `src/robotics`（通用机器人能力：FK/IK/数学/Cartesian planner/MotionRunner/通用类型）
+  - `src/core/rapid` → `src/rapid`（RAPID 类型、MoveJ/MoveL planner、ProgramExecutor、规划错误）
+  - `src/robot` → `src/application`（Vue composable、浏览器时钟 adapter、手动/笛卡尔/程序控制、内置程序）
+  - `src/robots` → `src/robot-models`（ABB IRB1200 / KUKA-like 具体型号与 DH 模型）
+  - `src/robotics/manual-motion-clock.ts` → `src/testing/manual-motion-clock.ts`（测试支持模块，运行时代码不导入 testing）
+  - 移动后用 `rmdir` 删除已为空的 `src/core`。
+- 用脚本按每个文件的新目录重新计算全部相对 import（先按旧目录解析目标、映射到新目录、再相对化），并修复两处特例：同目录 import 的 `./` 前缀（避免退化成裸模块名）、`manual-motion-clock` 依赖 `robotics/motion-runner`（在 testing 下用 `../robotics/motion-runner`）。
+- 修改 `e2e/abb-irb1200.spec.ts`：`../src/core/robot/kinematics|types` → `../src/robotics/...`，`../src/robots/abb-irb1200/abb-kinematics` → `../src/robot-models/...`；`src/scene` import 不变。
+- 修改 `README.md`：目录说明改为分层描述（robotics/rapid/application/robot-models/testing/scene/components）。
+- 依赖方向符合契约：robotics 只放通用机器人能力、不导入 Vue/Three/RAPID/具体型号；rapid 允许依赖 robotics、不依赖 Vue/components/scene；application 依赖 rapid/robotics/robot-models；robot-models 依赖 robotics、不依赖 Vue/application；testing 只放测试支持模块、运行时不导入它。
+- 修改原因：为持续增长的 RAPID parser 任务腾出清晰的分层边界，让机器人数学、RAPID、Vue 编排与具体型号职责分离，避免核心/控制器混在同一命名空间。
+- 影响：只重命名目录并同步修改 import 与 README；未创建兼容目录、重导出、路径别名或 index.ts barrel；未顺手改函数名/状态机/业务逻辑；历史 UPDATE_LOG 旧条目保路径，不改写。
+- 验证结果：`npm run check` 通过；`npm test` 通过（19 个文件、131 passed / 1 个既有 expected-fail）；`npm run build` 通过；临时启动 `vite preview` 后 `npm run test:e2e` 通过（8 passed）；完成前搜索 `rg "core/robot|core/rapid|src/robot/|src/robots/"` src e2e README.md 无结果；`src/core/robot|core/rapid|src/robot|src/robots` 四个旧目录均不存在；预览已终止、端口 4173 确认释放。
+
+## 2026-08-11 — Wayfinder 确认 RAPID 文本执行闭环里程碑
+
+- 修改 `.scratch/abb-teaching-simulation/issues/09-next-milestone-after-structured-motion.md`：关闭“确定基础运动指令后的下一阶段里程碑”，确认下一阶段自研最小 RAPID 文本解析模块，将真实 `MODULE + PROC main + robtarget + MoveJ/MoveL` 转换为现有结构化执行输入；记录运行前完整诊断、运行期间锁定源程序、RobotStudio 仅作外部验证以及首期明确推迟项。
+- 新增 `.scratch/abb-teaching-simulation/issues/10-rapid-parser-grammar-diagnostics-contract.md`：把已经清晰的下一问题升级为 Wayfinder 决策票，后续专门确定首期文法、名称解析、数据校验、诊断代码/源码范围和现有 ProgramExecutor 的输入契约；该票受教学文本边界、结构化 MoveJ/MoveL 契约和本轮里程碑决策阻塞。
+- 修改 `.scratch/abb-teaching-simulation/map.md`：在“已确认决策”加入本轮里程碑摘要，并从“尚未明确”删除已升级为新决策票的 RAPID 语法/解析/编辑器错误与文本数据模型条目，保持地图只做索引、不复制详细答案。
+- 修改 `CONTEXT.md`：新增“RAPID 文本解析模块”领域术语，明确它只负责完整检查源程序并生成结构化运动指令或诊断，不承担 IK、路径采样、运动执行或完整编译器职责。
+- 修改原因：用户确认当前仍处于 Wayfinder，接受 RAPID 文本闭环的模块职责、验收样例、运行锁定、外部验证和推迟范围；需要将讨论固化为一个已解决决策，并揭示下一张可讨论的票，而不是提前实现 parser。
+- 业务影响：未修改 `src`、测试、依赖或运行时行为；未启动任何前后端服务。
+
+## 2026-08-11 — Ticket 05 收缩内置程序并补齐 UI 抢占测试
+
+- 修改 `src/robot/builtin-program.ts`：把内置程序从 7 段搬运循环收缩为固定三条 `MoveJ → MoveL → MoveJ`——① MoveJ 高速接近取件区上方 `(100,-100,60)`、② MoveL 低速下降到位 `(100,-100,25)`、③ MoveJ 高速返回高位休息点 `(0,0,120)`。三个目标固定、可读、基于 home 零位 TCP 偏移、0° 姿态、全部使用 tool0/wobj0/fine 且无外部轴；不在运行时根据当前 FK 临时生成目标，不保留 7 段兼容入口（删除不再使用的 `yaw` 辅助）。
+- 修改 `src/robot/builtin-program.test.ts`：断言程序长度严格为 3 且顺序为 movej/movel/movej、均使用默认 tool0/wobj0/fine；可达性测试改为按真实程序顺序逐条规划——从 home 规划第一条 MoveJ，用其规划终点作第二条 MoveL 起点，用第二条最终 waypoint 作第三条 MoveJ 起点，每步都确认成功（不再每条都从零关节分别规划）。
+- 修改 `src/robot/program-control.test.ts`：新增手动抢占测试（用真实共享 MotionRunner）——程序运行时手动命令先停止活动程序、程序最终 stopped 且指针不增加、手动运动完成、始终 ≤1 个活动运动；程序暂停时手动命令抢占同样先停止再手动运动；idle 时 `stopActiveProgram` 是无操作。App 的关节单步/随机/回零/笛卡尔四个手动入口都是先调 `stopActiveProgram()` 再启动手动运动，机制一致。
+- 修改 `e2e/abb-program.spec.ts`：describe 标题改为“MoveJ → MoveL → MoveJ”，完整运行程序指针断言由 7 改为 3；停止测试改为稳定流程——先点击停止、等待 UI 显示“已停止”、再读取停止后位姿、等待 700ms 验证位姿不再变化（不再在点击停止前读取位姿并与复位后比较，避免动画帧竞态）。
+- 修改原因：让内置程序、UI 文案、单测与 E2E 表达同一个固定三条程序，并用真实竞争场景证明手动命令不会与程序争用 MotionRunner；复位只复位程序、不移动机器人。
+- 影响：执行语义（ProgramExecutor 串行/暂停/停止/复位）不变；UI 文案本就是“MoveJ → MoveL → MoveJ”，与三条程序一致，无需改动面板与面板测试。
+- 验证结果：`npm run check` 通过；`npm test` 通过（19 个文件、131 passed / 1 个既有 expected-fail）；`npm run build` 通过；临时启动 `vite preview` 后 `npm run test:e2e` 通过（8 passed，含 3 条程序用例与 5 条既有回归），预览已终止、端口 4173 确认无 LISTEN、已释放。
+
+## 2026-08-11 — Ticket 04 收紧 ProgramExecutor 和程序 adapter
+
+- 修改 `src/core/rapid/program-executor.ts`：
+  - `ProgramError.code` 由 `string` 改为 `MotionPlanErrorKind`，直接复用规划错误的可辨识联合类型，禁止复制字符串联合、不再接受任意 string。
+  - `stop()` 增加私有 `stopRequested` 停止请求状态：第一次 stop 在 running/paused 时置位并调用一次 `seam.stop()`，第二次 stop 在当前指令返回前不再调用 seam；`executeLoop` 开头清空停止请求（保证新一次运行不继承旧请求）、指令结算为 `stopped` 后清空；`reset()` 也清空停止请求。
+- 修改 `src/robot/program-control.ts`：
+  - 从 `ProgramControllerMotion` 删除未使用的 `getMotionStatus`，去掉对应 `MotionStatus` 类型导入。
+  - 增加 `[ABB-PROGRAM]` 关键事件日志，放在 application adapter 而非纯 ProgramExecutor：程序开始（info）、暂停（info）、继续（info）、停止请求（info，仅活动程序时）、程序完成/程序停止（info）、程序规划错误（error）。100ms 轮询不做日志输出。
+- 修改 `src/App.vue`：同步删除 `useMotion` 解构中的 `getMotionStatus`，并从传给 `useProgramController` 的 `motion` 对象中移除；`useMotion` 自身仍暴露 `getMotionStatus`（属于 MotionRunner 的已确认能力，不删除）。
+- 修改 `src/core/rapid/program-executor.test.ts`：新增连续两次 stop 只调用一次 seam.stop 且指针不增加、reset 后重新运行再次停止不继承旧停止请求两个用例；文件末尾用 `@ts-expect-error` 断言 `ProgramError.code` 不接受任意 string。
+- 新增 `src/robot/program-control.test.ts`（jsdom）：用可结算的运动 fake 验证 `ProgramControllerMotion` 不再要求 getMotionStatus（对象不含该字段能编译）、运行/暂停/继续/停止请求/程序停止等关键事件都以 `[ABB-PROGRAM]` 前缀输出（不锁定全部文案），并验证手动命令下沉到 MotionRunner。
+- 修改原因：重复 stop 会重复调用 seam 造成竞态、错误码弱类型（string）、无效的 interface 字段残留、以及缺少可观测的关键生命周期日志。
+- 影响：`ProgramExecutionSeam` 接口不变；日志只加在 adapter，纯 ProgramExecutor 不输出日志；未引入 motionId、AbortController、取消 token 或通用任务系统；`motion-control.ts` 生命周期实现未改。
+- 验证结果：`npm run check` 通过；`npm test` 通过（19 个文件、127 passed / 1 个既有 expected-fail）；`git diff --check` 通过。未运行长期驻留服务。
+
+## 2026-08-11 — Ticket 03 修复 MotionRunner 暂停后 retarget 时间轴
+
+- 修改 `src/core/robot/motion-runner.ts`：`startEased` 与 `startTrajectory` 在设置新的 `startTime/animationDuration` 后，立即重置 `totalPausedTime = 0`、`pausedAt = null`。修复根问题：此前同模式 retarget 只更新 startTime/startJoints/目标/duration，却不重置 `totalPausedTime/pausedAt`，导致暂停过一次后再同模式 retarget，`effectiveElapsed = now - startTime - totalPausedTime` 可能变成负数，运动被额外延迟甚至倒退。
+  - 运行中同模式 retarget：复用同一个 Promise、复用同一个 RAF 循环，从当前关节重新开始，新 duration 从 retarget 时刻计算，以前累计的暂停时间不影响新目标。
+  - 暂停中同模式 retarget：状态继续保持 `paused`、不创建 RAF、复用原 Promise、更新目标与起始关节，`resume` 后立即从进度 0 开始，不额外等待历史暂停时间。
+  - 新模式切换语义保持不变：旧 Promise 返回 `stopped`、新模式拥有新 Promise、始终最多一个 RAF。
+- 修改 `src/core/robot/motion-runner.test.ts`：新增 4 条用例——eased 暂停→继续→运行中 retarget 按新 duration 完成且始终 ≤1 个请求帧、eased 暂停中 retarget 保持 paused/不建 RAF/resume 后按新 duration 完成、trajectory 暂停中 retarget 复用 Promise/resume 后准确到新终点、暂停很久后 retarget 不额外等待历史暂停时间（resume 后 1ms 不跳到终点）。
+- 修改原因：`totalPausedTime` 在 retarget 场景未随新时间轴清零，属“测试已覆盖暂停/继续但不覆盖暂停后再 retarget”的时间轴竞态。
+- 影响：未新增 motionId、时间戳 waypoint 或第二个暂停状态机；`manual-motion-clock.ts` 未改动（既有测试能力足够）；speed-limited 与模式切换的既有用例仍通过，无回归。
+- 验证结果：`npm run check` 通过；`npm test` 通过（18 个文件、124 passed / 1 个既有 expected-fail）；`git diff --check` 通过。未运行长期驻留服务。
+
+## 2026-08-11 — 固化 RAPID 参考项目证据边界与文本闭环术语
+
+- 修改 `.scratch/abb-teaching-simulation/map.md`：把 `.scratch/abb-teaching-simulation/reference-projects` 和 `research/10-reference-projects-analysis.md` 写成后续 RAPID 规划的长期证据约束，并明确真实 RAPID 样例、词法/编辑器项目、Posecode 分层参考各自的用途与许可证边界。
+- 修改 `CONTEXT.md`：新增“RAPID 源程序”“诊断”“运动规划错误”三个领域术语；明确源文本是唯一事实源、静态 error 阻止执行、运行期规划错误通过 MoveJ/MoveL 的源码范围回溯，避免 parser、编辑器、程序执行器和 MotionRunner 混用状态与错误概念。
+- 修改原因：用户提醒后续不能遗忘上一阶段整理的地图和本地参考项目；本轮再次核对了 `RAPID-Scripts-and-Demos/PickPlace/PickPlace.mod`、`rapid-for-vim/syntax/rapid.vim`、VS Code 语言配置及 Posecode parser/diagnostics 公共边界，需要把这些依据从会话记忆固化到路线地图。
+- 设计影响：后续最小 RAPID 子集应从真实模块裁剪验收语料，但不能把 Vim/TextMate 高亮正则当 parser，也不能复制无明确许可代码；当前仍只规划一个小而深的文本解析边界，不建设完整 RAPID 编译器。
+- 业务影响：未修改 `src`、测试、依赖或运行时行为；未启动任何前后端服务。
+
+## 2026-08-11 — Ticket 02 补齐 RAPID 规划输入校验
+
+- 修改 `src/core/rapid/plan-shared.ts`：把 `validateMotionInput` 扩展为严格按序的四层校验，非法数据返回 `invalid-data`，合法但首期不支持的配置返回 `unsupported-option`：
+  1. **结构长度**：运行时校验 `trans`=3、`rot`=4、`robconf`=4、`extax`=6、`tframe.rot`=4、`cog`=3、`aom`=4、`uframe.rot`=4、`oframe.rot`=4，畸形长度在索引访问前拒绝（否则读取 undefined 会被当成配置问题）。
+  2. **数值有限性**：robtarget/speeddata/zonedata（pzoneTcp/pzoneOri/pzoneEax/zoneOri/zoneLeax/zoneReax）/tool（tframe、tload 的 mass/cog/aom/ix/iy/iz）/wobj（uframe/oframe）全部数值必须有限，NaN/Infinity/-Infinity → `invalid-data`。
+  3. **四元数非零可归一化**：`robtarget.rot`、`tooldata.tframe.rot`、`loaddata.aom`、`wobjdata.uframe.rot`、`wobjdata.oframe.rot` 长度为零/非有限 → `invalid-data`。
+  4. **speeddata**：`v_tcp/v_ori/v_leax/v_reax` 四个字段都必须为正（原来只校验 v_tcp）。
+  5. **首期支持范围**：在工具/工件/fine 之后新增 `robconf` 必须为 `[0,0,0,0]` 的校验（不再静默忽略 robconf），非法零值外部轴（非 9E9）同样返回 `unsupported-option` 并指出具体字段。
+- 修改 `src/core/rapid/movej-planner.test.ts`：新增校验用例——非零 robconf → unsupported-option（消息含 robconf）、全零 extax 不再被当成未使用 → unsupported-option、畸形 trans/rot 长度 → invalid-data、speeddata 任一速度字段≤0 → invalid-data、zone 非有限 → invalid-data、负载 aom 零四元数 → invalid-data、非默认 ufmec → unsupported-option、非默认工具 frame → unsupported-option。
+- 修改 `src/core/rapid/movel-planner.test.ts`：新增校验用例——非有限 zone 值返回 invalid-data 且 `runTrajectory` 不被调用、畸形 rot 长度返回 invalid-data 且 `runTrajectory` 不被调用，证明非法输入不会进入 `planCartesianPath`。
+- 修改原因：此前只在 robtarget 上做有限性/四元数/部分速度校验，zone/tool/wobj 的畸形与非法数据、非零 robconf 都被静默放过，可能把非法数据带入 IK/路径规划，或把“合法但不支持”的配置当成正常输入。
+- 影响：Safe 的校验顺序与错误分类（非法数据 vs 不支持配置）明确化，`robTargetToPose`/`solveIK`/`planCartesianPath` 只在校验通过后调用；测试用 `as unknown as` 构造畸形数据，不使用 `any`；未修改 IK、ABB 模型、Cartesian planner、MotionRunner。
+- 验证结果：`npm run check` 通过；`npm test` 通过（18 个文件、120 passed / 1 个既有 expected-fail）；`git diff --check` 通过。未运行长期驻留服务。
+
+## 2026-08-11 — 确认下一阶段为 RAPID 文本执行闭环
+
+- 修改 `CONTEXT.md`，新增“RAPID 文本执行闭环”领域术语：真实 RAPID 子集必须经过解析、诊断和符号解析，再复用现有结构化程序执行器；它不等同于完整 RAPID 编译器。
+- 修改原因：用户确认基础结构化 MoveJ/MoveL 之后，下一阶段优先打通 RAPID 文本到机器人运动，而不是先深化 zone/tool/wobj 运动语义或扩展教学观察 UI。
+- 设计影响：后续讨论将围绕最小真实语法、诊断门禁、入口过程和文本界面展开；运动执行、IK、路径规划和 MotionRunner 继续作为既有下游能力复用。
+- 业务影响：未修改 `src`、测试、依赖或运行时行为；Wayfinder 决策票仍在 HITL 讨论中，尚未关闭。
+
+## 2026-08-11 — 认领基础运动后的下一阶段里程碑决策
+
+- 新增 `.scratch/abb-teaching-simulation/issues/09-next-milestone-after-structured-motion.md`，认领“确定基础运动指令后的下一阶段里程碑”HITL 决策票。
+- 修改原因：MotionRunner、结构化 MoveJ/MoveL 和程序执行基础能力已经实现并由用户验证；下一步存在“RAPID 文本闭环、运动语义深化、教学调试体验”三个竞争方向，需要先确定单一里程碑，避免功能横向铺开。
+- 设计影响：本票只决定下一阶段优先级、成功标准和推迟范围，不实现 parser、编辑器、zone、工具/工件变换或新 UI。
+- 业务影响：未修改 `src`、测试、依赖或运行时行为；进入 Wayfinder 的 grilling/domain-modeling 讨论。
+
+## 2026-08-11 — Ticket 01 修正 ABB RAPID 数据契约
+
+- 修改 `src/core/rapid/rapid-types.ts`：让 RAPID 结构类型忠实承载未来 parser 解析出的 ABB 数据，而非项目内部自定义形状。
+  - 新增 `RapidQuat` 类型，明确 ABB 四元数记录顺序为 `[q1,q2,q3,q4]`：q1 是标量 w、q2 是 x、q3 是 y、q4 是 z，单位四元数是 `[1,0,0,0]`（绕 Z 转 90° 为 `[cos45°,0,0,sin45°]`）；新增 `RAPID_UNIT_QUAT = [1,0,0,0]` 领域常量。
+  - 把含糊命名的 `RapiDegreeFrame` 改名为清晰的 `RapidPose`，不使用旧别名。
+  - `RobTarget.rot` 改用 `RapidQuat`；`RobConf` 注释明确为 `[cf1,cf4,cf6,cfx]`。
+  - 新增 `NO_EXTERNAL_AXIS = [9E9,9E9,9E9,9E9,9E9,9E9]` 领域常量：无外部轴的 robtarget 六项用 ABB 未定义值 9E9，不再用全零。
+  - `ZoneData` 调整为与 ABB zonedata 记录一致：`finep/pzoneTcp/pzoneOri/pzoneEax/zoneOri/zoneLeax/zoneReax`，删除错误的 `zone/zoneRot`。
+  - `LoadData` 增加 `ix/iy/iz`，`aom` 改为 `RapidQuat`。
+  - `ToolData.frame` 改为 ABB 对应的 `tframe`。
+  - `WobjData` 删除错误的 `uMecRot` 四元数，改为 `ufmec: string`，并保留 `robhold/ufprog/uframe/oframe`。
+  - `defaultTool0/defaultWobj0` 的 frame 四元数改为单位 RAPID `[1,0,0,0]`，`ufmec` 为空字符串，`loaddata` 提供 `ix/iy/iz`，`aom` 为单位四元数。
+  - `isDefaultTool0` 改为校验 robhold/tframe、负载质量/质心/aom（单位四元数）/ix/iy/iz；`isDefaultWobj0` 校验 robhold/ufprog/ufmec 空字符串/uframe/oframe。
+- 修改 `src/core/rapid/plan-shared.ts`：这是 RAPID → 机器人 Pose 的转换 seam。
+  - 新增 `rapidQuatToInternal`（RAPID `[q1,q2,q3,q4]` → 内部 `[x,y,z,w]`）与 `internalQuatToRapid`（反向），机器人的 `rotation3d`/`quaternionToRotationMatrix` 只按内部 `[x,y,z,w]` 工作，不猜测两种顺序。
+  - `robTargetToPose` 在归一化后、调用 `quaternionToRotationMatrix` 前，先经 `rapidQuatToInternal` 显式转换四元数顺序。
+  - `checkSupportedConfiguration` 的外部轴判定改为：六项均为 `NO_EXTERNAL_AXIS`（9E9）才视为无外部轴，其余返回 `unsupported-option`；不再把全零当“未使用”。
+- 修改 `src/robot/builtin-program.ts`：`yaw()` 四元数改为 RAPID 顺序（返回 `[cos,0,0,sin]`），目标默认姿态与 `extax` 使用单位四元数/`NO_EXTERNAL_AXIS`（9E9）。
+- 修改测试 fixture：`movej-planner.test.ts`、`movel-planner.test.ts`、`program-executor.test.ts` 的目标从内部 `[0,0,0,1]` 四元数与全零 `extax` 改为 RAPID 单位四元数 `[1,0,0,0]` 与 `NO_EXTERNAL_AXIS`（9E9）；`movel-planner.test.ts` 的 `degreeFrameFromPose` 在 FK 四元数（内部顺序）送入 RAPID `rot` 前经 `internalQuatToRapid` 转换，10° 姿态用例同理。
+- 新增 `src/core/rapid/rapid-types.test.ts`：覆盖数据契约验收——单位 RAPID 四元数转换得单位矩阵、Z 轴 90° 四元数转换得正确旋转矩阵、顺序为 `[q1,q2,q3,q4]`、LoadData 含 ix/iy/iz、WobjData.ufmec 为 string、ZoneData 字段与 ABB 一致、无外部轴常量六项 9E9、默认 frame 四元数为 `[1,0,0,0]`。
+- 修改原因：根问题在于“测试通过但不兼容真实 ABB RAPID”——四元数顺序、无外部轴表示、zone/load/tool/wobj 字段都与 ABB 记录不符，未来 parser 无法把解析结果塞进当前形状。统一改到 ABB 约定，为后续 RAPID parser 铺路。
+- 影响：RAPID `rot` 现为 `[q1,q2,q3,q4]`（q1=w），数学模块内部 `[x,y,z,w]` 约定不变，转换只在 plan-shared seam 进行；无外部轴 fixture 全部改用 9E9；`zoneRot/uMecRot/RapiDegreeFrame` 等旧符号不再存在。机器人数学、Cartesian path planner、MotionRunner 未改动。
+- 验证结果：`npm run check` 通过；`npm test` 通过（18 个文件、110 passed / 1 个既有 expected-fail）；`git diff --check` 通过；完成前搜索 `rg "RapiDegreeFrame|uMecRot|zoneRot|rot: \[0, 0, 0, 1\]|extax: \[0, 0, 0, 0, 0, 0\]"` 无结果。未运行长期驻留服务。
+
 ## 2026-08-11 — 内置演示程序升级为更复杂的搬运循环
 
 - 修改 `src/robot/builtin-program.ts`：把内置演示程序从 3 条（MoveJ → MoveL → MoveJ）升级为 7 条的“取件 → 转移 → 放件”搬运循环，全部沿用现有 `tool0`/`wobj0`/`fine`、无外部轴：① MoveJ 高速接近取件点上方 → ② MoveL 低速下降取件 → ③ MoveL 低速提起 → ④ MoveJ 高速转移到放件点上方 → ⑤ MoveL 低速下降放件 → ⑥ MoveL 低速提起 → ⑦ MoveJ 高速返回高位姿态点。
