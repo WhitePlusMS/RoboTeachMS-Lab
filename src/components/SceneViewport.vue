@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { RobotModel } from '../core/robot/robot-model'
-import type { JointAngles } from '../core/robot/types'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles } from '../robotics/types.ts'
 import {
   createAbbScene,
   type AbbSceneController,
   type AbbSceneStatus,
-} from '../scene/abb-scene'
+} from '../scene/abb-scene.ts'
 
 const props = defineProps<{
   joints: JointAngles

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { easeInOutCubic, lerpJoints } from './motion-smoothing'
+import { easeInOutCubic, lerpJoints } from './motion-smoothing.ts'
 
 describe('机器人运动缓动', () => {
   it('缓动曲线在起止点保持边界并在中点对称', () => {

@@ -1,7 +1,7 @@
-import { estimateNumericalJacobian } from '../core/robot/numerical-jacobian'
-import type { RobotModel } from '../core/robot/robot-model'
-import type { JointAngles, Pose } from '../core/robot/types'
-import { AbbDhRobotModel } from '../robots/abb-irb1200/dh-robot-model'
+import { estimateNumericalJacobian } from '../robotics/numerical-jacobian.ts'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles, Pose } from '../robotics/types.ts'
+import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
 
 /** ABB 场景模型适配器；当前候选 DH 仍是 FK/Jacobian 的唯一计算来源。 */
 export class AbbSceneRobotModel implements RobotModel {

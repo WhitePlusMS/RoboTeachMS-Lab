@@ -2,8 +2,8 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import JointControlPanel from './JointControlPanel.vue'
-import { KUKA_JOINT_RANGES } from '../robots/kuka-like/robot-config'
-import type { JointAngles, PoseDisplay } from '../core/robot/types'
+import { KUKA_JOINT_RANGES } from '../robot-models/kuka-like/robot-config.ts'
+import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
 
 const joints: JointAngles = [0, 0, 0, 0, 0, 0]
 const pose: PoseDisplay = {

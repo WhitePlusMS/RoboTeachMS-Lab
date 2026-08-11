@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import type { JointAngles } from '../core/robot/types'
-import { forwardAbbKinematicsFramesDegrees } from '../robots/abb-irb1200/abb-kinematics'
+import type { JointAngles } from '../robotics/types.ts'
+import { forwardAbbKinematicsFramesDegrees } from '../robot-models/abb-irb1200/abb-kinematics.ts'
 
 const DH_FRAME_NAMES = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'FLANGE'] as const
 const DH_FRAME_COLORS = [0xff3b30, 0xff9500, 0xffcc00, 0x34c759, 0x00c7be, 0x007aff, 0xaf52de]

@@ -1,16 +1,16 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import { degToRad, radToDeg } from '../core/robot/math/angle'
-import { mat3Mul, rotationMatrixToEulerZYX } from '../core/robot/math/rotation3d'
-import { eulerZYXToMatrix } from '../core/robot/matrix4x4'
-import { planCartesianPath } from '../core/robot/cartesian-path-planner'
-import type { RobotModel } from '../core/robot/robot-model'
+import { degToRad, radToDeg } from '../robotics/math/angle.ts'
+import { mat3Mul, rotationMatrixToEulerZYX } from '../robotics/math/rotation3d.ts'
+import { eulerZYXToMatrix } from '../robotics/matrix4x4.ts'
+import { planCartesianPath } from '../robotics/cartesian-path-planner.ts'
+import type { RobotModel } from '../robotics/robot-model.ts'
 import type {
   CartesianAxis,
   CoordinateSystem,
   JointAngles,
   Pose,
   PoseDisplay,
-} from '../core/robot/types'
+} from '../robotics/types.ts'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
 export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const

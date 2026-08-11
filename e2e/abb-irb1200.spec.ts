@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import { extractPose } from '../src/core/robot/kinematics'
-import type { JointAngles } from '../src/core/robot/types'
+import { extractPose } from '../src/robotics/kinematics'
+import type { JointAngles } from '../src/robotics/types'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,
-} from '../src/robots/abb-irb1200/abb-kinematics'
+} from '../src/robot-models/abb-irb1200/abb-kinematics'
 import {
   ABB_ACTIVE_JOINT_NODE_NAMES,
   ABB_JOINT_AXES,
@@ -16,8 +16,8 @@ import {
   applyAbbJointAngles,
   findNode,
   prepareAbbModel,
-} from '../src/scene/abb-scene'
-import { extractAbbFbxCalibration } from '../src/scene/abb-fbx-calibration'
+} from '../src/scene/abb-scene.ts'
+import { extractAbbFbxCalibration } from '../src/scene/abb-fbx-calibration.ts'
 
 async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Promise<{
   position: [number, number, number]

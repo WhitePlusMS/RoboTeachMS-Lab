@@ -1,4 +1,4 @@
-import type { JointAngles, RobotConfig } from '../../core/robot/types'
+import type { JointAngles, RobotConfig } from '../../robotics/types.ts'
 
 /** KUKA-like 六轴模型的 DH 配置，长度单位毫米，控制角度单位度。 */
 export const KUKA_LIKE: RobotConfig = {

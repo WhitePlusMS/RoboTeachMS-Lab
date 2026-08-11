@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AbbDhRobotModel } from '../../robots/abb-irb1200/dh-robot-model'
-import { ABB_JOINT_RANGES } from '../../robots/abb-irb1200/robot-config'
-import type { JointAngles, Pose } from './types'
-import { planCartesianPath } from './cartesian-path-planner'
-import { mat3Mul, mat3Transpose, rotationMatrixToEulerZYX } from './math/rotation3d'
+import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles, Pose } from './types.ts'
+import { planCartesianPath } from './cartesian-path-planner.ts'
+import { mat3Mul, mat3Transpose, rotationMatrixToEulerZYX } from './math/rotation3d.ts'
 
 function clonePose(pose: Pose): Pose {
   return {

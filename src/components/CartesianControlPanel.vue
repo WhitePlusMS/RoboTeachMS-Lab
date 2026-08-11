@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import type { CartesianAxis, CoordinateSystem, PoseDisplay } from '../core/robot/types'
+import type { CartesianAxis, CoordinateSystem, PoseDisplay } from '../robotics/types.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '../robot/cartesian-control'
+} from '../application/cartesian-control.ts'
 import {
   ORIENTATION_STEPS,
   POSITION_STEPS,
-} from '../robot/cartesian-control'
+} from '../application/cartesian-control.ts'
 
 interface Props {
   pose: PoseDisplay

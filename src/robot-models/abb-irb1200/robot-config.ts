@@ -1,4 +1,4 @@
-import type { JointAngles, RobotConfig } from '../../core/robot/types'
+import type { JointAngles, RobotConfig } from '../../robotics/types.ts'
 
 /**
  * ABB 经典 IRB 1200-5/0.9 候选标准 DH profile。

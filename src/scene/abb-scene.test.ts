@@ -12,8 +12,8 @@ import {
   createAbbBenchmarkScene,
   findNode,
   prepareAbbModel,
-} from './abb-scene'
-import { extractAbbFbxCalibration } from './abb-fbx-calibration'
+} from './abb-scene.ts'
+import { extractAbbFbxCalibration } from './abb-fbx-calibration.ts'
 
 describe('ABB IRB 1200 FBX 场景适配器', () => {
   it('明确底座、六个主动轴、机械法兰和工具节点', () => {

@@ -7,9 +7,9 @@ import {
   applyJointAngles,
   KUKA_JOINT_NODE_NAMES,
   KUKA_MODEL_SCALE,
-} from './kuka-scene'
-import { createBaseAxes, createToolAxes } from './scene-helpers'
-import { appendTrajectoryPoint } from './trajectory'
+} from './kuka-scene.ts'
+import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
+import { appendTrajectoryPoint } from './trajectory.ts'
 
 describe('KUKA 场景适配器', () => {
   it('公开六个 KUKA 关节节点名称和独立模型缩放', () => {

@@ -1,18 +1,18 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import type { RobotModel } from '../core/robot/robot-model'
-import type { JointAngles } from '../core/robot/types'
-import { ABB_DEFAULT_JOINTS } from '../robots/abb-irb1200/robot-config'
-import { AbbSceneRobotModel } from './abb-scene-model'
-import { createAbbDhDebugChain } from './abb-dh-debug-chain'
-import { createBaseAxes, createToolAxes } from './scene-helpers'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles } from '../robotics/types.ts'
+import { ABB_DEFAULT_JOINTS } from '../robot-models/abb-irb1200/robot-config.ts'
+import { AbbSceneRobotModel } from './abb-scene-model.ts'
+import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
+import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
 import {
   appendTrajectoryPoint,
   DEFAULT_TRAJECTORY_DISTANCE,
   DEFAULT_TRAJECTORY_LIMIT,
   type ScenePoint,
-} from './trajectory'
+} from './trajectory.ts'
 
 export const ABB_MODEL_URL = '/models/ABB_IRB1200_5_90.fbx'
 /** FBX 资产的单位基线是厘米；项目场景使用米，位姿面板再转换为毫米。 */

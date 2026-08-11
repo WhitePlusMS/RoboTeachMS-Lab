@@ -1,4 +1,4 @@
-import type { MotionConfig } from './types'
+import type { MotionConfig } from './types.ts'
 
 /** 原始项目的默认运动过渡参数。 */
 export const DEFAULT_MOTION_CONFIG: MotionConfig = {

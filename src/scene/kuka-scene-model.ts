@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import { orientationError, quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '../core/robot/math/rotation3d'
-import type { RobotModel } from '../core/robot/robot-model'
-import type { JointAngles, Pose } from '../core/robot/types'
+import { orientationError, quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '../robotics/math/rotation3d.ts'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles, Pose } from '../robotics/types.ts'
 
 type ApplyJointAngles = (root: THREE.Group, joints: JointAngles) => void
 

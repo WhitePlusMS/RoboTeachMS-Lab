@@ -1,16 +1,16 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { RobotModel } from '../core/robot/robot-model'
-import type { JointAngles } from '../core/robot/types'
-import { DEFAULT_JOINTS } from '../robots/kuka-like/robot-config'
-import { KukaSceneRobotModel } from './kuka-scene-model'
-import { createBaseAxes, createToolAxes } from './scene-helpers'
+import type { RobotModel } from '../robotics/robot-model.ts'
+import type { JointAngles } from '../robotics/types.ts'
+import { DEFAULT_JOINTS } from '../robot-models/kuka-like/robot-config.ts'
+import { KukaSceneRobotModel } from './kuka-scene-model.ts'
+import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
 import {
   appendTrajectoryPoint,
   DEFAULT_TRAJECTORY_LIMIT,
   type ScenePoint,
-} from './trajectory'
+} from './trajectory.ts'
 
 /** KUKA 资产属于独立应用自己的 public 目录。 */
 export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'

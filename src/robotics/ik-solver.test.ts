@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { solveIK } from './ik-solver'
-import { eulerZYXToMatrix } from './matrix4x4'
-import type { JointAngles, Pose } from './types'
-import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '../../robots/kuka-like/robot-config'
-import { DhRobotModel } from '../../robots/kuka-like/dh-robot-model'
-import { ABB_DEFAULT_JOINTS, ABB_JOINT_RANGES } from '../../robots/abb-irb1200/robot-config'
-import { AbbDhRobotModel } from '../../robots/abb-irb1200/dh-robot-model'
+import { solveIK } from './ik-solver.ts'
+import { eulerZYXToMatrix } from './matrix4x4.ts'
+import type { JointAngles, Pose } from './types.ts'
+import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '../robot-models/kuka-like/robot-config.ts'
+import { DhRobotModel } from '../robot-models/kuka-like/dh-robot-model.ts'
+import { ABB_DEFAULT_JOINTS, ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
+import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
 
 describe('KUKA 数值逆解', () => {
   const model = new DhRobotModel()

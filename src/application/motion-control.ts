@@ -1,6 +1,6 @@
 import { onBeforeUnmount } from 'vue'
-import { createMotionRunner, type MotionClock, type MotionResult, type MotionStatus } from '../core/robot/motion-runner'
-import type { JointAngles, MotionConfig } from '../core/robot/types'
+import { createMotionRunner, type MotionClock, type MotionResult, type MotionStatus } from '../robotics/motion-runner.ts'
+import type { JointAngles, MotionConfig } from '../robotics/types.ts'
 
 export interface MotionControlOptions {
   getCurrentJoints: () => JointAngles

@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '../core/robot/kinematics'
-import { radToDeg } from '../core/robot/math/angle'
+import { poseFromJoints } from '../robotics/kinematics.ts'
+import { radToDeg } from '../robotics/math/angle.ts'
 import {
   applyCartesianDelta,
   useCartesianControl,
-} from './cartesian-control'
-import type { JointAngles, PoseDisplay } from '../core/robot/types'
-import { AbbDhRobotModel } from '../robots/abb-irb1200/dh-robot-model'
-import { ABB_JOINT_RANGES } from '../robots/abb-irb1200/robot-config'
-import { DEFAULT_JOINTS, KUKA_JOINT_RANGES, KUKA_LIKE } from '../robots/kuka-like/robot-config'
-import { DhRobotModel } from '../robots/kuka-like/dh-robot-model'
+} from './cartesian-control.ts'
+import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
+import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
+import { DEFAULT_JOINTS, KUKA_JOINT_RANGES, KUKA_LIKE } from '../robot-models/kuka-like/robot-config.ts'
+import { DhRobotModel } from '../robot-models/kuka-like/dh-robot-model.ts'
 
 const pose: PoseDisplay = {
   positionMm: [100, 200, 300],

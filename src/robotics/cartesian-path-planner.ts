@@ -1,11 +1,11 @@
-import { solveIK } from './ik-solver'
+import { solveIK } from './ik-solver.ts'
 import {
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
   rotationMatrixToQuaternion,
-} from './math/rotation3d'
-import type { RobotModel } from './robot-model'
-import type { JointAngles, Pose } from './types'
+} from './math/rotation3d.ts'
+import type { RobotModel } from './robot-model.ts'
+import type { JointAngles, Pose } from './types.ts'
 
 const DEFAULT_LINEAR_STEP_MM = 1
 const DEFAULT_ANGULAR_STEP_RAD = Math.PI / 180

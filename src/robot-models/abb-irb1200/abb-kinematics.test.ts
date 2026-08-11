@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { extractPose } from '../../core/robot/kinematics'
+import { extractPose } from '../../robotics/kinematics.ts'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,
   standardDhTransform,
-} from './abb-kinematics'
+} from './abb-kinematics.ts'
 
 describe('ABB IRB 1200 专用标准 DH 适配器', () => {
   it('使用标准 DH 矩阵而不是 KUKA 历史矩阵', () => {

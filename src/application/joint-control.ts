@@ -1,12 +1,12 @@
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '../core/robot/kinematics'
-import type { JointAngles } from '../core/robot/types'
+import { poseFromJoints } from '../robotics/kinematics.ts'
+import type { JointAngles } from '../robotics/types.ts'
 import {
   DEFAULT_JOINTS,
   KUKA_JOINT_RANGES,
   KUKA_LIKE,
-} from '../robots/kuka-like/robot-config'
-import type { RobotConfig } from '../core/robot/types'
+} from '../robot-models/kuka-like/robot-config.ts'
+import type { RobotConfig } from '../robotics/types.ts'
 
 export const JOINT_STEPS = [0.1, 1, 5, 10] as const
 export type JointStep = (typeof JOINT_STEPS)[number]

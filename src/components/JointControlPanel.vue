@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import type { JointAngles, PoseDisplay } from '../core/robot/types'
-import type { JointDirection, JointRange, JointStep } from '../robot/joint-control'
-import { JOINT_STEPS } from '../robot/joint-control'
+import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
+import type { JointDirection, JointRange, JointStep } from '../application/joint-control.ts'
+import { JOINT_STEPS } from '../application/joint-control.ts'
 
 interface Props {
   joints: JointAngles

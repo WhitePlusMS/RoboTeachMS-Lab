@@ -1,9 +1,9 @@
 import { Matrix, solve } from 'ml-matrix'
-import { clampDegStep, clampVectorMagnitude } from './math/vector'
-import { radToDeg } from './math/angle'
-import { orientationError } from './math/rotation3d'
-import type { RobotModel } from './robot-model'
-import type { IKSolverConfig, JointAngles, Pose } from './types'
+import { clampDegStep, clampVectorMagnitude } from './math/vector.ts'
+import { radToDeg } from './math/angle.ts'
+import { orientationError } from './math/rotation3d.ts'
+import type { RobotModel } from './robot-model.ts'
+import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
 
 /** 原项目使用的 Levenberg-Marquardt 阻尼最小二乘配置。 */
 export const DEFAULT_IK_CONFIG: IKSolverConfig = {

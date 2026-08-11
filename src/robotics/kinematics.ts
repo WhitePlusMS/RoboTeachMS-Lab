@@ -1,5 +1,5 @@
-import { Matrix4x4 } from './matrix4x4'
-import type { JointAngles, PoseDisplay, RobotConfig } from './types'
+import { Matrix4x4 } from './matrix4x4.ts'
+import type { JointAngles, PoseDisplay, RobotConfig } from './types.ts'
 
 /** 标准 DH 变换；角度参数使用弧度，长度参数使用毫米。 */
 export function dhTransform(theta: number, d: number, a: number, alpha: number): Matrix4x4 {

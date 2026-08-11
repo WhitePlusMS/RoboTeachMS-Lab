@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_DEFAULT_JOINTS, ABB_IRB1200_5_90_STANDARD_DH, ABB_JOINT_RANGES } from './robot-config'
+import { ABB_DEFAULT_JOINTS, ABB_IRB1200_5_90_STANDARD_DH, ABB_JOINT_RANGES } from './robot-config.ts'
 
 describe('ABB IRB 1200-5/0.9 profile', () => {
   it('使用官方手册的六轴关节范围', () => {

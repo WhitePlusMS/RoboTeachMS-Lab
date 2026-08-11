@@ -1,5 +1,5 @@
-import { orientationError } from './math/rotation3d'
-import type { JointAngles, Pose } from './types'
+import { orientationError } from './math/rotation3d.ts'
+import type { JointAngles, Pose } from './types.ts'
 
 export type ForwardKinematics = (jointsDeg: JointAngles) => Pose | null
 

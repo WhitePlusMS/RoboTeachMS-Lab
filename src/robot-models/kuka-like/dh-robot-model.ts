@@ -1,8 +1,8 @@
-import { extractPose, forwardKinematicsDegrees } from '../../core/robot/kinematics'
-import { orientationError } from '../../core/robot/math/rotation3d'
-import type { RobotModel } from '../../core/robot/robot-model'
-import type { JointAngles, Pose } from '../../core/robot/types'
-import { KUKA_LIKE } from './robot-config'
+import { extractPose, forwardKinematicsDegrees } from '../../robotics/kinematics.ts'
+import { orientationError } from '../../robotics/math/rotation3d.ts'
+import type { RobotModel } from '../../robotics/robot-model.ts'
+import type { JointAngles, Pose } from '../../robotics/types.ts'
+import { KUKA_LIKE } from './robot-config.ts'
 
 /** GLB 尚未完成加载时的同接口 DH 回退模型。 */
 export class DhRobotModel implements RobotModel {

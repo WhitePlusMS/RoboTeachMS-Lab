@@ -5,7 +5,7 @@ import {
   ABB_JOINT_AXES,
   ABB_TOOL_NODE_NAME,
   findNode,
-} from './abb-scene'
+} from './abb-scene.ts'
 
 export type AbbJointNodeName = (typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number]
 export type AbbVector3Tuple = [number, number, number]

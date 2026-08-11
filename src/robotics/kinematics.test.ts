@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { extractPose, forwardKinematicsDegrees } from './kinematics'
-import type { JointAngles } from './types'
-import { DEFAULT_JOINTS, KUKA_LIKE } from '../../robots/kuka-like/robot-config'
+import { extractPose, forwardKinematicsDegrees } from './kinematics.ts'
+import type { JointAngles } from './types.ts'
+import { DEFAULT_JOINTS, KUKA_LIKE } from '../robot-models/kuka-like/robot-config.ts'
 
 describe('KUKA 正运动学', () => {
   it('零位 FK 返回有限的末端位置和姿态', () => {
