@@ -625,3 +625,117 @@ h1 {
     flex-wrap: wrap;
   }
 }
+
+/* 结构化内置程序控制面板 */
+.program-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  background: #0b1220;
+}
+
+.program-panel h2 {
+  color: #f8fafc;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.program-sequence {
+  margin: 0;
+  color: #7dd3fc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.program-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0;
+}
+
+.program-stats div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  background: #0d1526;
+}
+
+.program-stats dt {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.program-stats dd {
+  margin: 0;
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.program-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.primary-action,
+.danger-action {
+  border: 1px solid #334155;
+  color: #cbd5e1;
+  background: #1e293b;
+  cursor: pointer;
+  padding: 7px 12px;
+  border-radius: 6px;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.primary-action:hover:not(:disabled) {
+  border-color: #38bdf8;
+  background: #075985;
+  color: #f8fafc;
+}
+
+.danger-action:hover:not(:disabled) {
+  border-color: #f87171;
+  background: #7f1d1d;
+  color: #f8fafc;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.program-error {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.program-state-running {
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+  background: rgba(12, 74, 110, 0.3);
+}
+
+.program-state-paused {
+  border-color: rgba(250, 204, 21, 0.4);
+  color: #fde047;
+  background: rgba(113, 63, 18, 0.3);
+}
+
+.program-state-error {
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.3);
+}
+

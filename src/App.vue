@@ -3,6 +3,7 @@ import { computed, ref, shallowRef } from 'vue'
 import CartesianControlPanel from './components/CartesianControlPanel.vue'
 import CoordinateInfoPanel from './components/CoordinateInfoPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
+import ProgramControlPanel from './components/ProgramControlPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
 import { radToDeg } from './core/robot/math/angle'
 import type { RobotModel } from './core/robot/robot-model'
@@ -14,6 +15,8 @@ import {
 } from './robots/abb-irb1200/robot-config'
 import { adjustJointAngle, randomJointAngles, useJointControl } from './robot/joint-control'
 import { useMotion } from './robot/motion-control'
+import { useProgramController } from './robot/program-control'
+import { createBuiltinProgram } from './robot/builtin-program'
 import { AbbDhRobotModel } from './robots/abb-irb1200/dh-robot-model'
 import type { AbbSceneStatus } from './scene/abb-scene'
 import { useCartesianControl } from './robot/cartesian-control'
@@ -43,6 +46,9 @@ const {
   startSpeedLimitedAnimation,
   startCartesianTrajectory,
   stopAnimation,
+  pauseMotion,
+  resumeMotion,
+  getMotionStatus,
 } = useMotion({
   getCurrentJoints: () => joints.value,
   setJoints: setJointsImmediate,
@@ -50,25 +56,30 @@ const {
 
 /** 滑块输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
 function setJoint(index: number, value: number): void {
+  programControl.stopActiveProgram()
   stopAnimation()
   setJointImmediate(index, value)
 }
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
+  programControl.stopActiveProgram()
   const next = adjustJointAngle(joints.value, index, direction, jointStep.value, ABB_JOINT_RANGES)
   if (isContinuous) startSpeedLimitedAnimation(next)
   else startEasedAnimation(next)
 }
 
 function reset(): void {
+  programControl.stopActiveProgram()
   startEasedAnimation([...ABB_DEFAULT_JOINTS])
 }
 
 function randomize(): void {
+  programControl.stopActiveProgram()
   startEasedAnimation(randomJointAngles(ABB_JOINT_RANGES))
 }
 
 function animateCartesianTrajectory(trajectory: readonly JointAngles[], isContinuous = false): void {
+  programControl.stopActiveProgram()
   startCartesianTrajectory(trajectory, isContinuous ? 140 : undefined)
 }
 
@@ -86,6 +97,23 @@ const pose = computed<PoseDisplay>(() => {
 function handleRobotModel(model: RobotModel | null): void {
   robotModel.value = model ?? fallbackRobotModel
 }
+
+/** 内置结构化 ABB 程序控制器；只复用既有 MotionRunner、ABB 模型与 joint 状态。 */
+const programControl = useProgramController({
+  program: createBuiltinProgram(),
+  robotModel,
+  joints,
+  jointRanges: ABB_JOINT_RANGES,
+  motion: {
+    startEasedAnimation,
+    startCartesianTrajectory,
+    stopAnimation,
+    pauseMotion,
+    resumeMotion,
+    getMotionStatus,
+  },
+})
+const programSnapshot = programControl.snapshot
 
 const {
   coordinateSystem,
@@ -180,6 +208,15 @@ const statusLabel = computed(() => {
           @coordinate-change="setCoordinateSystem"
           @position-step-change="setPositionStep"
           @orientation-step-change="setOrientationStep"
+        />
+
+        <ProgramControlPanel
+          :snapshot="programSnapshot"
+          @run="programControl.run()"
+          @pause="programControl.pause()"
+          @resume="programControl.resume()"
+          @stop="programControl.stop()"
+          @reset="programControl.reset()"
         />
       </aside>
 
