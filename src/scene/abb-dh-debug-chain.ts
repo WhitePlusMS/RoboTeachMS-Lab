@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { JointAngles } from '../robotics/types.ts'
 import { forwardAbbKinematicsFramesDegrees } from '../robot-models/abb-irb1200/abb-kinematics.ts'
+import { abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
 
 const DH_FRAME_NAMES = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'FLANGE'] as const
 const DH_FRAME_COLORS = [0xff3b30, 0xff9500, 0xffcc00, 0x34c759, 0x00c7be, 0x007aff, 0xaf52de]
@@ -69,8 +70,9 @@ export function createAbbDhDebugChain(): AbbDhDebugChain {
   group.add(line)
 
   const update = (joints: JointAngles): void => {
-    const frames = forwardAbbKinematicsFramesDegrees(joints)
-    frames.forEach((frame, index) => {
+    // 核心 FK 返回 ABB 基座 frame；显示前经唯一场景显示转换映射到 Three.js。
+    const sceneFrames = forwardAbbKinematicsFramesDegrees(joints).map(abbBaseFrameToSceneFrame)
+    sceneFrames.forEach((frame, index) => {
       const position = frame.getPosition()
       const rotation = matrixToThreeMatrix(frame.getRotation())
       const scenePosition = new THREE.Vector3(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { extractPose } from '../../robotics/kinematics.ts'
+import { abbBaseFrameToSceneFrame } from '../../scene/abb-scene-transform.ts'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,
@@ -17,12 +18,12 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
     expect(transform.data[2][3]).toBeCloseTo(399.1)
   })
 
-  it('零位使用 ABB 基座到 Three.js 世界的固定坐标转换', () => {
+  it('零位机械法兰位于 ABB 基座坐标约 [451, 0, 807.1] mm，不再携带场景/工具偏移', () => {
     const pose = extractPose(forwardAbbKinematicsDegrees([0, 0, 0, 0, 0, 0]))
 
     expect(pose.position[0]).toBeCloseTo(451)
-    expect(pose.position[1]).toBeCloseTo(713.197792)
-    expect(pose.position[2]).toBeCloseTo(0)
+    expect(pose.position[1]).toBeCloseTo(0)
+    expect(pose.position[2]).toBeCloseTo(807.1)
     expect(pose.position.every(Number.isFinite)).toBe(true)
     expect(pose.eulerZYX.every(Number.isFinite)).toBe(true)
   })
@@ -34,17 +35,17 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
     expect(moved.position).not.toEqual(zero.position)
   })
 
-  it('输出可用于可视化的七个 DH 原点 frame', () => {
+  it('输出可用于可视化的七个 DH 原点 frame，均为 ABB 基座坐标', () => {
     const frames = forwardAbbKinematicsFramesDegrees([0, 0, 0, 0, 0, 0])
     const positions = frames.map((frame) => frame.getPosition())
     const expectedPositions = [
       [0, 0, 0],
-      [0, 399.1, 0],
-      [0, 847.1, 0],
-      [0, 889.1, 0],
-      [451, 889.1, 0],
-      [451, 889.1, 0],
-      [451, 807.1, 0],
+      [0, 0, 399.1],
+      [0, 0, 847.1],
+      [0, 0, 889.1],
+      [451, 0, 889.1],
+      [451, 0, 889.1],
+      [451, 0, 807.1],
     ]
 
     expect(frames).toHaveLength(7)
@@ -55,8 +56,8 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
     })
   })
 
-  it('零位关节轴与 FBX 已确认的轴线一致，并使腕部沿负 Y 方向伸出', () => {
-    const frames = forwardAbbKinematicsFramesDegrees([0, 0, 0, 0, 0, 0])
+  it('ABB 基座 frame 经唯一场景显示转换后的关节轴与 FBX 一致，并使腕部沿负 Y 伸出', () => {
+    const frames = forwardAbbKinematicsFramesDegrees([0, 0, 0, 0, 0, 0]).map(abbBaseFrameToSceneFrame)
     const expectedDirectedAxes = [
       [0, 1, 0],
       [0, 0, -1],

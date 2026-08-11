@@ -279,10 +279,11 @@ describe('executeMoveL 控制与时长', () => {
   })
 
   it('不可达 / 构型跳变规划失败发生在运动启动前，runTrajectory 不被调用', async () => {
-    const startJoints: JointAngles = [-129.4, 58.4, -30.4, -148.6, -66.7, 35.2]
+    // 腕部接近奇异（J5=-90、J6=-300），+5mm 点动会迫使某关节 >5° 跳变，MoveL 在启动前被拒。
+    const startJoints: JointAngles = [15, -20, 30, 0, -90, -300]
     const start = degreeFrameFromPose(startJoints)
     const target: RobTarget = {
-      trans: [start.position[0], start.position[1], start.position[2] + 5],
+      trans: [start.position[0], start.position[1] + 5, start.position[2]],
       rot: start.frame.rot,
       robconf: [0, 0, 0, 0],
       extax: [...NO_EXTERNAL_AXIS],

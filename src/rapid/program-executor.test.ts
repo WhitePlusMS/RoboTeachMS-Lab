@@ -19,7 +19,7 @@ import {
 } from './rapid-types.ts'
 
 const REACHABLE: RobTarget = {
-  trans: [500, 600, 100],
+  trans: [500, 100, 807.1],
   rot: [1, 0, 0, 0],
   robconf: [0, 0, 0, 0],
   extax: [...NO_EXTERNAL_AXIS],

@@ -47,9 +47,10 @@ describe('Cartesian path planner', () => {
 
   it('拒绝会让 ABB 关节跨构型跳变的 5 mm 目标', () => {
     const model = new AbbDhRobotModel()
-    const startJoints: JointAngles = [-129.4, 58.4, -30.4, -148.6, -66.7, 35.2]
+    // 腕部接近奇异（J5=-90、J6=-300），+5mm 点动会迫使某关节 >5° 跳变而被拒绝。
+    const startJoints: JointAngles = [15, -20, 30, 0, -90, -300]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
-    targetPose.position[2] += 5
+    targetPose.position[1] += 5
 
     const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
 

@@ -5,6 +5,8 @@ import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
 import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import { executeMoveJ, planMoveJ } from './movej-planner.ts'
+import { robTargetToPose } from './plan-shared.ts'
+import { orientationError } from '../robotics/math/rotation3d.ts'
 import {
   defaultTool0,
   defaultWobj0,
@@ -19,9 +21,9 @@ import {
 const ABB_MODEL = new AbbDhRobotModel()
 const AT_HOME: JointAngles = [0, 0, 0, 0, 0, 0]
 
-/** 固定可达 robtarget：从 home [451,713,0] 移动到 [500,600,100]，单位 RAPID 四元数姿态。 */
+/** 固定可达 robtarget：从 home 机械法兰 [451,0,807.1] 移动至 [500,100,807.1]，单位 RAPID 四元数姿态。 */
 const REACHABLE_TARGET: RobTarget = {
-  trans: [500, 600, 100],
+  trans: [500, 100, 807.1],
   rot: [1, 0, 0, 0],
   robconf: [0, 0, 0, 0],
   extax: [...NO_EXTERNAL_AXIS],
@@ -131,8 +133,8 @@ describe('planMoveJ 时长仿真近似', () => {
     const result = planMoveJ(makeMoveJ(), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
     expect(result.ok).toBe(true)
     if (result.ok) {
-      // home → [500,600,100] 直线距离约 158.6mm，v_tcp=100 → 约 1586ms。
-      const distance = Math.hypot(500 - 451, 600 - 713.197792, 100 - 0)
+      // home → [500,100,807.1] 直线距离约 111.4mm，v_tcp=100 → 约 1114ms。
+      const distance = Math.hypot(500 - 451, 100 - 0, 807.1 - 807.1)
       expect(result.durationMs).toBeCloseTo((distance / 100) * 1000, 0)
     }
   })
@@ -169,10 +171,10 @@ describe('executeMoveJ 经 MotionRunner 完成一个 ABB 目标', () => {
       expect(Math.abs(endPose.position[0] - REACHABLE_TARGET.trans[0])).toBeLessThan(2)
       expect(Math.abs(endPose.position[1] - REACHABLE_TARGET.trans[1])).toBeLessThan(2)
       expect(Math.abs(endPose.position[2] - REACHABLE_TARGET.trans[2])).toBeLessThan(2)
-      // 单位四元数姿态 → 终点姿态接近单位旋转（euler ZYX ≈ 0）。
-      expect(Math.abs(endPose.euler[0])).toBeLessThan(1e-3)
-      expect(Math.abs(endPose.euler[1])).toBeLessThan(1e-3)
-      expect(Math.abs(endPose.euler[2])).toBeLessThan(1e-3)
+      // 终点姿态通过旋转矩阵比较 robtarget 姿态（与坐标轴无关）；euler 表示在 ABB 基座下不唯一。
+      const targetRotation = robTargetToPose(REACHABLE_TARGET).rotation
+      const orientationDelta = orientationError(endPose.rotation, targetRotation)
+      expect(Math.max(...orientationDelta)).toBeLessThan(1e-3)
     }
   })
 
