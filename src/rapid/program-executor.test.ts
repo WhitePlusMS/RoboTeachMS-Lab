@@ -1,27 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '../robot/motion-runner'
-import { ManualMotionClock } from '../robot/manual-motion-clock'
-import { AbbDhRobotModel } from '../../robots/abb-irb1200/dh-robot-model'
-import { ABB_JOINT_RANGES } from '../../robots/abb-irb1200/robot-config'
-import type { JointAngles } from '../robot/types'
-import { executeMoveJ } from './movej-planner'
-import { executeMoveL } from './movel-planner'
-import { createProgramExecutor, type InstructionOutcome, type ProgramExecutionSeam } from './program-executor'
+import { createMotionRunner } from '../robotics/motion-runner.ts'
+import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
+import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles } from '../robotics/types.ts'
+import { executeMoveJ } from './movej-planner.ts'
+import { executeMoveL } from './movel-planner.ts'
+import { createProgramExecutor, type InstructionOutcome, type ProgramError, type ProgramExecutionSeam } from './program-executor.ts'
 import {
   defaultTool0,
   defaultWobj0,
   defaultZoneFine,
+  NO_EXTERNAL_AXIS,
   type RobTarget,
   type StructuredMoveJ,
   type StructuredMoveL,
   type StructuredMotionInstruction,
-} from './rapid-types'
+} from './rapid-types.ts'
 
 const REACHABLE: RobTarget = {
   trans: [500, 600, 100],
-  rot: [0, 0, 0, 1],
+  rot: [1, 0, 0, 0],
   robconf: [0, 0, 0, 0],
-  extax: [0, 0, 0, 0, 0, 0],
+  extax: [...NO_EXTERNAL_AXIS],
 }
 
 function makeMoveJ(overrides: Partial<StructuredMoveJ> = {}): StructuredMoveJ {
@@ -275,6 +276,52 @@ describe('ProgramExecutor 控制命令', () => {
     expect(executor.getSnapshot().state).toBe('stopped')
   })
 
+  it('连续调用两次 stop 时 seam.stop 只执行一次、程序指针不增加', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
+
+    const runPromise = executor.run()
+    await Promise.resolve()
+    expect(seam.calls).toEqual(['movej'])
+
+    // 第一次 stop 委托 seam 并置停止请求；第二次 stop 不得再调用 seam。
+    executor.stop()
+    executor.stop()
+    expect(seam.stopCalls).toBe(1)
+
+    expect(await runPromise).toBe('stopped')
+    // 停止不推进到下一指令，程序指针保持 0。
+    expect(executor.getSnapshot().state).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(0)
+    expect(seam.calls).toEqual(['movej'])
+  })
+
+  it('reset 后可以重新运行并再次停止（不继承旧停止请求）', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
+
+    let runPromise = executor.run()
+    await Promise.resolve()
+    executor.stop()
+    expect(await runPromise).toBe('stopped')
+    expect(seam.stopCalls).toBe(1)
+
+    // 清空 seam 记账，复位后重新运行再停止。
+    seam.stopCalls = 0
+    seam.calls.length = 0
+    executor.reset()
+    expect(executor.getSnapshot().state).toBe('idle')
+
+    runPromise = executor.run()
+    await Promise.resolve()
+    expect(seam.calls).toEqual(['movej'])
+    executor.stop()
+    // 新一次运行的停止请求生效（若旧请求未清空，这里 seam.stop 不会被再次调用）。
+    expect(seam.stopCalls).toBe(1)
+    expect(await runPromise).toBe('stopped')
+    expect(executor.getSnapshot().state).toBe('stopped')
+  })
+
   it('completed 后 reset 回到 idle，指针归零、错误清空', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([makeMoveJ()], seam)
@@ -363,9 +410,9 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
     const homePose = model.forwardKinematics([0, 0, 0, 0, 0, 0])!
     const at = (dx: number, dy: number, dz: number): RobTarget => ({
       trans: [homePose.position[0] + dx, homePose.position[1] + dy, homePose.position[2] + dz],
-      rot: [0, 0, 0, 1],
+      rot: [1, 0, 0, 0],
       robconf: [0, 0, 0, 0],
-      extax: [0, 0, 0, 0, 0, 0],
+      extax: [...NO_EXTERNAL_AXIS],
     })
     const program: StructuredMotionInstruction[] = [
       makeMoveJ({ target: at(40, 0, -20) }),
@@ -455,3 +502,8 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
     expect(executor.getSnapshot().motionPointer).toBeNull()
   })
 })
+
+// ProgramError.code 复用规划错误可辨识联合种类，不接受任意 string。
+// @ts-expect-error ProgramError.code 不接受任意 string
+const _badCode: ProgramError = { index: 0, code: 'anything', message: 'x' }
+void _badCode

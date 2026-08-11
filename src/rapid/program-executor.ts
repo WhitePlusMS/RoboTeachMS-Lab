@@ -1,5 +1,5 @@
-import type { MotionPlanError } from './plan-shared'
-import type { StructuredMotionInstruction } from './rapid-types'
+import type { MotionPlanError, MotionPlanErrorKind } from './plan-shared.ts'
+import type { StructuredMotionInstruction } from './rapid-types.ts'
 
 /**
  * 程序状态；只有 ProgramExecutor 内部维护这些值，调用方通过 getSnapshot 读取。
@@ -7,10 +7,10 @@ import type { StructuredMotionInstruction } from './rapid-types'
  */
 export type ProgramState = 'idle' | 'running' | 'paused' | 'completed' | 'stopped' | 'error'
 
-/** 规划错误快照：指令索引 + 稳定错误码（与规划错误 kind 一致）+ 可读消息。 */
+/** 规划错误快照：指令索引 + 稳定错误码（复用规划错误 kind，不接受任意 string）+ 可读消息。 */
 export interface ProgramError {
   index: number
-  code: string
+  code: MotionPlanErrorKind
   message: string
 }
 
@@ -73,6 +73,8 @@ export function createProgramExecutor(
   let programPointer = 0
   let motionPointer: number | null = null
   let error: ProgramError | null = null
+  // 最小停止请求状态：保证一次运行中连续多次 stop 只委托一次 seam.stop()。
+  let stopRequested = false
 
   function currentSnapshot(): ProgramSnapshot {
     return {
@@ -85,6 +87,8 @@ export function createProgramExecutor(
 
   async function executeLoop(): Promise<ProgramState> {
     state = 'running'
+    // 新一次运行不继承上一次停止请求。
+    stopRequested = false
     while (programPointer < instructions.length) {
       const index = programPointer
       motionPointer = index
@@ -93,12 +97,15 @@ export function createProgramExecutor(
       if (!outcome.ok) {
         error = { index, code: outcome.error.kind, message: outcome.error.message }
         motionPointer = null
+        stopRequested = false
         state = 'error'
         return 'error'
       }
       if (outcome.result === 'stopped') {
         // 停止不算完成：programPointer 不增加，motionPointer 清空，程序进入 stopped。
         motionPointer = null
+        // 当前指令已结算为 stopped，清空停止请求，后续 reset/重新运行不再视为停止中。
+        stopRequested = false
         state = 'stopped'
         return 'stopped'
       }
@@ -132,7 +139,10 @@ export function createProgramExecutor(
 
   function stop(): void {
     if (state !== 'running' && state !== 'paused') return
-    // 只委托当前运动停止；不在这里直接改状态，避免“旧 async 链在 stop/reset 后再次写状态”的竞态。
+    // 只委托一次 seam.stop；第二次 stop 在当前指令返回前不得再次调用 seam。
+    if (stopRequested) return
+    stopRequested = true
+    // 不在这里直接改状态，避免“旧 async 链在 stop/reset 后再次写状态”的竞态。
     // 终止结果由 executeLoop 在恢复后统一结算为 stopped（指针不推进）。
     seam.stop()
   }
@@ -143,6 +153,7 @@ export function createProgramExecutor(
       programPointer = 0
       motionPointer = null
       error = null
+      stopRequested = false
       state = 'idle'
       // 不移动机器人、不回零、不清空场景轨迹、不重新规划程序。
     }
