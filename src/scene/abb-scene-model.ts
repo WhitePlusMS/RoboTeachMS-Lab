@@ -3,7 +3,7 @@ import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles, Pose } from '../core/robot/types'
 import { AbbDhRobotModel } from '../robots/abb-irb1200/dh-robot-model'
 
-/** 直接从 ABB FBX 的关节层级采样真实场景 FK/Jacobian。 */
+/** ABB 场景模型适配器；当前候选 DH 仍是 FK/Jacobian 的唯一计算来源。 */
 export class AbbSceneRobotModel implements RobotModel {
   private readonly kinematicsModel = new AbbDhRobotModel()
 

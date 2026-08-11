@@ -5,6 +5,7 @@ import type { RobotModel } from '../core/robot/robot-model'
 import type { JointAngles } from '../core/robot/types'
 import { ABB_DEFAULT_JOINTS } from '../robots/abb-irb1200/robot-config'
 import { AbbSceneRobotModel } from './abb-scene-model'
+import { createAbbDhDebugChain } from './abb-dh-debug-chain'
 import { createBaseAxes, createToolAxes } from './scene-helpers'
 import {
   appendTrajectoryPoint,
@@ -25,9 +26,11 @@ export const ABB_ACTIVE_JOINT_NODE_NAMES = [
   'joint5',
   'joint6',
 ] as const
-export const ABB_FLANGE_NODE_NAME = 'joint7'
+/** joint6 是 ABB 机械法兰；joint7 及其 joint8/joint9 子树属于当前 FBX 携带的夹具。 */
+export const ABB_FLANGE_NODE_NAME = 'joint6'
+export const ABB_TOOL_NODE_NAME = 'joint7'
 
-const ABB_JOINT_AXES: Record<(typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
+export const ABB_JOINT_AXES: Record<(typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
   joint1: new THREE.Vector3(0, 1, 0),
   joint2: new THREE.Vector3(0, 0, 1),
   joint3: new THREE.Vector3(0, 0, 1),
@@ -44,6 +47,7 @@ export interface AbbSceneOptions {
   onTrajectoryCount?: (count: number) => void
   showGrid?: boolean
   showCoordinateSystems?: boolean
+  showDhDebug?: boolean
   showTrajectory?: boolean
 }
 
@@ -51,6 +55,7 @@ export interface AbbSceneController {
   setJoints: (joints: JointAngles) => void
   setGridVisible: (visible: boolean) => void
   setCoordinateSystemsVisible: (visible: boolean) => void
+  setDhDebugVisible: (visible: boolean) => void
   setTrajectoryVisible: (visible: boolean) => void
   clearTrajectory: () => void
   dispose: () => void
@@ -127,6 +132,10 @@ export function prepareAbbModel(model: THREE.Group): THREE.Group {
   root.userData.baseNodeName = ABB_BASE_NODE_NAME
   root.userData.activeJointNodeNames = [...ABB_ACTIVE_JOINT_NODE_NAMES]
   root.userData.flangeNodeName = ABB_FLANGE_NODE_NAME
+  root.userData.toolNodeName = ABB_TOOL_NODE_NAME
+  root.userData.fbxBaseHeightMm = baseBounds.isEmpty()
+    ? 0
+    : (baseBounds.max.y - baseBounds.min.y) * ABB_MODEL_SCALE * 1000
   root.add(scaleGroup)
   return root
 }
@@ -173,7 +182,7 @@ function createFallbackRobot(): THREE.Group {
   const tool = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 0.14), darkMaterial)
   tool.position.set(0.22, 1.18, 0)
   tool.castShadow = true
-  tool.name = ABB_FLANGE_NODE_NAME
+  tool.name = ABB_TOOL_NODE_NAME
   root.add(tool)
   return root
 }
@@ -266,6 +275,7 @@ export function createAbbScene(
   const baseAxes = scene.getObjectByName('BaseAxesHelper')
   const showGrid = options.showGrid ?? true
   let showCoordinateSystems = options.showCoordinateSystems ?? true
+  let showDhDebug = options.showDhDebug ?? true
   let showTrajectory = options.showTrajectory ?? false
   if (grid) grid.visible = showGrid
   if (baseAxes) baseAxes.visible = showCoordinateSystems
@@ -301,6 +311,10 @@ export function createAbbScene(
   let loadedModel: THREE.Group | null = null
   let robotModel: AbbSceneRobotModel | null = null
   let targetJoints: JointAngles = [...ABB_DEFAULT_JOINTS]
+  const dhDebugChain = createAbbDhDebugChain()
+  dhDebugChain.group.visible = showDhDebug
+  dhDebugChain.update(targetJoints)
+  scene.add(dhDebugChain.group)
   let toolAxes: THREE.Group | null = null
   let trajectoryPoints: ScenePoint[] = []
   let lastTrajectoryPoint: ScenePoint | null = null
@@ -327,13 +341,13 @@ export function createAbbScene(
 
   function updateToolAxes(): void {
     if (!loadedModel || !toolAxes) return
-    const flange = findNode(loadedModel, ABB_FLANGE_NODE_NAME)
-    if (!flange) return
+    const tool = findNode(loadedModel, ABB_TOOL_NODE_NAME)
+    if (!tool) return
     loadedModel.updateMatrixWorld(true)
     const position = new THREE.Vector3()
     const quaternion = new THREE.Quaternion()
-    flange.getWorldPosition(position)
-    flange.getWorldQuaternion(quaternion)
+    tool.getWorldPosition(position)
+    tool.getWorldQuaternion(quaternion)
     toolAxes.position.copy(position)
     toolAxes.quaternion.copy(quaternion)
   }
@@ -341,12 +355,12 @@ export function createAbbScene(
   function sampleTrajectory(now: number): void {
     if (!loadedModel || now - lastTrajectoryTime < 50) return
     lastTrajectoryTime = now
-    const flange = findNode(loadedModel, ABB_FLANGE_NODE_NAME)
-    if (!flange) return
+    const tool = findNode(loadedModel, ABB_TOOL_NODE_NAME)
+    if (!tool) return
 
     loadedModel.updateMatrixWorld(true)
     const position = new THREE.Vector3()
-    flange.getWorldPosition(position)
+    tool.getWorldPosition(position)
     const point: ScenePoint = [position.x, position.y, position.z]
     const previousPoint = lastTrajectoryPoint
     lastTrajectoryPoint = point
@@ -371,13 +385,15 @@ export function createAbbScene(
     (model) => {
       if (disposed) return
       loadedModel = prepareAbbModel(model)
+      const fbxBaseHeightMm = loadedModel.userData.fbxBaseHeightMm
+      if (typeof fbxBaseHeightMm === 'number') dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
       applyAbbJointAngles(loadedModel, targetJoints)
       robotModel = new AbbSceneRobotModel()
       scene.add(loadedModel)
       attachToolAxes()
       onModel(robotModel)
       onStatus('ready')
-      console.info('[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，末端=joint7')
+      console.info('[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，机械法兰=joint6，工具=joint7')
     },
     undefined,
     (error) => {
@@ -406,6 +422,7 @@ export function createAbbScene(
   return {
     setJoints: (joints: JointAngles) => {
       targetJoints = [...joints]
+      dhDebugChain.update(targetJoints)
       if (loadedModel) applyAbbJointAngles(loadedModel, targetJoints)
     },
     setGridVisible: (visible: boolean) => {
@@ -415,6 +432,10 @@ export function createAbbScene(
       showCoordinateSystems = visible
       if (baseAxes) baseAxes.visible = visible
       if (toolAxes) toolAxes.visible = visible
+    },
+    setDhDebugVisible: (visible: boolean) => {
+      showDhDebug = visible
+      dhDebugChain.group.visible = visible
     },
     setTrajectoryVisible: (visible: boolean) => {
       showTrajectory = visible

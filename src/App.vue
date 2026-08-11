@@ -21,6 +21,7 @@ import { useCartesianControl } from './robot/cartesian-control'
 const sceneStatus = ref<AbbSceneStatus>('loading')
 const showGrid = ref(true)
 const showCoordinateSystems = ref(true)
+const showDhDebug = ref(true)
 const showTrajectory = ref(false)
 const trajectoryCount = ref(0)
 const {
@@ -40,6 +41,7 @@ const {
 const {
   startEasedAnimation,
   startSpeedLimitedAnimation,
+  startCartesianTrajectory,
   stopAnimation,
 } = useMotion({
   getCurrentJoints: () => joints.value,
@@ -66,9 +68,8 @@ function randomize(): void {
   startEasedAnimation(randomJointAngles(ABB_JOINT_RANGES))
 }
 
-function animateCartesianJoints(next: JointAngles, isContinuous = false): void {
-  if (isContinuous) startSpeedLimitedAnimation(next)
-  else startEasedAnimation(next)
+function animateCartesianTrajectory(trajectory: readonly JointAngles[], isContinuous = false): void {
+  startCartesianTrajectory(trajectory, isContinuous ? 140 : undefined)
 }
 
 const fallbackRobotModel = new AbbDhRobotModel()
@@ -102,7 +103,7 @@ const {
   pose,
   robotModel,
   jointRanges: ABB_JOINT_RANGES,
-  moveToJoints: animateCartesianJoints,
+  moveToTrajectory: animateCartesianTrajectory,
 })
 
 const statusLabel = computed(() => {
@@ -187,12 +188,14 @@ const statusLabel = computed(() => {
           :joints="joints"
           :show-grid="showGrid"
           :show-coordinate-systems="showCoordinateSystems"
+          :show-dh-debug="showDhDebug"
           :show-trajectory="showTrajectory"
           :trajectory-count="trajectoryCount"
           @status="sceneStatus = $event"
           @model="handleRobotModel"
           @grid-change="showGrid = $event"
           @coordinates-change="showCoordinateSystems = $event"
+          @dh-debug-change="showDhDebug = $event"
           @trajectory-change="showTrajectory = $event"
           @trajectory-count="trajectoryCount = $event"
         />

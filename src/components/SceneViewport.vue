@@ -12,6 +12,7 @@ const props = defineProps<{
   joints: JointAngles
   showGrid: boolean
   showCoordinateSystems: boolean
+  showDhDebug: boolean
   showTrajectory: boolean
   trajectoryCount: number
 }>()
@@ -21,6 +22,7 @@ const emit = defineEmits<{
   model: [value: RobotModel | null]
   'grid-change': [value: boolean]
   'coordinates-change': [value: boolean]
+  'dh-debug-change': [value: boolean]
   'trajectory-change': [value: boolean]
   'trajectory-count': [value: number]
 }>()
@@ -36,6 +38,7 @@ onMounted(() => {
     onTrajectoryCount: (count) => emit('trajectory-count', count),
     showGrid: props.showGrid,
     showCoordinateSystems: props.showCoordinateSystems,
+    showDhDebug: props.showDhDebug,
     showTrajectory: props.showTrajectory,
   })
   controller.setJoints(props.joints)
@@ -52,10 +55,11 @@ function clearTrajectory(): void {
 }
 
 watch(
-  () => [props.showGrid, props.showCoordinateSystems, props.showTrajectory] as const,
-  ([showGrid, showCoordinateSystems, showTrajectory]) => {
+  () => [props.showGrid, props.showCoordinateSystems, props.showDhDebug, props.showTrajectory] as const,
+  ([showGrid, showCoordinateSystems, showDhDebug, showTrajectory]) => {
     controller?.setGridVisible(showGrid)
     controller?.setCoordinateSystemsVisible(showCoordinateSystems)
+    controller?.setDhDebugVisible(showDhDebug)
     controller?.setTrajectoryVisible(showTrajectory)
   },
 )
@@ -82,6 +86,12 @@ onBeforeUnmount(() => {
         :aria-pressed="props.showCoordinateSystems"
         @click="emit('coordinates-change', !props.showCoordinateSystems)"
       >基座/工具坐标</button>
+      <button
+        type="button"
+        :class="['scene-aux-button', { active: props.showDhDebug }]"
+        :aria-pressed="props.showDhDebug"
+        @click="emit('dh-debug-change', !props.showDhDebug)"
+      >DH参考链</button>
       <button
         type="button"
         :class="['scene-aux-button', { active: props.showTrajectory }]"
