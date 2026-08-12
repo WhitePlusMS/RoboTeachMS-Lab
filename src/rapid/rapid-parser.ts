@@ -123,6 +123,11 @@ interface PendingMotion {
   sourceText: string
 }
 
+interface OperandSlotResult {
+  token: Token | null
+  separatorConsumed: boolean
+}
+
 interface SymbolEntry {
   target: RobTarget
   /** 声明的名称范围。 */
@@ -153,8 +158,20 @@ const KNOWN_UNSUPPORTED_TYPES = new Set([
   'num',
   'bool',
   'string',
+  'int',
   'intnum',
   'dnum',
+  'byte',
+  'word',
+  'clock',
+  'errstr',
+  'jointtarget',
+  'signalai',
+  'signaldi',
+  'signalao',
+  'signaldo',
+  'signalgi',
+  'signalgo',
   'tooldata',
   'wobjdata',
   'speeddata',
@@ -296,6 +313,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
   const diagnostics = [...lexed.diagnostics]
   const symbols = new Map<string, SymbolEntry>()
   const pendingMotions: PendingMotion[] = []
+  const pendingTargetReferences: Token[] = []
   let cursor = 0
   let moduleCount = 0
   let mainCount = 0
@@ -508,16 +526,20 @@ export function parseRapidProgram(source: string): RapidParseResult {
     return isMotionBoundary(current()) || current().kind === 'eof'
   }
 
-  /**
-   * 把解析到的目标名作为引用记录：已定义则计入 Program Data 引用范围，否则发未定义诊断。
-   * 目标操作数无论指令最终是否完整都唯一可识别，因此在解析阶段立即结算，避免断裂恢复丢失根因。
-   */
-  function recordTargetReference(nameToken: Token): void {
-    const symbol = symbols.get(normalizeName(nameToken.text))
-    if (symbol) {
-      symbol.references.push(rangeFromToken(nameToken, lineStarts))
-    } else {
-      addDiagnostic('undefined-symbol', `未定义 robtarget ${nameToken.text}`, nameToken)
+  /** 暂存解析到的目标名；目标操作数即使所在运动断裂也必须保留引用信息。 */
+  function queueTargetReference(nameToken: Token): void {
+    pendingTargetReferences.push(nameToken)
+  }
+
+  /** 在完整模块解析后结算引用，支持声明位于 main 之后的合法前向引用。 */
+  function resolveTargetReferences(): void {
+    for (const nameToken of pendingTargetReferences) {
+      const symbol = symbols.get(normalizeName(nameToken.text))
+      if (symbol) {
+        symbol.references.push(rangeFromToken(nameToken, lineStarts))
+      } else {
+        addDiagnostic('undefined-symbol', `未定义 robtarget ${nameToken.text}`, nameToken)
+      }
     }
   }
 
@@ -538,18 +560,18 @@ export function parseRapidProgram(source: string): RapidParseResult {
    * - 当前是结构边界 → 指令不完整：发一次根因并让调用方中止；
    * - 否则解析并返回该操作数（缺失时报缺操作数，返回 null）。
    */
-  function expectOperandSlot(desc: string, onAbort: () => void): Token | null {
+  function expectOperandSlot(desc: string, onAbort: () => void): OperandSlotResult {
     if (isSymbol(current(), ',')) {
       addMissingDiagnostic('syntax-error', `缺少${desc}（空操作数，当前为 ","）`, current())
       advance()
-      return null
+      return { token: null, separatorConsumed: true }
     }
     if (atOperandBoundary()) {
       addMissingDiagnostic('syntax-error', '运动指令参数不完整（缺少 "," 分隔的操作数或分号）', current())
       onAbort()
-      return null
+      return { token: null, separatorConsumed: false }
     }
-    return expectIdentifier(desc)
+    return { token: expectIdentifier(desc), separatorConsumed: false }
   }
 
   function parseMotion(): void {
@@ -561,13 +583,15 @@ export function parseRapidProgram(source: string): RapidParseResult {
       abandoned = true
     }
 
-    const target = expectOperandSlot('目标点名称', abort)
-    if (target) recordTargetReference(target)
+    const targetSlot = expectOperandSlot('目标点名称', abort)
+    const target = targetSlot.token
+    let separatorConsumed = targetSlot.separatorConsumed
+    if (target) queueTargetReference(target)
     if (abandoned) return
 
     // 期望 "," 分隔后解析下一个操作数；缺逗号时只报一次根因并中止，避免连锁缺参错误。
     const operandAfterSeparator = (desc: string): Token | null => {
-      if (!isSymbol(current(), ',')) {
+      if (!separatorConsumed && !isSymbol(current(), ',')) {
         if (atOperandBoundary()) {
           addMissingDiagnostic('syntax-error', '运动指令参数不完整（缺少 "," 分隔的操作数或分号）', current())
         } else {
@@ -578,8 +602,10 @@ export function parseRapidProgram(source: string): RapidParseResult {
         abort()
         return null
       }
-      advance()
-      return expectOperandSlot(desc, abort)
+      if (!separatorConsumed) advance()
+      const slot = expectOperandSlot(desc, abort)
+      separatorConsumed = slot.separatorConsumed
+      return slot.token
     }
 
     const speed = operandAfterSeparator('速度名称')
@@ -783,11 +809,13 @@ export function parseRapidProgram(source: string): RapidParseResult {
     while (current().kind !== 'eof') advance()
   }
 
+  resolveTargetReferences()
+
   const program: RapidExecutableInstruction[] = []
   for (const pending of pendingMotions) {
     let valid = true
     const symbol = symbols.get(normalizeName(pending.targetName))
-    // 目标引用已在解析阶段结算（parseMotion 内 recordTargetReference）；此处仅需判定是否可生成可执行指令。
+    // 目标引用已在完整模块解析后结算；此处仅需判定是否可生成可执行指令。
     if (!symbol) valid = false
 
     const speed = SPEEDS[normalizeName(pending.speedName)]

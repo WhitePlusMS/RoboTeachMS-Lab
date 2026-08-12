@@ -1,5 +1,33 @@
 # 更新日志
 
+## 2026-08-12 — 修复 RAPID parser review findings
+
+### 修改文件
+
+- `src/rapid/rapid-parser.ts`
+  - 修复空操作数恢复：记录当前槽位是否已消费分隔逗号，避免把同一个缺失操作数再次误报为缺少逗号。
+  - 延后 robtarget 引用结算到完整模块解析后，恢复声明位于 `PROC main` 之后时的前向引用，同时保留断裂运动中的目标引用诊断。
+  - 补充 `jointtarget`、`int`、`byte`、`word`、`clock`、`errstr` 和 I/O 类型等已知但暂不支持的 RAPID 类型分类。
+- `src/rapid/rapid-parser-test-fixtures.ts`
+  - 新增诊断测试共用的 robtarget、模块前缀和闭合片段，减少重复夹具与缩写命名。
+- `src/rapid/rapid-parser-diagnostics.test.ts`
+  - 使用描述性测试夹具名称，保持稳定诊断回归覆盖。
+- `src/rapid/rapid-parser-motion-diagnostics.test.ts`
+  - 使用共用运动测试夹具，并新增空操作数不派生缺逗号诊断的回归断言。
+- `src/rapid/rapid-parser-decl-diagnostics.test.ts`
+  - 使用共用声明夹具，新增 main 后声明点位的前向引用和 `jointtarget`/`int` 类型分类测试。
+- `docs/platform-current-rapid-capabilities.md`
+  - 将易过期的 parser 行号依据改为稳定的类型、常量和函数名；修正 `missing-module` 与缺少 `ENDMODULE` 的诊断边界描述。
+
+### 修改原因
+
+修复本次里程碑 code review 发现的诊断恢复错误、前向引用回归、已知 RAPID 类型误分类、能力文档失真和测试夹具可读性问题。
+
+### 影响
+
+- 空操作数仅保留对应根因，后续合法操作数仍可继续定位。
+- 模块级点位引用在完整符号表建立后统一结算，支持当前 parser 接受的声明顺序。
+- 不新增执行能力，不修改 ProgramExecutor、planner、Vue 或 Three.js；已执行 `npx vitest run src/rapid`（139 个测试通过）、`npm run check` 和 `git diff --check`。
 ## 2026-08-12 — code-review 收尾：提取运动多余参数守卫（去重）
 
 ### 修改文件

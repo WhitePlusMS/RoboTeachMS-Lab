@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { parseRapidProgram } from './rapid-parser.ts'
-
-const F = '\n    PROC main()\n    ENDPROC\nENDMODULE\n'
-const VT = '[[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]]'
+import {
+  MAIN_MODULE_SUFFIX,
+  VALID_ROBTARGET_LITERAL,
+} from './rapid-parser-test-fixtures.ts'
 
 describe('Ticket 02 — MODULE 与过程诊断', () => {
   it('缺少模块名称给出零长度缺失诊断，且不再把它当模块内容误诊', () => {
@@ -54,21 +55,24 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
 
 describe('Ticket 02 — robtarget 声明诊断', () => {
   it('CONST/PERS/TASK PERS 后缺少数据类型：明确诊断缺少数据类型，不把名称误判为不支持的类型', () => {
-    const result = parseRapidProgram(`MODULE A\n    CONST p1 := ${VT};\n` + F)
+    const result = parseRapidProgram(`MODULE A\n    CONST p1 := ${VALID_ROBTARGET_LITERAL};\n` + MAIN_MODULE_SUFFIX)
     expect(result.diagnostics.some((d) => d.message.includes('数据类型'))).toBe(true)
     // 不把 p1 当类型名报 “暂不支持 p1”。
     expect(result.diagnostics.some((d) => d.message.includes('暂不支持 p1'))).toBe(false)
   })
 
-  it('已知但不支持的类型（num 等）明确报 unsupported-option', () => {
-    const result = parseRapidProgram(`MODULE A\n    CONST num x := 5;\n` + F)
-    const d = result.diagnostics.find((item) => item.code === 'unsupported-option')
-    expect(d).toBeDefined()
-    expect(d?.message).toContain('num')
+  it('已知但不支持的类型明确报 unsupported-option', () => {
+    for (const typeName of ['num', 'jointtarget', 'int']) {
+      const result = parseRapidProgram(`MODULE A\n    CONST ${typeName} x := 5;\n` + MAIN_MODULE_SUFFIX)
+      const diagnostic = result.diagnostics.find(
+        (item) => item.code === 'unsupported-option' && item.message.includes(typeName),
+      )
+      expect(diagnostic).toBeDefined()
+    }
   })
 
   it('缺少 := 时不生成半合法 Program Data 条目，也不产生四个 tuple 连锁错误', () => {
-    const result = parseRapidProgram(`MODULE A\n    CONST robtarget bad ${VT};\n` + F)
+    const result = parseRapidProgram(`MODULE A\n    CONST robtarget bad ${VALID_ROBTARGET_LITERAL};\n` + MAIN_MODULE_SUFFIX)
     // 损坏声明不得进入 data。
     expect(result.data.some((d) => d.name === 'bad')).toBe(false)
     // 仅保留 := 缺失这一根因，不外溢四个 tuple 错误。
@@ -79,9 +83,9 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
 
   it('缺少声明分号：语句末尾一个缺失分号诊断，并从下一个模块结构继续', () => {
     const source =
-      `MODULE A\n    CONST robtarget pGood := ${VT}\n` +
+      `MODULE A\n    CONST robtarget pGood := ${VALID_ROBTARGET_LITERAL}\n` +
       `    CONST robtarget pAfter := [[1,1,1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` +
-      F
+      MAIN_MODULE_SUFFIX
     const result = parseRapidProgram(source)
     const semi = result.diagnostics.filter((d) => d.message.includes('期望符号 ;'))
     expect(semi.length).toBeGreaterThanOrEqual(1)
@@ -91,18 +95,18 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
   })
 
   it('trans/rot/robconf/extax 长度错误、尾逗号与非有限数字均有 invalid-data 诊断', () => {
-    const len = parseRapidProgram(`MODULE A\n    CONST robtarget p := [[0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` + F)
+    const len = parseRapidProgram(`MODULE A\n    CONST robtarget p := [[0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` + MAIN_MODULE_SUFFIX)
     expect(len.diagnostics.some((d) => d.code === 'invalid-data')).toBe(true)
 
-    const trail = parseRapidProgram(`MODULE A\n    CONST robtarget p := [[0,0,0,],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` + F)
+    const trail = parseRapidProgram(`MODULE A\n    CONST robtarget p := [[0,0,0,],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` + MAIN_MODULE_SUFFIX)
     expect(trail.diagnostics.some((d) => d.code === 'invalid-data')).toBe(true)
   })
 
   it('大小写不同的重复名称报 duplicate-symbol，范围只覆盖第二个名称', () => {
     const source =
-      `MODULE A\n    CONST robtarget p1 := ${VT};\n` +
+      `MODULE A\n    CONST robtarget p1 := ${VALID_ROBTARGET_LITERAL};\n` +
       `    CONST robtarget P1 := [[1,1,1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` +
-      F
+      MAIN_MODULE_SUFFIX
     const result = parseRapidProgram(source)
     const dup = result.diagnostics.find((d) => d.code === 'duplicate-symbol')
     expect(dup).toBeDefined()
@@ -113,9 +117,9 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
 
   it('一个损坏声明恢复后，后续正确声明仍进入只读 Program Data', () => {
     const source =
-      `MODULE A\n    CONST robtarget bad ${VT};\n` +
+      `MODULE A\n    CONST robtarget bad ${VALID_ROBTARGET_LITERAL};\n` +
       `    CONST robtarget good := [[1,1,1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` +
-      F
+      MAIN_MODULE_SUFFIX
     const result = parseRapidProgram(source)
     expect(result.data.some((d) => d.name === 'good')).toBe(true)
     expect(result.data.some((d) => d.name === 'bad')).toBe(false)
@@ -123,9 +127,22 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
 })
 
 describe('Ticket 02 — 结构缺失恢复边界', () => {
+  it('完整解析后结算引用，支持 main 后出现的 robtarget 声明', () => {
+    const source =
+      `MODULE A\n    PROC main()\n` +
+      `        MoveJ p1,v100,fine,tool0;\n` +
+      `    ENDPROC\n    CONST robtarget p1 := ${VALID_ROBTARGET_LITERAL};\nENDMODULE\n`
+    const result = parseRapidProgram(source)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.canExecute).toBe(true)
+    expect(result.program).toHaveLength(1)
+    expect(result.data[0].referenceRanges).toHaveLength(1)
+  })
+
   it('缺少 ENDPROC 时不吞掉 ENDMODULE，也不产生虚假的尾随内容诊断', () => {
     const source =
-      `MODULE A\n    CONST robtarget p1 := ${VT};\n    PROC main()\n` +
+      `MODULE A\n    CONST robtarget p1 := ${VALID_ROBTARGET_LITERAL};\n    PROC main()\n` +
       `        MoveJ p1,v100,fine,tool0;\n` +
       `ENDMODULE\n`
     const result = parseRapidProgram(source)
