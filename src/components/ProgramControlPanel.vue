@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import RapidSourceEditor from './RapidSourceEditor.vue'
 import type { ProgramControllerSnapshot } from '../application/program-control.ts'
-import type { RapidExecutableInstruction } from '../rapid/rapid-parser.ts'
+import type { RapidExecutableInstruction, RapidSourceRange } from '../rapid/rapid-parser.ts'
 
 interface Props {
   snapshot: ProgramControllerSnapshot
@@ -11,9 +11,16 @@ interface Props {
   program: readonly RapidExecutableInstruction[]
   /** off-path 时正等待 Clear 确认的运行模式；null 表示当前没有待确认。 */
   pendingClear: 'run' | 'step' | null
+  /** 工作区组合时只显示源码内容或固定控制栏；默认保留独立面板的完整视图。 */
+  display?: 'all' | 'content' | 'actions'
+  /** 从 Program Data 查看引用时，请求源码编辑器定位到对应范围。 */
+  focusRange?: RapidSourceRange | null
+  /** 每次查看引用递增，即使范围对象相同也必须重新定位。 */
+  focusRequestId?: number
 }
 
 const props = defineProps<Props>()
+const display = computed(() => props.display ?? 'all')
 
 const emit = defineEmits<{
   run: []
@@ -77,80 +84,98 @@ const errorText = computed(() => {
 </script>
 
 <template>
-  <section class="program-panel" aria-labelledby="program-panel-title">
-    <div class="panel-title-row">
-      <div>
-        <p class="panel-kicker">RAPID SOURCE &amp; RUN</p>
-        <h2 id="program-panel-title">RAPID 程序</h2>
+  <section class="program-panel" :class="`program-panel-${display}`" aria-labelledby="program-panel-title">
+    <template v-if="display !== 'actions'">
+      <div class="panel-title-row">
+        <div>
+          <p class="panel-kicker">RAPID SOURCE &amp; RUN</p>
+          <h2 id="program-panel-title">RAPID 程序</h2>
+        </div>
+        <span v-if="display === 'all'" class="control-status" :class="`program-state-${props.snapshot.state}`">
+          {{ stateLabel }}
+        </span>
       </div>
-      <span class="control-status" :class="`program-state-${props.snapshot.state}`">
-        {{ stateLabel }}
-      </span>
-    </div>
 
-    <RapidSourceEditor
-      :source="props.source"
-      :readonly="sourceLocked"
-      :pp-line="ppLine"
-      :mp-line="mpLine"
-      :instruction="currentInstruction"
-      :diagnostic-lines="diagnosticLines"
-      :runtime-error-line="runtimeErrorLine"
-      @source-change="emit('source-change', $event)"
-    />
-    <p v-if="sourceLocked" class="program-hint">程序运行期间，源程序已锁定。</p>
-    <p v-else-if="awaitingNext" class="program-hint">单步已完成，等待下一步；可继续单步或运行。</p>
+      <RapidSourceEditor
+        :source="props.source"
+        :readonly="sourceLocked"
+        :pp-line="ppLine"
+        :mp-line="mpLine"
+        :instruction="currentInstruction"
+        :diagnostic-lines="diagnosticLines"
+        :runtime-error-line="runtimeErrorLine"
+        :focus-range="props.focusRange"
+        :focus-request-id="props.focusRequestId"
+        @source-change="emit('source-change', $event)"
+      />
+      <p v-if="sourceLocked" class="program-hint">程序运行期间，源程序已锁定。</p>
+      <p v-else-if="awaitingNext" class="program-hint">单步已完成，等待下一步；可继续单步或运行。</p>
 
-    <p v-if="props.snapshot.needsPPtoMain" class="program-hint program-hint-warn">
-      停止后源码无法稳定映射当前程序指针：请先执行 PP to Main 以从 main 重新建立执行位置。
-    </p>
-    <p v-if="props.snapshot.offPath && !showOffPathConfirm" class="program-hint program-hint-warn">
-      机器人已被手动 Jog，偏离原程序路径：再次运行/单步将从当前位置规划到下一目标。
-    </p>
+      <dl class="program-stats" aria-label="程序快照">
+        <div>
+          <dt>程序指针</dt>
+          <dd>{{ props.snapshot.programPointer }}</dd>
+        </div>
+        <div>
+          <dt>运动指针</dt>
+          <dd>{{ motionPointerText }}</dd>
+        </div>
+      </dl>
 
-    <div class="program-actions">
-      <button type="button" class="primary-action" :disabled="!canRun" @click="emit('run')">
-        运行
-      </button>
-      <button type="button" class="secondary-action" :disabled="!canStep" @click="emit('step')">
-        单步
-      </button>
-      <button type="button" class="danger-action" :disabled="!canStop" @click="emit('stop')">
-        停止
-      </button>
-      <button type="button" class="secondary-action" :disabled="!canPpToMain" @click="emit('pp')">
-        PP to Main
-      </button>
-    </div>
-
-    <div v-if="showOffPathConfirm" class="program-clear-confirm" aria-label="偏离路径确认">
-      <p>{{ confirmLabel }}（ABB Clear 语义）。</p>
-      <div class="program-actions">
-        <button type="button" class="primary-action" @click="emit('confirm-clear')">确认</button>
-        <button type="button" class="secondary-action" @click="emit('cancel-clear')">取消</button>
+      <div class="rapid-diagnostics" aria-label="RAPID 诊断">
+        <p v-if="props.snapshot.diagnostics.length === 0">诊断：无</p>
+        <ul v-else>
+          <li v-for="(diagnostic, index) in props.snapshot.diagnostics" :key="`${diagnostic.range.start.offset}-${index}`">
+            行 {{ diagnostic.range.start.line }} 列 {{ diagnostic.range.start.column }} ·
+            {{ diagnostic.code }} — {{ diagnostic.message }}
+          </li>
+        </ul>
       </div>
-    </div>
+      <p class="program-error">运动规划错误：{{ errorText }}</p>
+    </template>
 
-    <dl class="program-stats" aria-label="程序快照">
-      <div>
-        <dt>程序指针</dt>
-        <dd>{{ props.snapshot.programPointer }}</dd>
-      </div>
-      <div>
-        <dt>运动指针</dt>
-        <dd>{{ motionPointerText }}</dd>
-      </div>
-    </dl>
+    <template v-if="display !== 'content'">
+      <div class="program-control-footer" aria-label="程序控制栏">
+        <div class="panel-title-row">
+          <div>
+            <p class="panel-kicker">PROGRAM CONTROL</p>
+            <h2>程序控制</h2>
+          </div>
+          <span class="control-status" :class="`program-state-${props.snapshot.state}`">
+            {{ stateLabel }}
+          </span>
+        </div>
 
-    <div class="rapid-diagnostics" aria-label="RAPID 诊断">
-      <p v-if="props.snapshot.diagnostics.length === 0">诊断：无</p>
-      <ul v-else>
-        <li v-for="(diagnostic, index) in props.snapshot.diagnostics" :key="`${diagnostic.range.start.offset}-${index}`">
-          行 {{ diagnostic.range.start.line }} 列 {{ diagnostic.range.start.column }} ·
-          {{ diagnostic.code }} — {{ diagnostic.message }}
-        </li>
-      </ul>
-    </div>
-    <p class="program-error">运动规划错误：{{ errorText }}</p>
+        <p v-if="props.snapshot.needsPPtoMain" class="program-hint program-hint-warn">
+          停止后源码无法稳定映射当前程序指针：请先执行 PP to Main 以从 main 重新建立执行位置。
+        </p>
+        <p v-if="props.snapshot.offPath && !showOffPathConfirm" class="program-hint program-hint-warn">
+          机器人已被手动 Jog，偏离原程序路径：再次运行/单步将从当前位置规划到下一目标。
+        </p>
+
+        <div class="program-actions">
+          <button type="button" class="primary-action" :disabled="!canRun" @click="emit('run')">
+            运行
+          </button>
+          <button type="button" class="secondary-action" :disabled="!canStep" @click="emit('step')">
+            单步
+          </button>
+          <button type="button" class="danger-action" :disabled="!canStop" @click="emit('stop')">
+            停止
+          </button>
+          <button type="button" class="secondary-action" :disabled="!canPpToMain" @click="emit('pp')">
+            PP to Main
+          </button>
+        </div>
+
+        <div v-if="showOffPathConfirm" class="program-clear-confirm" aria-label="偏离路径确认">
+          <p>{{ confirmLabel }}（ABB Clear 语义）。</p>
+          <div class="program-actions">
+            <button type="button" class="primary-action" @click="emit('confirm-clear')">确认</button>
+            <button type="button" class="secondary-action" @click="emit('cancel-clear')">取消</button>
+          </div>
+        </div>
+      </div>
+    </template>
   </section>
 </template>

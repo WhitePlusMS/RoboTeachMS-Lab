@@ -433,6 +433,7 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     await page.goto('/')
     await expect(page.getByText('场景已就绪')).toBeVisible({ timeout: 15_000 })
     await setJoints(page, [15, -20, 30, 10, 25, -15])
+    await page.getByRole('tab', { name: '笛卡尔' }).click()
 
     const worldStart = (await readDisplayedPose(page)).position
     const xInput = page.getByRole('spinbutton', { name: 'X 数值输入', exact: true })

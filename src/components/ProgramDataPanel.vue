@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { makeEmptyTaughtTarget, type RapidEditCommand, type RapidEditResult } from '../rapid/controlled-rapid-edit.ts'
 import type {
   RapidExecutableInstruction,
@@ -28,12 +28,31 @@ interface Props {
 
 const props = defineProps<Props>()
 
-/** 新建点位的名称输入与待重命名目标。 */
+const emit = defineEmits<{
+  'view-reference': [range: RapidSourceRange]
+}>()
+
+type PanelView = 'list' | 'detail'
+const panelView = ref<PanelView>('list')
+const filterQuery = ref('')
+const selectedName = ref<string | null>(null)
 const newTargetName = ref('')
-const renamingName = ref<string | null>(null)
+const renaming = ref(false)
 const renameValue = ref('')
 const editError = ref<string | null>(null)
 const insertionIndex = ref<number | null>(null)
+
+const filteredTargets = computed(() => {
+  const query = filterQuery.value.trim().toLocaleLowerCase()
+  if (!query) return props.targets
+  return props.targets.filter((target) => target.name.toLocaleLowerCase().includes(query))
+})
+
+const selectedTarget = computed(() => {
+  if (!selectedName.value) return null
+  const normalized = selectedName.value.toLocaleLowerCase()
+  return props.targets.find((target) => target.name.toLocaleLowerCase() === normalized) ?? null
+})
 
 const selectedInsertionIndex = computed(() => {
   const points = props.insertionPoints
@@ -43,6 +62,7 @@ const selectedInsertionIndex = computed(() => {
   }
   return points[points.length - 1].index
 })
+
 const insertionSelection = computed({
   get: () => selectedInsertionIndex.value,
   set: (value: number | string) => {
@@ -50,24 +70,41 @@ const insertionSelection = computed({
   },
 })
 
-/** 把当前 ABB 基座 tool0 TCP（Pose）转换为 RAPID robtarget（q 标量在前顺序、零 robconf、未用外轴）。 */
+/** 把当前 ABB 基座 tool0 TCP 转为 RAPID robtarget；MVP 明确使用零 robconf。 */
 const taughtRobTarget = computed<RobTarget | null>(() => {
   if (!props.pose) return null
   const quat = rotationMatrixToQuaternion(props.pose.rotation)
-  const trans: [number, number, number] = [
-    props.pose.position[0],
-    props.pose.position[1],
-    props.pose.position[2],
-  ]
-  return makeEmptyTaughtTarget(trans, internalQuatToRapid(quat))
+  return makeEmptyTaughtTarget(
+    [props.pose.position[0], props.pose.position[1], props.pose.position[2]],
+    internalQuatToRapid(quat),
+  )
+})
+
+watch(
+  () => props.targets,
+  (targets) => {
+    if (selectedName.value && !targets.some((target) => target.name.toLocaleLowerCase() === selectedName.value?.toLocaleLowerCase())) {
+      selectedName.value = null
+      panelView.value = 'list'
+    }
+  },
+)
+
+watch(filterQuery, (query) => {
+  if (!selectedName.value) return
+  const normalized = selectedName.value.toLocaleLowerCase()
+  if (query.trim() && !filteredTargets.value.some((target) => target.name.toLocaleLowerCase() === normalized)) {
+    selectedName.value = null
+    panelView.value = 'list'
+  }
 })
 
 function formatCoord(value: readonly number[]): string {
-  return value.map((v) => (Number.isFinite(v) ? v.toFixed(1) : '—')).join(', ')
+  return value.map((entry) => (Number.isFinite(entry) ? entry.toFixed(1) : '—')).join(', ')
 }
 
 function formatRotation(rot: readonly number[]): string {
-  return rot.map((v) => v.toFixed(3)).join(', ')
+  return rot.map((entry) => entry.toFixed(3)).join(', ')
 }
 
 function referenceLabel(references: readonly RapidSourceRange[]): string {
@@ -76,7 +113,19 @@ function referenceLabel(references: readonly RapidSourceRange[]): string {
   return `${references.length} 处引用`
 }
 
-/** 执行一条受控编辑命令并把结构化拒绝原因展示给用户。 */
+function selectTarget(name: string): void {
+  selectedName.value = name
+  panelView.value = 'list'
+  renaming.value = false
+  editError.value = null
+}
+
+function openDetails(): void {
+  if (!selectedTarget.value) return
+  panelView.value = 'detail'
+  editError.value = null
+}
+
 function runEdit(command: RapidEditCommand): void {
   const result = props.applyEdit(command)
   editError.value = result.ok ? null : result.error.message
@@ -96,32 +145,44 @@ function createTarget(): void {
   if (!editError.value) newTargetName.value = ''
 }
 
-function modifyPosition(name: string): void {
+function modifyPosition(): void {
+  const target = selectedTarget.value
+  if (!target) return
   if (!taughtRobTarget.value) {
     editError.value = '当前姿态不可用，无法更新点位'
     return
   }
-  runEdit({ type: 'modify-position', name, target: taughtRobTarget.value })
+  runEdit({ type: 'modify-position', name: target.name, target: taughtRobTarget.value })
 }
 
-function startRename(name: string): void {
-  renamingName.value = name
-  renameValue.value = name
+function startRename(): void {
+  const target = selectedTarget.value
+  if (!target) return
+  renaming.value = true
+  renameValue.value = target.name
   editError.value = null
 }
 
 function commitRename(): void {
-  if (renamingName.value === null) return
-  runEdit({ type: 'rename-target', name: renamingName.value, newName: renameValue.value.trim() })
-  renamingName.value = null
+  const target = selectedTarget.value
+  if (!target) return
+  runEdit({ type: 'rename-target', name: target.name, newName: renameValue.value.trim() })
+  if (!editError.value) {
+    selectedName.value = renameValue.value.trim()
+    renaming.value = false
+  }
 }
 
-function deleteTarget(name: string): void {
-  runEdit({ type: 'delete-target', name })
+function deleteTarget(): void {
+  const target = selectedTarget.value
+  if (!target) return
+  runEdit({ type: 'delete-target', name: target.name })
 }
 
-function insertMotion(name: string, kind: 'movej' | 'movel'): void {
-  runEdit({ type: 'insert-motion', name, kind, insertionIndex: selectedInsertionIndex.value })
+function insertMotion(kind: 'movej' | 'movel'): void {
+  const target = selectedTarget.value
+  if (!target) return
+  runEdit({ type: 'insert-motion', name: target.name, kind, insertionIndex: selectedInsertionIndex.value })
 }
 
 function insertionLabel(point: RapidMotionInsertionPoint): string {
@@ -138,88 +199,95 @@ function insertionLabel(point: RapidMotionInsertionPoint): string {
         <p class="panel-kicker">PROGRAM DATA</p>
         <h2 id="program-data-title">点位数据</h2>
       </div>
-      <span class="control-status" :class="canExecute ? 'program-state-idle' : 'program-state-error'">
-        {{ canExecute ? '就绪' : '含错误' }}
+      <span class="control-status" :class="props.canExecute ? 'program-state-idle' : 'program-state-error'">
+        {{ props.canExecute ? '就绪' : '含错误' }}
       </span>
     </div>
 
     <p class="program-data-hint">
-      {{ canExecute ? '由右侧 RAPID 源码实时派生，无独立点位存储。' : '源程序存在错误：仅只读浏览，已禁用结构化编辑与运行。' }}
+      {{ props.canExecute ? 'RAPID 模块 · robtarget 实例列表' : '源程序存在错误：仅只读浏览，已禁用结构化编辑与运行。' }}
     </p>
-
     <p v-if="editError" class="program-data-error">{{ editError }}</p>
 
-    <div v-if="canExecute" class="program-data-teach">
-      <p class="program-data-teach-title">从当前 TCP 示教</p>
-      <div class="program-data-teach-row">
+    <template v-if="panelView === 'list'">
+      <div class="program-data-toolbar">
+        <span class="program-data-type-count">robtarget · {{ props.targets.length }} 项</span>
         <input
-          v-model="newTargetName"
-          class="program-data-name-input"
-          aria-label="新点位名称"
-          placeholder="如 pPick"
+          v-model="filterQuery"
+          class="program-data-filter"
+          type="search"
+          aria-label="按名称筛选点位"
+          placeholder="按名称筛选"
           spellcheck="false"
-          @keyup.enter="createTarget"
         />
-        <button type="button" class="primary-action" @click="createTarget">新建点位</button>
       </div>
-      <p class="program-data-teach-preview">当前 TCP：{{ taughtRobTarget ? formatCoord(taughtRobTarget.trans) : '不可用' }}</p>
-    </div>
 
-    <ul v-if="props.targets.length === 0" class="program-data-empty">
-      <li>源码中尚未声明 robtarget，或未识别到命名点位。</li>
-    </ul>
-    <ul v-else class="program-data-list">
-      <li v-for="target in props.targets" :key="`${target.nameRange.start.offset}`" class="program-data-item">
-        <div class="program-data-item-head">
-          <template v-if="renamingName === target.name">
-            <input
-              v-model="renameValue"
-              class="program-data-name-input program-data-rename-input"
-              aria-label="重命名点位"
-              spellcheck="false"
-              @keyup.enter="commitRename"
-              @keyup.esc="renamingName = null"
-            />
-            <button type="button" class="secondary-action" @click="commitRename">确认</button>
-            <button type="button" class="secondary-action" @click="renamingName = null">取消</button>
-          </template>
-          <template v-else>
-            <span class="program-data-name">{{ target.name }}</span>
-            <span class="program-data-label program-data-storage">{{ target.storage }}</span>
-            <span class="program-data-label program-data-references">{{ referenceLabel(target.referenceRanges) }}</span>
-          </template>
+      <div v-if="props.canExecute" class="program-data-teach">
+        <div class="program-data-teach-heading">
+          <p class="program-data-teach-title">从当前 TCP 新建点位</p>
+          <span class="program-data-teach-preview">{{ taughtRobTarget ? formatCoord(taughtRobTarget.trans) : '当前 TCP 不可用' }}</span>
         </div>
-        <dl class="program-data-fields">
-          <div>
-            <dt>坐标</dt>
-            <dd>{{ formatCoord(target.target.trans) }}</dd>
-          </div>
-          <div>
-            <dt>姿态</dt>
-            <dd>{{ formatRotation(target.target.rot) }}</dd>
-          </div>
-          <div>
-            <dt>robconf</dt>
-            <dd>{{ formatCoord(target.target.robconf) }}（当前 MVP 未模拟构型控制）</dd>
-          </div>
-          <div>
-            <dt>外轴</dt>
-            <dd>{{ formatCoord(target.target.extax) }}</dd>
-          </div>
-        </dl>
-        <p v-if="target.referenceRanges.length > 0" class="program-data-reflines">
-          <template v-for="(range, index) in target.referenceRanges" :key="index">
-            <span>行 {{ range.start.line }}</span>
-          </template>
-        </p>
+        <div class="program-data-teach-row">
+          <input
+            v-model="newTargetName"
+            class="program-data-name-input"
+            aria-label="新点位名称"
+            placeholder="如 pPick"
+            spellcheck="false"
+            @keyup.enter="createTarget"
+          />
+          <button type="button" class="primary-action" @click="createTarget">新建点位</button>
+        </div>
+      </div>
 
-        <div v-if="canExecute" class="program-data-actions">
-          <span v-if="target.referenceRanges.length > 0" class="program-data-share-warning">
-            共享目标：示教将影响 {{ target.referenceRanges.length }} 处引用
-          </span>
-          <button type="button" class="secondary-action" @click="modifyPosition(target.name)">Modify Position（更新位置）</button>
-          <button type="button" class="secondary-action" @click="startRename(target.name)">重命名</button>
-          <button type="button" class="danger-action" @click="deleteTarget(target.name)">删除</button>
+      <ul v-if="filteredTargets.length > 0" class="program-data-list" aria-label="robtarget 点位列表">
+        <li
+          v-for="target in filteredTargets"
+          :key="`${target.nameRange.start.offset}-${target.name}`"
+          class="program-data-item"
+          :class="{ selected: selectedTarget?.name.toLocaleLowerCase() === target.name.toLocaleLowerCase() }"
+        >
+          <button
+            type="button"
+            class="program-data-row"
+            :aria-label="`选择点位 ${target.name}`"
+            :aria-pressed="selectedTarget?.name.toLocaleLowerCase() === target.name.toLocaleLowerCase()"
+            @click="selectTarget(target.name)"
+          >
+            <span class="program-data-row-name">{{ target.name }}</span>
+            <span class="program-data-label program-data-storage">{{ target.storage }}</span>
+            <span class="program-data-row-coord">[{{ formatCoord(target.target.trans) }}]</span>
+            <span class="program-data-label program-data-references">{{ referenceLabel(target.referenceRanges) }}</span>
+          </button>
+        </li>
+      </ul>
+      <p v-else class="program-data-empty">
+        {{ props.targets.length === 0 ? '源码中尚未声明 robtarget，或未识别到命名点位。' : '没有匹配的点位。' }}
+      </p>
+
+      <div v-if="selectedTarget" class="program-data-selection" aria-label="选中点位操作">
+        <div class="program-data-selection-heading">
+          <div>
+            <span class="panel-kicker">SELECTED TARGET</span>
+            <strong>{{ selectedTarget.name }}</strong>
+          </div>
+          <span class="program-data-references-text">{{ referenceLabel(selectedTarget.referenceRanges) }}</span>
+        </div>
+        <p v-if="selectedTarget.referenceRanges.length > 0" class="program-data-share-warning">
+          共享目标：示教将影响 {{ selectedTarget.referenceRanges.length }} 处引用
+        </p>
+        <div v-if="selectedTarget.referenceRanges.length > 0" class="program-data-reference-links">
+          <button
+            v-for="(range, index) in selectedTarget.referenceRanges"
+            :key="`${range.start.offset}-${index}`"
+            type="button"
+            class="program-data-reference-link"
+            @click="emit('view-reference', range)"
+          >查看引用 · 行 {{ range.start.line }}</button>
+        </div>
+        <div v-if="props.canExecute" class="program-data-actions">
+          <button type="button" class="secondary-action" @click="modifyPosition">Modify Position（更新位置）</button>
+          <button type="button" class="secondary-action" @click="openDetails">编辑数据</button>
           <label class="program-data-insert-position">
             插入位置
             <select v-model="insertionSelection" aria-label="插入位置">
@@ -228,10 +296,77 @@ function insertionLabel(point: RapidMotionInsertionPoint): string {
               </option>
             </select>
           </label>
-          <button type="button" class="secondary-action" @click="insertMotion(target.name, 'movej')">插入 MoveJ</button>
-          <button type="button" class="secondary-action" @click="insertMotion(target.name, 'movel')">插入 MoveL</button>
+          <button type="button" class="secondary-action" @click="insertMotion('movej')">插入 MoveJ</button>
+          <button type="button" class="secondary-action" @click="insertMotion('movel')">插入 MoveL</button>
         </div>
-      </li>
-    </ul>
+      </div>
+    </template>
+
+    <template v-else-if="selectedTarget">
+      <div class="program-data-detail-heading">
+        <button type="button" class="secondary-action" @click="panelView = 'list'">返回列表</button>
+        <div>
+          <span class="panel-kicker">ROBTARGET DETAIL</span>
+          <h3>{{ selectedTarget.name }}</h3>
+        </div>
+      </div>
+
+      <div class="program-data-detail" aria-label="点位详情">
+        <dl class="program-data-fields">
+          <div>
+            <dt>存储</dt>
+            <dd>{{ selectedTarget.storage }}</dd>
+          </div>
+          <div>
+            <dt>位置</dt>
+            <dd>{{ formatCoord(selectedTarget.target.trans) }}</dd>
+          </div>
+          <div>
+            <dt>姿态</dt>
+            <dd>{{ formatRotation(selectedTarget.target.rot) }}</dd>
+          </div>
+          <div>
+            <dt>robconf</dt>
+            <dd>{{ formatCoord(selectedTarget.target.robconf) }}（当前 MVP 未模拟构型控制）</dd>
+          </div>
+          <div>
+            <dt>外轴</dt>
+            <dd>{{ formatCoord(selectedTarget.target.extax) }}</dd>
+          </div>
+          <div>
+            <dt>引用</dt>
+            <dd>{{ referenceLabel(selectedTarget.referenceRanges) }}</dd>
+          </div>
+        </dl>
+
+        <div v-if="selectedTarget.referenceRanges.length > 0" class="program-data-reference-links">
+          <button
+            v-for="(range, index) in selectedTarget.referenceRanges"
+            :key="`${range.start.offset}-${index}`"
+            type="button"
+            class="program-data-reference-link"
+            @click="emit('view-reference', range)"
+          >定位 RAPID 引用 · 行 {{ range.start.line }}</button>
+        </div>
+
+        <div v-if="props.canExecute" class="program-data-detail-actions">
+          <button type="button" class="secondary-action" @click="modifyPosition">Modify Position（更新位置）</button>
+          <template v-if="renaming">
+            <input
+              v-model="renameValue"
+              class="program-data-name-input program-data-rename-input"
+              aria-label="重命名点位"
+              spellcheck="false"
+              @keyup.enter="commitRename"
+              @keyup.esc="renaming = false"
+            />
+            <button type="button" class="secondary-action" @click="commitRename">确认重命名</button>
+            <button type="button" class="secondary-action" @click="renaming = false">取消</button>
+          </template>
+          <button v-else type="button" class="secondary-action" @click="startRename">重命名</button>
+          <button type="button" class="danger-action" @click="deleteTarget">删除</button>
+        </div>
+      </div>
+    </template>
   </section>
 </template>

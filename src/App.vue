@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import CartesianControlPanel from './components/CartesianControlPanel.vue'
-import CoordinateInfoPanel from './components/CoordinateInfoPanel.vue'
-import JointControlPanel from './components/JointControlPanel.vue'
-import ProgramControlPanel from './components/ProgramControlPanel.vue'
-import ProgramDataPanel from './components/ProgramDataPanel.vue'
+import JogControlTabs from './components/JogControlTabs.vue'
+import ProgramWorkspace from './components/ProgramWorkspace.vue'
 import SceneViewport from './components/SceneViewport.vue'
+import WorkbenchLayout from './components/WorkbenchLayout.vue'
 import type { JointAngles } from './robotics/types.ts'
 import { ABB_IRB1200_PROFILE } from './robot-models/abb-irb1200/robot-profile.ts'
 import { adjustJointAngle, randomJointAngles, useJointControl } from './application/joint-control.ts'
@@ -124,108 +122,88 @@ const statusLabel = computed(() => {
   <main class="app-shell">
     <header class="app-header">
       <div>
-        <p class="eyebrow">ROBOT PROGRAMMING LAB · SKELETON</p>
+        <p class="eyebrow">ABB TEACHING WORKBENCH</p>
         <h1>ABB IRB 1200-5/0.9 教学场景</h1>
-        <p class="subtitle">基于 ABB 官方规格的六轴编程仿真前端</p>
+        <p class="subtitle">Jog · RAPID · Program Data</p>
       </div>
-      <span class="status-pill" :class="`status-${sceneStatus}`">
-        <span class="status-dot" aria-hidden="true" />
-        {{ statusLabel }}
-      </span>
+      <div class="app-header-status">
+        <span class="status-pill" :class="`status-${sceneStatus}`">
+          <span class="status-dot" aria-hidden="true" />
+          {{ statusLabel }}
+        </span>
+        <p class="viewport-size-warning" role="status">建议使用至少 1366×768 的窗口尺寸。</p>
+      </div>
     </header>
 
-    <section class="workspace" aria-label="ABB IRB 1200-5/0.9 工作台">
-      <aside class="info-panel">
-        <div class="panel-heading">
-          <span class="panel-kicker">MODEL</span>
-          <h2>IRB 1200-5/0.9</h2>
-        </div>
-
-        <dl class="model-facts">
-          <div>
-            <dt>当前阶段</dt>
-            <dd>关节与笛卡尔控制</dd>
+    <WorkbenchLayout>
+      <template #left>
+        <div class="left-workbench-content">
+          <div class="left-model-summary">
+            <div>
+              <p class="panel-kicker">MODEL</p>
+              <h2>IRB 1200-5/0.9</h2>
+            </div>
+            <p class="panel-hint">左键旋转 · 滚轮缩放 · 右键平移</p>
           </div>
-          <div>
-            <dt>场景交互</dt>
-            <dd>旋转 · 缩放 · 平移</dd>
-          </div>
-          <div>
-            <dt>逆解状态</dt>
-            <dd>数值 DLS 求解</dd>
-          </div>
-        </dl>
 
-        <div class="hint-card">
-          <p class="hint-title">操作提示</p>
-          <p>左键拖拽旋转视角，滚轮缩放，右键拖拽平移场景。</p>
+          <JogControlTabs
+            :joints="joints"
+            :joint-ranges="jointRanges"
+            :joint-step="jointStep"
+            :pose="pose"
+            :coordinate-system="coordinateSystem"
+            :position-step="positionStep"
+            :orientation-step="orientationStep"
+            :status="cartesianStatus"
+            :status-message="cartesianStatusMessage"
+            @set-joint="setJoint"
+            @adjust-joint="adjustJoint"
+            @step-change="setStep"
+            @reset="reset"
+            @random="randomize"
+            @move="moveCartesian"
+            @set-field="setCartesianField"
+            @coordinate-change="setCoordinateSystem"
+            @position-step-change="setPositionStep"
+            @orientation-step-change="setOrientationStep"
+          />
         </div>
+      </template>
 
-        <CoordinateInfoPanel :tool-pose="pose" />
-
-        <JointControlPanel
-          :joints="joints"
-          :joint-ranges="jointRanges"
-          :joint-step="jointStep"
-          :pose="pose"
-          @set-joint="setJoint"
-          @adjust-joint="adjustJoint"
-          @step-change="setStep"
-          @reset="reset"
-          @random="randomize"
-        />
-
-        <CartesianControlPanel
-          :pose="pose"
-          :coordinate-system="coordinateSystem"
-          :position-step="positionStep"
-          :orientation-step="orientationStep"
-          :status="cartesianStatus"
-          :status-message="cartesianStatusMessage"
-          @move="moveCartesian"
-          @set-field="setCartesianField"
-          @coordinate-change="setCoordinateSystem"
-          @position-step-change="setPositionStep"
-          @orientation-step-change="setOrientationStep"
-        />
-
-        <ProgramDataPanel
-          :targets="programData"
-          :can-execute="programDataCanExecute"
-          :program="programControl.parsed.value.program"
-          :insertion-points="programControl.parsed.value.motionInsertionPoints"
-          :pose="toolPose"
-          :apply-edit="programControl.applyEdit"
-        />
-      </aside>
-
-      <div class="viewport-card">
-        <SceneViewport
-          :joints="joints"
-          :show-grid="showGrid"
-          :show-coordinate-systems="showCoordinateSystems"
-          :show-dh-debug="showDhDebug"
-          :show-trajectory="showTrajectory"
-          :trajectory-count="trajectoryCount"
-          @status="sceneStatus = $event"
-          @grid-change="showGrid = $event"
-          @coordinates-change="showCoordinateSystems = $event"
-          @dh-debug-change="showDhDebug = $event"
-          @trajectory-change="showTrajectory = $event"
-          @trajectory-count="trajectoryCount = $event"
-        />
-        <div class="viewport-caption">
-          <span>WORLD / BASE FRAME</span>
-          <span>OrbitControls</span>
+      <template #center>
+        <div class="viewport-card">
+          <SceneViewport
+            :joints="joints"
+            :show-grid="showGrid"
+            :show-coordinate-systems="showCoordinateSystems"
+            :show-dh-debug="showDhDebug"
+            :show-trajectory="showTrajectory"
+            :trajectory-count="trajectoryCount"
+            @status="sceneStatus = $event"
+            @grid-change="showGrid = $event"
+            @coordinates-change="showCoordinateSystems = $event"
+            @dh-debug-change="showDhDebug = $event"
+            @trajectory-change="showTrajectory = $event"
+            @trajectory-count="trajectoryCount = $event"
+          />
+          <div class="viewport-caption">
+            <span>WORLD / BASE FRAME</span>
+            <span>OrbitControls</span>
+          </div>
         </div>
-      </div>
+      </template>
 
-      <aside class="source-panel">
-        <ProgramControlPanel
+      <template #right>
+        <ProgramWorkspace
           :snapshot="programSnapshot"
           :source="rapidSource"
           :program="programControl.parsed.value.program"
           :pending-clear="pendingClearState"
+          :targets="programData"
+          :can-execute="programDataCanExecute"
+          :insertion-points="programControl.parsed.value.motionInsertionPoints"
+          :pose="toolPose"
+          :apply-edit="programControl.applyEdit"
           @run="programControl.run()"
           @step="programControl.step()"
           @stop="programControl.stop()"
@@ -234,13 +212,7 @@ const statusLabel = computed(() => {
           @cancel-clear="programControl.cancelClearToNext()"
           @source-change="rapidSource = $event"
         />
-      </aside>
-    </section>
-
-    <footer class="app-footer">
-      <span>独立 Vite + Vue3 + TypeScript 应用</span>
-      <span>·</span>
-      <span>基础资源与构建配置自包含</span>
-    </footer>
+      </template>
+    </WorkbenchLayout>
   </main>
 </template>

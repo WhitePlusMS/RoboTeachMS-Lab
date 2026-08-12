@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { RapidExecutableInstruction } from '../rapid/rapid-parser.ts'
+import { computed, nextTick, ref, watch } from 'vue'
+import type { RapidExecutableInstruction, RapidSourceRange } from '../rapid/rapid-parser.ts'
 
 interface Props {
   source: string
@@ -15,6 +15,10 @@ interface Props {
   diagnosticLines: readonly number[]
   /** 运行时规划错误所在源码行。 */
   runtimeErrorLine: number | null
+  /** 从 Program Data 查看引用时，请求定位到该源码范围。 */
+  focusRange?: RapidSourceRange | null
+  /** 每次查看引用递增，即使范围对象相同也必须重新定位。 */
+  focusRequestId?: number
 }
 
 const props = defineProps<Props>()
@@ -22,6 +26,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{ 'source-change': [source: string] }>()
 
 const gutterOffset = ref(0)
+const editor = ref<HTMLTextAreaElement | null>(null)
 
 const lineCount = computed(() => (props.source === '' ? 1 : props.source.split('\n').length))
 
@@ -34,6 +39,21 @@ function handleSourceInput(event: Event): void {
   if (!(event.target instanceof HTMLTextAreaElement)) return
   emit('source-change', event.target.value)
 }
+
+watch(
+  () => [props.focusRange, props.focusRequestId] as const,
+  ([range]) => {
+    if (!range) return
+    void nextTick(() => {
+      const textarea = editor.value
+      if (!textarea) return
+      textarea.focus()
+      textarea.selectionStart = range.start.offset
+      textarea.selectionEnd = range.end.offset
+      textarea.scrollTop = Math.max(0, (range.start.line - 1) * 20 - 60)
+    })
+  },
+)
 
 const kindLabel = computed(() => {
   if (!props.instruction) return ''
@@ -63,6 +83,7 @@ const kindLabel = computed(() => {
         </div>
       </div>
       <textarea
+        ref="editor"
         class="rapid-source-editor"
         aria-label="RAPID 源程序"
         :value="props.source"

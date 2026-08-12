@@ -102,9 +102,7 @@ test.describe('RAPID 文本 ABB 程序（运行/单步/停止/PP to Main）', ()
         MoveJ missingPoint,v100,fine,tool0;
     ENDPROC
 ENDMODULE`)
-    await page.getByRole('button', { name: '运行' }).click()
-
-    await expect(statusLabel(page)).toHaveText('错误')
+    await expect(page.getByRole('button', { name: '运行' })).toBeDisabled()
     await expect(page.locator('[aria-label="RAPID 诊断"]')).toContainText('undefined-symbol')
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('0')
   })
@@ -126,18 +124,21 @@ test.describe('教学闭环：Program Data 示教与源码观察', () => {
   test('新建点位→插入 MoveJ→单步→连续运行→修改位置→再运行', async ({ page }) => {
     await waitForScene(page)
 
+    await page.getByRole('tab', { name: 'Program Data' }).click()
+
     // 1) 用当前 TCP 新建命名点位。
     await page.getByLabel('新点位名称').fill('pTeach')
     await page.getByRole('button', { name: '新建点位' }).click()
     await expect(page.locator('.program-data-panel')).toContainText('pTeach')
 
     // 2) 为新建点位插入一条 MoveJ。
-    const item = page.locator('.program-data-item', { hasText: 'pTeach' })
-    await item.getByRole('button', { name: '插入 MoveJ' }).click()
+    await page.getByRole('button', { name: '选择点位 pTeach' }).click()
+    await page.getByRole('button', { name: '插入 MoveJ' }).click()
 
     // 3) 单步执行首条运动，停在下一条等待。
     await page.getByRole('button', { name: '单步' }).click()
     await expect(statusLabel(page)).toHaveText('已停止', { timeout: 30_000 })
+    await page.getByRole('tab', { name: 'RAPID' }).click()
     await expect(page.locator('.program-panel').getByText('等待下一步')).toBeVisible()
     await expect(page.locator('body')).toContainText('MoveJ')
 
@@ -148,8 +149,9 @@ test.describe('教学闭环：Program Data 示教与源码观察', () => {
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('4')
 
     // 5) Modify Position（示教）更新已有点位，源码可继续执行。
-    const teachItem = page.locator('.program-data-item', { hasText: 'pWork' })
-    await teachItem.getByRole('button', { name: '示教' }).click()
+    await page.getByRole('tab', { name: 'Program Data' }).click()
+    await page.getByRole('button', { name: '选择点位 pWork' }).click()
+    await page.getByRole('button', { name: 'Modify Position（更新位置）' }).click()
     await expect(page.locator('.program-data-panel')).not.toContainText('不能删除') // 无错误
 
     // 6) PP to Main 后重新运行。

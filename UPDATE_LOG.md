@@ -1,5 +1,101 @@
 # 更新日志
 
+## 2026-08-12 — 修复工作台界面复审阻断项
+
+- `src/components/WorkbenchLayout.vue`：折叠/展开按钮增加 `aria-expanded`，明确面板当前可见状态。
+- `src/components/JogControlTabs.vue` / `ProgramWorkspace.vue`：方向键切换 Tab 后主动聚焦新激活按钮，保持键盘操作连续性。
+- `src/components/ProgramDataPanel.vue` / `src/style.css`：Program Data 改为固定顶部工具区、独立可滚动点位列表和固定选中操作区；右侧 Tab 内容不再整体滚动。
+- `src/style.css`：压缩左侧关节控制的间距和位姿卡片，在 1366×768 下保证当前 Tab 内容完整可见且不显示左侧滚动条。
+- `src/components/WorkbenchLayout.test.ts`、`JogControlTabs.test.ts`、`ProgramWorkspace.test.ts`：补充无障碍展开状态与键盘焦点回归测试。
+
+### 验证
+
+- 1366×768 临时 preview 实测：左侧关节内容 `scrollHeight` 等于 `clientHeight`；Program Data 列表独立滚动。
+- 未启动或触碰用户维护的 5173 服务。
+
+### 票据状态
+
+- `01-collapsible-single-screen-workbench.md`、`02-tabbed-jog-sidebar.md`、`03-tabbed-programming-workspace.md`、`04-abb-program-data-browser.md` 均已更新为 `resolved`。
+
+## 2026-08-12 — 实现 ABB 教学工作台界面优化里程碑
+
+### 修改文件
+
+- `src/components/WorkbenchLayout.vue` / `WorkbenchLayout.test.ts`
+  - 新增单屏三栏工作台壳层，左右栏固定宽度并支持独立收起、展开和同时收起。
+  - 折叠采用保留组件实例的隐藏方式，避免重新展开时丢失 Tab、编辑器光标、筛选和选择状态。
+  - 增加键盘可访问的收起/展开按钮与对应布局测试。
+- `src/components/JogControlTabs.vue` / `JogControlTabs.test.ts`
+  - 新增左侧“关节 / 笛卡尔”Tab。
+  - 只转发现有 Jog 组件事件，关节、步进、坐标系和笛卡尔状态仍由 App 唯一持有。
+  - 增加 Tab 键盘方向切换和事件转发测试。
+- `src/components/ProgramWorkspace.vue` / `ProgramWorkspace.test.ts`
+  - 新增右侧“RAPID / Program Data”Tab 工作区。
+  - 将程序源码内容与运行、单步、停止、PP to Main 控制栏分离，控制栏固定在右侧底部。
+  - 通过同一 ProgramController、parser 和源码编辑器实例保留执行状态与编辑状态。
+- `src/components/ProgramControlPanel.vue`
+  - 增加 `all/content/actions` 展示模式，使既有程序控制逻辑可以组合进右侧工作区而不复制状态。
+- `src/components/ProgramDataPanel.vue` / `ProgramDataPanel.test.ts`
+  - 将点位界面改为 ABB 式 `robtarget` 连续列表、名称筛选、选中目标操作和详情层。
+  - 查看引用会发出精确源码范围事件；Modify Position、重命名、删除和插入运动仍通过既有受控源码编辑入口。
+  - 保留错误源码只读浏览、共享引用提示、robconf 未模拟说明和唯一 RAPID 事实源。
+- `src/components/RapidSourceEditor.vue`
+  - 增加按 Program Data 引用范围聚焦源码、选中范围和滚动定位能力。
+- `src/App.vue`
+  - 接入新工作台、左侧 Jog Tab 和右侧 RAPID/Program Data 工作区。
+  - 删除旧的纵向堆叠侧栏和营销式页脚，保留现有 ABB 运动、程序和 Three.js 状态。
+- `src/style.css`
+  - 增加固定动态视口、三栏网格、折叠轨道、Tab、右栏内部滚动和底部程序控制区样式。
+  - 页面根节点不滚动；RAPID 编辑器保留双向滚动，Program Data 保留纵向滚动。
+- `e2e/abb-program.spec.ts` / `e2e/abb-irb1200.spec.ts`
+  - 迁移受 Tab 布局影响的 Program Data、笛卡尔和点位操作选择器。
+
+### 修改原因
+
+现有教学能力已经完成，但页面结构仍把关节、笛卡尔和 Program Data 纵向堆在左栏，RAPID 与程序控制绑定在单一卡片中。此次按已确认的 ABB 工作台方案重组界面，同时保持运动学、RAPID 解析、程序执行和 Three.js 显示职责不变。
+
+### 影响
+
+- 用户获得可折叠的三栏 ABB 教学工作台：左侧 Jog、中间场景、右侧 RAPID/Program Data。
+- 左右栏可以独立收起，释放空间给 Three.js；刷新后恢复默认展开。
+- RAPID 和 Program Data 允许内部滚动，页面整体不滚动；程序控制始终固定可见。
+- Program Data 不再维护第二份点位状态，列表、筛选、引用和详情均来自同一次 RAPID 解析结果。
+- KUKA 预留、ABB 运动学、程序控制语义和 Three.js 场景逻辑未被改写。
+
+### 复审修正
+
+- `src/components/ProgramWorkspace.vue` / `ProgramControlPanel.vue` / `RapidSourceEditor.vue`
+  - 为 Program Data 查看引用增加单调 `focusRequestId`，重复点击同一源码范围时也会重新聚焦、选中和滚动定位。
+- `src/components/ProgramWorkspace.test.ts`
+  - 增加重复查看同一引用的回归测试。
+
+
+# 2026-08-12：发布 ABB 教学工作台界面优化里程碑 Tickets
+
+## 修改文件
+
+- `.scratch/abb-teaching-workbench-ui/README.md`
+  - 建立独立的前端工作台界面优化里程碑，明确四张票采用 `01 → 02 → 03 → 04` 线性实施。
+- `.scratch/abb-teaching-workbench-ui/issues/01-collapsible-single-screen-workbench.md`
+  - 规划固定视口三栏工作台、左右独立折叠、1366×768 基线和页面无整体滚动的完整验收边界。
+- `.scratch/abb-teaching-workbench-ui/issues/02-tabbed-jog-sidebar.md`
+  - 规划左侧“关节 / 笛卡尔”Tab，在不复制运动状态的前提下收敛现有 Jog 控制。
+- `.scratch/abb-teaching-workbench-ui/issues/03-tabbed-programming-workspace.md`
+  - 规划右侧“RAPID / Program Data”Tab、RAPID 双向内部滚动和始终固定的 ABB 程序控制区。
+- `.scratch/abb-teaching-workbench-ui/issues/04-abb-program-data-browser.md`
+  - 规划 ABB 式 robtarget 连续列表、筛选、选中项操作、详情层和源码引用定位，并集中最终完整验证。
+
+## 修改原因
+
+现有功能闭环已经完成，但页面仍把 Program Data 放在左栏、关节与笛卡尔控制纵向堆叠、RAPID 与程序控制绑定在单一卡片中。新里程碑依据已确认的界面决策，将这些能力重组为可折叠的三栏教学工作台，同时保持 ABB 操作语义和 RAPID 唯一事实源。
+
+## 影响
+
+- 本次只增加规划票据和更新说明，不修改业务代码、样式、测试或运行时行为。
+- 新票据与已经完成的点位示教里程碑物理隔离，不回写旧里程碑票据。
+- 四张票明确复用现有控制、解析和执行模块，避免实施模型重复创建 Tab 状态、点位存储、程序控制或 Three.js 场景。
+- 前三票只要求针对性测试，完整检查、单测、构建和浏览器验收集中在最后一票，减少重复验证。
+
 ## 2026-08-12 — 最终复审边界修复
 
 - **`src/application/program-control.ts`**：自由 textarea 编辑只有在新程序中存在唯一同文本指令时才保留 PP；重复候选统一要求 PP to Main，避免静默指向错误运动。
