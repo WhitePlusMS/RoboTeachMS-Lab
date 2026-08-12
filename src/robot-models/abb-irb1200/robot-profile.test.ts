@@ -8,6 +8,15 @@ import {
   ABB_JOINT_RANGES,
 } from './robot-config.ts'
 
+// 仅参与 TypeScript 静态检查；不可在测试运行时改写全局 profile 单例。
+if (false) {
+  const readonlyProfile: RobotProfile = ABB_IRB1200_PROFILE
+  // @ts-expect-error - RobotProfile 字段只读，禁止替换共享模型。
+  readonlyProfile.model = new AbbDhRobotModel()
+  // @ts-expect-error - homeJoints 为只读六轴 tuple，禁止元素改写。
+  readonlyProfile.homeJoints[0] = 10
+}
+
 describe('ABB IRB 1200 profile seam', () => {
   it('唯一 profile 复用既有型号名称、一体化 DH 模型、关节范围与回零关节，不复制任何数值', () => {
     const profile: RobotProfile = ABB_IRB1200_PROFILE
@@ -39,13 +48,5 @@ describe('ABB IRB 1200 profile seam', () => {
     expect(
       ABB_IRB1200_PROFILE.model.forwardKinematics([...ABB_IRB1200_PROFILE.homeJoints]),
     ).not.toBeNull()
-  })
-
-  it('编译期证明 profile 字段与 homeJoints 元素不可被调用者替换/改写', () => {
-    // 以下两处赋值必须产生类型错误，防止单例被误写污染所有控制器。
-    // @ts-expect-error - RobotProfile 字段只读，禁止替换共享模型/范围/回零状态。
-    ABB_IRB1200_PROFILE.model = new AbbDhRobotModel()
-    // @ts-expect-error - homeJoints 为只读回零关节 tuple，禁止元素改写。
-    ABB_IRB1200_PROFILE.homeJoints[0] = 10
   })
 })

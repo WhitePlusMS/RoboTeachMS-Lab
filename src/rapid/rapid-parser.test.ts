@@ -41,6 +41,32 @@ describe('RAPID 文本解析模块', () => {
     expect(result.program[0].sourceText).toContain('movej p1')
   })
 
+  it('为每个运动操作数保留精确范围，并暴露首条/中间/末尾插入锚点', () => {
+    const result = parseRapidProgram(VALID_PROGRAM)
+    const instruction = result.program[1]
+
+    expect(instruction.operandRanges.target.start.line).toBe(9)
+    expect(instruction.operandRanges.speed.start.line).toBe(9)
+    expect(instruction.operandRanges.zone.start.line).toBe(9)
+    expect(instruction.operandRanges.tool.start.line).toBe(9)
+    expect(instruction.operandRanges.wobj?.start.line).toBe(9)
+    expect(result.motionInsertionPoints.map((point) => point.index)).toEqual([0, 1, 2, 3])
+  })
+
+  it('非法速度诊断定位到速度操作数而不是重复出现的目标文本', () => {
+    const source = `
+MODULE DuplicateText
+    CONST robtarget p1 := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ p1,p1,fine,tool0;
+    ENDPROC
+ENDMODULE
+`
+    const result = parseRapidProgram(source)
+    const diagnostic = result.diagnostics.find((item) => item.message.includes('速度'))
+    expect(diagnostic?.range.start.column).toBe(18)
+  })
+
   it('收集未定义点位和不支持指令诊断，并阻止程序执行', () => {
     const source = `
 MODULE Broken
@@ -125,5 +151,90 @@ ENDMODULE
         expect.objectContaining({ code: 'invalid-data' }),
       ]),
     )
+  })
+})
+
+describe('RAPID Program Data 派生视图', () => {
+  const SOURCE = `
+MODULE TeachingDemo
+    CONST robtarget pApproach := [[551,613,60],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PERS robtarget p_work := [[551,613,25],[0,1,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+
+    PROC main()
+        ! MoveJ pApproach, above: a comment must not count as a reference.
+        MoveJ pApproach,v100,fine,tool0;
+        MoveL p_work,v50,fine,tool0\\WObj:=wobj0;
+        MOVEJ papproach,v200,fine,tool0;
+    ENDPROC
+ENDMODULE
+`
+
+  it('按声明顺序暴露模块级命名 robtarget 的名称、存储类别与值', () => {
+    const result = parseRapidProgram(SOURCE)
+
+    expect(result.data).toHaveLength(2)
+    expect(result.data[0].name).toBe('pApproach') // 保留源码原始拼写。
+    expect(result.data[0].storage).toBe('const')
+    expect(result.data[0].target.trans).toEqual([551, 613, 60])
+    expect(result.data[0].target.rot).toEqual([1, 0, 0, 0])
+    expect(result.data[0].target.robconf).toEqual([0, 0, 0, 0])
+    expect(result.data[0].target.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
+
+    expect(result.data[1].name).toBe('p_work')
+    expect(result.data[1].storage).toBe('pers')
+    expect(result.data[1].target.trans).toEqual([551, 613, 25])
+  })
+
+  it('声明名称范围精确定位源码名 token', () => {
+    const result = parseRapidProgram(SOURCE)
+
+    expect(result.data[0].nameRange.start.line).toBe(3)
+    expect(result.data[0].nameRange.start.column).toBe(21)
+    expect(result.data[0].nameRange.end.column).toBe(30) // 排他：pApproach 长 9 字符后一列。
+  })
+
+  it('同一目标被多条 MoveJ/MoveL 引用时，引用数量与每处源码范围准确', () => {
+    const result = parseRapidProgram(SOURCE)
+
+    // pApproach 被 MoveJ 第 8 行与 MOVEJ 第 10 行（大小写不同）各引用一次。
+    expect(result.data[0].referenceRanges).toHaveLength(2)
+    expect(result.data[0].referenceRanges[0].start.line).toBe(8)
+    expect(result.data[0].referenceRanges[1].start.line).toBe(10)
+    // p_work 只在第 9 行被引用一次。
+    expect(result.data[1].referenceRanges).toHaveLength(1)
+    expect(result.data[1].referenceRanges[0].start.line).toBe(9)
+  })
+
+  it('名称匹配遵循 RAPID 大小写不敏感规则，同时保留源码原始拼写', () => {
+    const result = parseRapidProgram(SOURCE)
+
+    // 第 8/10 行的 MoveJ 以不同大小写引用同一目标，仍归并到 pApproach。
+    expect(result.data[0].referenceRanges).toHaveLength(2)
+    expect(result.data[0].name).toBe('pApproach')
+  })
+
+  it('注释中的同名文本不会被误识别成目标引用', () => {
+    const result = parseRapidProgram(SOURCE)
+
+    // 第 6 行注释里的 pApproach 不产生引用。
+    expect(result.data[0].referenceRanges.every((range) => range.start.line !== 6)).toBe(true)
+  })
+
+  it('源码存在 error 时仍暴露已识别数据（只读浏览），但不可执行', () => {
+    const broken = `
+MODULE BrokenView
+    CONST robtarget pGood := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ undefinedPoint,v50,fine,tool0;
+    ENDPROC
+ENDMODULE
+`
+    const result = parseRapidProgram(broken)
+
+    expect(result.canExecute).toBe(false)
+    expect(result.program).toHaveLength(0)
+    // 已识别的 pGood 仍可见，供只读 Program Data 浏览。
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0].name).toBe('pGood')
   })
 })

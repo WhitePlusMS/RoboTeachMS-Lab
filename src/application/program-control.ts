@@ -1,4 +1,4 @@
-import { onBeforeUnmount, ref, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import type { MotionResult } from '../robotics/motion-runner.ts'
 import type { RobotProfile } from '../robotics/robot-profile.ts'
 import type { JointAngles } from '../robotics/types.ts'
@@ -9,17 +9,26 @@ import {
   parseRapidProgram,
   type RapidDiagnostic,
   type RapidExecutableInstruction,
+  type RapidParseResult,
   type RapidSourceRange,
 } from '../rapid/rapid-parser.ts'
+import {
+  applyRapidEdit,
+  type RapidEditCommand,
+  type RapidEditResult,
+  type RapidEditSuccess,
+} from '../rapid/controlled-rapid-edit.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,
   type ProgramError,
   type ProgramExecutionSeam,
+  type ProgramExecutor,
   type ProgramSnapshot,
+  type ProgramState,
 } from '../rapid/program-executor.ts'
 
-/** 程序控制器可用的 MotionRunner 能力子集（由现有 useMotion 提供）。 */
+/** 程序控制器可用的 MotionRunner 能力子集（由现有 useMotion 提供）；不含程序级暂停/继续。 */
 export interface ProgramControllerMotion {
   startEasedAnimation: (target: JointAngles, duration?: number) => Promise<MotionResult>
   startCartesianTrajectory: (
@@ -27,8 +36,6 @@ export interface ProgramControllerMotion {
     duration?: number,
   ) => Promise<MotionResult>
   stopAnimation: () => void
-  pauseMotion: () => void
-  resumeMotion: () => void
 }
 
 export interface ProgramControllerOptions {
@@ -45,23 +52,38 @@ export interface ProgramControllerError extends ProgramError {
 export interface ProgramControllerSnapshot extends Omit<ProgramSnapshot, 'error'> {
   error: ProgramControllerError | null
   diagnostics: readonly RapidDiagnostic[]
+  /** 停止后源码无法把 PP 唯一映射到新的下一条指令：运行/单步前必须先 PP to Main。 */
+  needsPPtoMain: boolean
+  /** 停止后机器人被手动 Jog，当前姿态偏离原程序路径。 */
+  offPath: boolean
 }
 
 export interface ProgramController {
   snapshot: Ref<ProgramControllerSnapshot>
+  /** 由源程序实时派生的同一次解析结果；源码、Program Data 列表与诊断共用它，无平行 parser。 */
+  parsed: Ref<RapidParseResult>
   run: () => void
-  pause: () => void
-  resume: () => void
+  /** 单步只执行 PP 对应的一条完整运动指令，成功后停在等待下一步或完成。 */
+  step: () => void
   stop: () => void
-  reset: () => void
+  /** PP to Main：在非运行状态把 PP 移到 main，不让机器人回零、不清空轨迹。 */
+  ppToMain: () => void
+  /** 通过唯一受控编辑入口应用一条 Program Data 命令；成功更新源码，失败保持源码不变。 */
+  applyEdit: (command: RapidEditCommand) => RapidEditResult
   /** 手动关节/笛卡尔命令前调用：程序活动时先终止，避免争用同一 MotionRunner。 */
   stopActiveProgram: () => void
+  /** off-path 时长按 ABB Clear 语义从当前位置规划到下一目标。请求模式为刚点击的运行/单步。 */
+  confirmClearToNext: () => void
+  /** 取消 off-path 确认：保持停止并保持 off-path 标记。 */
+  cancelClearToNext: () => void
+  /** 当前正等待 off-path Clear 确认的运行模式（run/step）或 null。 */
+  pendingClear: Ref<'run' | 'step' | null>
 }
 
 /**
  * 页面端程序控制器：把 Vue 无关的 ProgramExecutor 接到现有 MotionRunner、ABB 模型
- * 与共享 joints 状态上。只负责构造程序、发出控制命令与同步快照，不新增动画循环、
- * IK、路径规划或通用 store。
+ * 与共享 joints 状态上。负责构造程序、PP 映射、off-path 标记与发出控制命令。
+ * 不新增动画循环、IK、路径规划或通用 store。
  */
 export function useProgramController(options: ProgramControllerOptions): ProgramController {
   async function execute(instruction: StructuredMotionInstruction): Promise<InstructionOutcome> {
@@ -84,14 +106,19 @@ export function useProgramController(options: ProgramControllerOptions): Program
 
   const seam: ProgramExecutionSeam = {
     execute,
-    pause: () => options.motion.pauseMotion(),
-    resume: () => options.motion.resumeMotion(),
     stop: () => options.motion.stopAnimation(),
   }
   let executor = createProgramExecutor([], seam)
   let loadedProgram: readonly RapidExecutableInstruction[] = []
-  let diagnostics: readonly RapidDiagnostic[] = []
+  let offPath = false
+  let needsPPtoMain = false
+  // 紧邻一次受控编辑的标记；结构化编辑不会改变运动指令顺序，因此只需一次性消费。
+  let pendingEdit: RapidEditSuccess | null = null
+  // 单一解析事实源：源程序变化时实时重算，运行、Program Data 列表与诊断共用它。
+  const parsed = computed(() => parseRapidProgram(options.source.value))
   const snapshot = ref<ProgramControllerSnapshot>(createSnapshot())
+  // off-path 请求等待确认的模式；null 表示当前没有待确认 Clear。
+  const pendingClear = ref<'run' | 'step' | null>(null)
   let pollTimer: number | null = null
 
   function createSnapshot(): ProgramControllerSnapshot {
@@ -100,7 +127,9 @@ export function useProgramController(options: ProgramControllerOptions): Program
     return {
       ...base,
       error: base.error ? { ...base.error, sourceRange } : null,
-      diagnostics,
+      diagnostics: parsed.value.diagnostics,
+      needsPPtoMain,
+      offPath,
     }
   }
 
@@ -114,7 +143,7 @@ export function useProgramController(options: ProgramControllerOptions): Program
       sync()
       const state = snapshot.value.state
       // 程序退出活动状态后停止轮询。
-      if (state !== 'running' && state !== 'paused') stopPolling()
+      if (state !== 'running') stopPolling()
     }, 100)
   }
 
@@ -125,31 +154,30 @@ export function useProgramController(options: ProgramControllerOptions): Program
     }
   }
 
-  function run(): void {
-    // 仅从 idle 启动；按钮可用性会限制，这里仍做防御。
-    if (executor.getSnapshot().state !== 'idle') return
-    const parsed = parseRapidProgram(options.source.value)
-    diagnostics = parsed.diagnostics
-    if (!parsed.canExecute) {
-      loadedProgram = []
-      snapshot.value = { ...createSnapshot(), state: 'error', error: null }
-      console.warn('[ABB-PROGRAM] RAPID 源程序诊断阻止运行', parsed.diagnostics.length)
-      return
+  /**
+   * 从 idle 首跑时加载程序并重建执行器；否则复用已加载执行器（其 PP 已保留/已映射），
+   * 从而支持“停止后从当前执行位置继续”。随后启动一次执行并开始轮询快照。
+   */
+  function beginExecution(start: (exec: ProgramExecutor) => Promise<ProgramState>): void {
+    if (executor.getSnapshot().state === 'idle') {
+      const result = parsed.value
+      if (!result.canExecute) {
+        loadedProgram = []
+        snapshot.value = { ...createSnapshot(), state: 'error', error: null }
+        console.warn('[ABB-PROGRAM] RAPID 源程序诊断阻止执行', result.diagnostics.length)
+        return
+      }
+      loadedProgram = result.program
+      executor = createProgramExecutor(loadedProgram, seam)
     }
-
-    loadedProgram = parsed.program
-    diagnostics = []
-    executor = createProgramExecutor(loadedProgram, seam)
-    console.info('[ABB-PROGRAM] 程序开始')
-    const promise = executor.run()
+    const promise = start(executor)
     sync()
     startPolling()
-    // 程序终止后再同步一次快照、停止轮询并记录终止事件。
     void promise.then((final) => {
       if (final === 'completed') {
-        console.info('[ABB-PROGRAM] 程序完成')
+        console.info('[ABB-PROGRAM] 程序完成/单步完成')
       } else if (final === 'stopped') {
-        console.info('[ABB-PROGRAM] 程序停止')
+        console.info('[ABB-PROGRAM] 程序停止或等待下一步')
       } else if (final === 'error') {
         console.error('[ABB-PROGRAM] 程序规划错误', executor.getSnapshot().error?.message)
       }
@@ -158,44 +186,183 @@ export function useProgramController(options: ProgramControllerOptions): Program
     })
   }
 
-  function pause(): void {
-    executor.pause()
-    sync()
-    console.info('[ABB-PROGRAM] 暂停')
+  /** 运行/单步前通过守卫：运行中、需 PP to Main 或 off-path 待确认时都不得立即运动。 */
+  function gateRunRequest(): 'run' | 'closed' {
+    if (executor.getSnapshot().state === 'running') return 'closed'
+    if (needsPPtoMain) {
+      console.info('[ABB-PROGRAM] PP 无法映射，需先 PP to Main')
+      return 'closed'
+    }
+    if (offPath) {
+      // off-path 不立即运动，而是请求 Clear 确认。
+      pendingClear.value = 'run'
+      sync()
+      console.info('[ABB-PROGRAM] 偏离路径，等待从当前位置规划到下一目标的确认')
+      return 'closed'
+    }
+    return 'run'
   }
 
-  function resume(): void {
-    executor.resume()
+  function gateStepRequest(): 'step' | 'closed' {
+    if (executor.getSnapshot().state === 'running') return 'closed'
+    if (needsPPtoMain) {
+      console.info('[ABB-PROGRAM] PP 无法映射，需先 PP to Main')
+      return 'closed'
+    }
+    if (offPath) {
+      pendingClear.value = 'step'
+      sync()
+      console.info('[ABB-PROGRAM] 偏离路径，等待从当前位置规划到下一目标的确认')
+      return 'closed'
+    }
+    return 'step'
+  }
+
+  function run(): void {
+    if (gateRunRequest() === 'closed') return
+    console.info('[ABB-PROGRAM] 运行请求')
+    beginExecution((exec) => exec.run())
+  }
+
+  function step(): void {
+    if (gateStepRequest() === 'closed') return
+    console.info('[ABB-PROGRAM] 单步请求')
+    beginExecution((exec) => exec.step())
+  }
+
+  /** off-path 确认为 ABB Clear：从当前位置规划到下一目标，随后按原请求模式执行。 */
+  function confirmClearToNext(): void {
+    const mode = pendingClear.value
+    if (!mode) return
+    pendingClear.value = null
+    // 已接受从当前位置规划到下一目标，清除偏离路径标记。
+    offPath = false
     sync()
-    console.info('[ABB-PROGRAM] 继续')
+    if (mode === 'run') run()
+    else step()
+  }
+
+  function cancelClearToNext(): void {
+    pendingClear.value = null
+    sync()
   }
 
   /** 在活动程序时发出停止请求：只委托一次并记录；终止由执行链微任务结算。 */
   function requestStop(): void {
     executor.stop()
     console.info('[ABB-PROGRAM] 停止请求')
-    // 终止由执行链在微任务中结算，用一次宏任务刷新快照以反映 stopped。
     window.setTimeout(sync, 0)
   }
 
+  /** 用户点击停止：仅终止活动程序，不标记偏离路径（停止本身不是 Jog）。 */
   function stop(): void {
-    stopActiveProgram()
+    if (executor.getSnapshot().state === 'running') requestStop()
   }
 
-  function reset(): void {
-    executor.reset()
-    loadedProgram = []
-    diagnostics = []
+  /**
+   * 手动命令入口统一先调用：终止活动程序，并在已有停止程序上下文时标记 off-path
+   * （停止后机器人被手动 Jog）。初始空闲 Jog 不提示偏离。
+   */
+  function stopActiveProgram(): void {
+    const stateBeforeManualMotion = executor.getSnapshot().state
+    stop()
+    // 运行中被手动抢占或已有 stopped 上下文才表示偏离程序路径；completed/error 不再伪造路径事实。
+    if (stateBeforeManualMotion === 'running' || stateBeforeManualMotion === 'stopped') offPath = true
+    sync()
+  }
+
+  function ppToMain(): void {
+    if (executor.getSnapshot().state === 'running') return
+    needsPPtoMain = false
+    pendingEdit = null
+    // 用最新源码重建执行器并复位到 main；不清零机器人、不伪装已回到原路径。
+    if (parsed.value.canExecute) loadedProgram = parsed.value.program
+    executor = createProgramExecutor(loadedProgram, seam)
+    executor.ppToMain()
     sync()
     stopPolling()
+    console.info('[ABB-PROGRAM] PP to Main')
   }
 
-  function stopActiveProgram(): void {
-    const state = executor.getSnapshot().state
-    if (state === 'running' || state === 'paused') requestStop()
+  /** 唯一受控编辑入口：委托 RAPID 层执行单条命令；成功更新源码，失败保持源码不变。 */
+  function applyEdit(command: RapidEditCommand): RapidEditResult {
+    if (executor.getSnapshot().state === 'running') {
+      return { ok: false, error: { code: 'source-error', message: '程序运行期间禁止编辑源码' } }
+    }
+    const result = applyRapidEdit(options.source.value, command)
+    if (result.ok) {
+      pendingEdit = result.result
+      options.source.value = result.result.source
+    }
+    return result
   }
+
+  /** 源码变化后把已停止程序的旧 PP 映射到新解析结果；无法唯一映射则要求 PP to Main。 */
+  function reconcileProgramAfterSourceChange(): void {
+    const base = executor.getSnapshot()
+    // 运行中不重映射；idle 仍需同步诊断，并消费不应跨越空闲周期的受控编辑标记。
+    if (base.state === 'running') return
+    if (base.state === 'idle') {
+      pendingEdit = null
+      sync()
+      return
+    }
+    const oldProgram = loadedProgram
+    const oldIndex = base.programPointer
+    if (oldProgram.length === 0) return
+    const next = parsed.value
+    if (pendingEdit && options.source.value !== pendingEdit.source) pendingEdit = null
+    // 结构化编辑保留指令集合与顺序：PP 按同一下标映射；否则保守校验下标处指令是否仍一致。
+    let mapTo: number | null = null
+    if (next.canExecute && next.program.length > 0) {
+      const isStructuredEdit = pendingEdit !== null
+      if (isStructuredEdit) {
+        const edit = pendingEdit as NonNullable<typeof pendingEdit>
+        const shift = edit.programIndexShift
+        pendingEdit = null
+        const candidateIndex = shift && oldIndex >= shift.at ? oldIndex + shift.delta : oldIndex
+        if (candidateIndex < next.program.length) mapTo = candidateIndex
+      } else {
+        const oldSourceText = oldProgram[oldIndex]?.sourceText
+        const candidates = oldSourceText
+          ? next.program
+              .map((instruction, index) => (instruction.sourceText === oldSourceText ? index : -1))
+              .filter((index) => index >= 0)
+          : []
+        // 自由编辑只能在唯一候选时保留 PP；重复相同指令无法证明是哪一条，必须 PP to Main。
+        if (candidates.length === 1) mapTo = candidates[0]
+      }
+    }
+    if (mapTo === null) {
+      // 新源码不可执行、或无法唯一映射到新指令 → 要求 PP to Main。
+      needsPPtoMain = true
+      console.info('[ABB-PROGRAM] 停止态源码无法唯一映射 PP，需 PP to Main')
+    } else {
+      // 重建执行器并在原 PP 继续。
+      loadedProgram = next.program
+      executor = createProgramExecutor(next.program, seam, mapTo)
+    }
+    sync()
+  }
+
+  // 源程序变化（受控编辑或手工输入）后重映射 PP。
+  watch(parsed, () => {
+    reconcileProgramAfterSourceChange()
+  })
 
   onBeforeUnmount(stopPolling)
 
-  return { snapshot, run, pause, resume, stop, reset, stopActiveProgram }
+  return {
+    snapshot,
+    parsed,
+    run,
+    step,
+    stop,
+    ppToMain,
+    applyEdit,
+    stopActiveProgram,
+    confirmClearToNext,
+    cancelClearToNext,
+    pendingClear,
+  }
 }

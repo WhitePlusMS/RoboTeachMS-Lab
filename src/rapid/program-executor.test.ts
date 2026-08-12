@@ -50,13 +50,11 @@ function makeMoveL(overrides: Partial<StructuredMoveL> = {}): StructuredMoveL {
 }
 
 /**
- * 可控 fake seam：逐个 resolve execute 结果，pause/resume 记账，stop 把当前
- * 挂起的 execute 结算为 stopped（模拟 MotionRunner.stop 结算终止 Promise）。
+ * 可控 fake seam：逐个 resolve execute 结果，stop 把当前挂起的 execute 结算为 stopped。
+ * 用于验证执行器在指令粒度上的指针与状态语义，不依赖真实 IK/关节插值。
  */
 class FakeSeam implements ProgramExecutionSeam {
   readonly calls: StructuredMotionInstruction['kind'][] = []
-  pauseCalls = 0
-  resumeCalls = 0
   stopCalls = 0
   private readonly queue: Array<{ kind: string; resolve: (o: InstructionOutcome) => void }> = []
 
@@ -77,14 +75,6 @@ class FakeSeam implements ProgramExecutionSeam {
     next.resolve(result)
   }
 
-  pause(): void {
-    this.pauseCalls += 1
-  }
-
-  resume(): void {
-    this.resumeCalls += 1
-  }
-
   stop(): void {
     this.stopCalls += 1
     const next = this.queue.shift()
@@ -92,7 +82,7 @@ class FakeSeam implements ProgramExecutionSeam {
   }
 }
 
-describe('ProgramExecutor 串行执行与指针语义', () => {
+describe('ProgramExecutor 运行与指针语义', () => {
   it('空程序确定进入 completed，指针为 0，不调用 seam', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([], seam)
@@ -101,12 +91,13 @@ describe('ProgramExecutor 串行执行与指针语义', () => {
       state: 'completed',
       programPointer: 0,
       motionPointer: null,
+      stopReason: null,
       error: null,
     })
     expect(seam.calls).toEqual([])
   })
 
-  it('MoveJ → MoveL → MoveJ 串行执行，当前未完成时不调用下一条', async () => {
+  it('运行 MoveJ → MoveL → MoveJ，按顺序推进 PP/MP 并最终 completed', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([makeMoveJ(), makeMoveL(), makeMoveJ()], seam)
 
@@ -133,7 +124,7 @@ describe('ProgramExecutor 串行执行与指针语义', () => {
     expect(executor.getSnapshot().motionPointer).toBeNull()
   })
 
-  it('运动返回 stopped 后程序不推进、后续指令不执行', async () => {
+  it('运动中返回 stopped：指针不推进、MP 清空、后续指令不执行', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([makeMoveJ(), makeMoveJ(), makeMoveJ()], seam)
 
@@ -151,7 +142,7 @@ describe('ProgramExecutor 串行执行与指针语义', () => {
     expect(seam.calls).toEqual(['movej', 'movej'])
   })
 
-  it('规划错误进入 error，保存准确指令索引，后续指令不执行', async () => {
+  it('规划错误进入 error，保留准确指令索引，错误指令不推进', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([makeMoveJ(), makeMoveJ(), makeMoveJ()], seam)
 
@@ -168,7 +159,7 @@ describe('ProgramExecutor 串行执行与指针语义', () => {
     expect(seam.calls).toEqual(['movej'])
   })
 
-  it('重复 run 请求幂等处理，不产生第二条执行链', async () => {
+  it('重复 run 请求幂等，不产生第二条执行链', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
 
@@ -199,169 +190,185 @@ describe('ProgramExecutor 串行执行与指针语义', () => {
   })
 })
 
-describe('ProgramExecutor 控制命令', () => {
-  it('运行中 pause 委托当前 MotionRunner，指针与未完成 Promise 不变', async () => {
+describe('ProgramExecutor 单步', () => {
+  it('单步执行一条指令后 PP 推进、MP 清空、进入 stopped 等待下一步', async () => {
     const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
+
+    const stepPromise = executor.step()
+    await Promise.resolve()
+    expect(seam.calls).toEqual(['movej'])
+    expect(executor.getSnapshot().motionPointer).toBe(0)
+
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await stepPromise).toBe('stopped')
+    expect(executor.getSnapshot().state).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(1)
+    expect(executor.getSnapshot().motionPointer).toBeNull()
+    expect(seam.calls).toEqual(['movej'])
+  })
+
+  it('末条单步完成后进入 completed，不产生多余等待状态', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ()], seam)
+
+    const stepPromise = executor.step()
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await stepPromise).toBe('completed')
+    expect(executor.getSnapshot().state).toBe('completed')
+    expect(executor.getSnapshot().programPointer).toBe(1)
+  })
+
+  it('连续单步逐条走完整个程序，最后一条显示已完成', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL(), makeMoveJ()], seam)
+
+    let stepPromise = executor.step()
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await stepPromise).toBe('stopped')
+
+    stepPromise = executor.step()
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await stepPromise).toBe('stopped')
+
+    stepPromise = executor.step()
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await stepPromise).toBe('completed')
+    expect(executor.getSnapshot().programPointer).toBe(3)
+    expect(executor.getSnapshot().state).toBe('completed')
+  })
+
+  it('运行中重复 step 幂等，不产生第二条链', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
+    const run = executor.run()
+    await Promise.resolve()
+    expect(await executor.step()).toBe('running')
+    expect(seam.calls).toEqual(['movej'])
+    seam.resolveNext({ ok: true, result: 'completed' })
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    await run
+  })
+})
+
+describe('ProgramExecutor 停止与续跑', () => {
+  it('运行中停止只委托一次 seam.stop，未完成指令不计为完成、后续不执行', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
+
     const runPromise = executor.run()
     await Promise.resolve()
+    expect(seam.calls).toEqual(['movej'])
 
-    executor.pause()
-    executor.pause()
-    expect(executor.getSnapshot().state).toBe('paused')
-    expect(seam.pauseCalls).toBe(1)
+    executor.stop()
+    executor.stop()
+    expect(seam.stopCalls).toBe(1)
+
+    expect(await runPromise).toBe('stopped')
+    expect(executor.getSnapshot().state).toBe('stopped')
     expect(executor.getSnapshot().programPointer).toBe(0)
-    expect(executor.getSnapshot().motionPointer).toBe(0)
-    // 暂停/继续不新增 execute 调用、不创建第二个执行 Promise。
     expect(seam.calls).toEqual(['movej'])
+  })
 
-    executor.resume()
-    executor.resume()
-    expect(executor.getSnapshot().state).toBe('running')
-    expect(seam.resumeCalls).toBe(1)
-    expect(seam.calls).toEqual(['movej'])
+  it('停在中途后再次运行从当前执行位置继续（未完成运动重新规划）', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL(), makeMoveL()], seam)
 
+    // 走到第 2 条时停止。
+    let runPromise = executor.run()
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    await Promise.resolve()
+    executor.stop()
+    expect(await runPromise).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(1)
+
+    // 续跑：从 PP=1 继续执行剩余两条。
+    runPromise = executor.run()
+    await Promise.resolve()
+    expect(seam.calls).toEqual(['movej', 'movel', 'movel'])
     seam.resolveNext({ ok: true, result: 'completed' })
     await Promise.resolve()
     seam.resolveNext({ ok: true, result: 'completed' })
     expect(await runPromise).toBe('completed')
+    expect(executor.getSnapshot().programPointer).toBe(3)
   })
 
-  it('暂停后停止：当前运动返回 stopped，指针不增加，后续指令不执行', async () => {
+  it('停在中途后单步从当前执行位置执行一条', async () => {
     const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
-    const runPromise = executor.run()
-    await Promise.resolve()
-
-    executor.pause()
-    expect(executor.getSnapshot().state).toBe('paused')
-    executor.stop()
-    expect(await runPromise).toBe('stopped')
-    expect(executor.getSnapshot().state).toBe('stopped')
-    expect(executor.getSnapshot().programPointer).toBe(0)
-    expect(executor.getSnapshot().motionPointer).toBeNull()
-    expect(seam.calls).toEqual(['movej'])
-  })
-
-  it('重复 pause/resume/stop 幂等，最终状态稳定', async () => {
-    // 空闲状态重复命令幂等、不抛异常。
-    const idleExec = createProgramExecutor([makeMoveJ()], new FakeSeam())
-    idleExec.pause()
-    idleExec.resume()
-    idleExec.stop()
-    idleExec.reset()
-    expect(idleExec.getSnapshot().state).toBe('idle')
-
-    const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ()], seam)
-    const runPromise = executor.run()
-    await Promise.resolve()
-
-    // 重复 pause 只委托一次。
-    executor.pause()
-    executor.pause()
-    expect(seam.pauseCalls).toBe(1)
-    expect(executor.getSnapshot().state).toBe('paused')
-
-    // 重复 resume 只委托一次。
-    executor.resume()
-    executor.resume()
-    expect(seam.resumeCalls).toBe(1)
-    expect(executor.getSnapshot().state).toBe('running')
-
-    // 重复 stop：只结算一次，终止后状态稳定为 stopped。
-    executor.stop()
-    executor.stop()
-    expect(await runPromise).toBe('stopped')
-    expect(executor.getSnapshot().state).toBe('stopped')
-  })
-
-  it('连续调用两次 stop 时 seam.stop 只执行一次、程序指针不增加', async () => {
-    const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
-
-    const runPromise = executor.run()
-    await Promise.resolve()
-    expect(seam.calls).toEqual(['movej'])
-
-    // 第一次 stop 委托 seam 并置停止请求；第二次 stop 不得再调用 seam。
-    executor.stop()
-    executor.stop()
-    expect(seam.stopCalls).toBe(1)
-
-    expect(await runPromise).toBe('stopped')
-    // 停止不推进到下一指令，程序指针保持 0。
-    expect(executor.getSnapshot().state).toBe('stopped')
-    expect(executor.getSnapshot().programPointer).toBe(0)
-    expect(seam.calls).toEqual(['movej'])
-  })
-
-  it('reset 后可以重新运行并再次停止（不继承旧停止请求）', async () => {
-    const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
 
     let runPromise = executor.run()
     await Promise.resolve()
     executor.stop()
-    expect(await runPromise).toBe('stopped')
-    expect(seam.stopCalls).toBe(1)
+    await runPromise
+    expect(executor.getSnapshot().programPointer).toBe(0)
 
-    // 清空 seam 记账，复位后重新运行再停止。
-    seam.stopCalls = 0
-    seam.calls.length = 0
-    executor.reset()
-    expect(executor.getSnapshot().state).toBe('idle')
-
-    runPromise = executor.run()
+    const stepPromise = executor.step()
     await Promise.resolve()
-    expect(seam.calls).toEqual(['movej'])
-    executor.stop()
-    // 新一次运行的停止请求生效（若旧请求未清空，这里 seam.stop 不会被再次调用）。
-    expect(seam.stopCalls).toBe(1)
-    expect(await runPromise).toBe('stopped')
-    expect(executor.getSnapshot().state).toBe('stopped')
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await stepPromise).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(1)
   })
+})
 
-  it('completed 后 reset 回到 idle，指针归零、错误清空', async () => {
+describe('ProgramExecutor PP to Main', () => {
+  it('completed 后 PP to Main 把指针移到 main 并回到 idle，不清空运动', async () => {
     const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ()], seam)
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
     const runPromise = executor.run()
     await Promise.resolve()
     seam.resolveNext({ ok: true, result: 'completed' })
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
     await runPromise
-
     expect(executor.getSnapshot().state).toBe('completed')
-    executor.reset()
+    expect(executor.getSnapshot().programPointer).toBe(2)
+
+    executor.ppToMain()
     expect(executor.getSnapshot().state).toBe('idle')
     expect(executor.getSnapshot().programPointer).toBe(0)
     expect(executor.getSnapshot().motionPointer).toBeNull()
-    expect(executor.getSnapshot().error).toBeNull()
   })
 
-  it('error 后 reset 回到 idle 并清空错误', async () => {
+  it('stopped 后 PP to Main 重置执行位置，随后可从 main 运行', async () => {
     const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ()], seam)
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
     const runPromise = executor.run()
     await Promise.resolve()
-    seam.resolveNext({ ok: false, error: { kind: 'unreachable', message: '不可达' } })
+    seam.resolveNext({ ok: true, result: 'completed' })
+    await Promise.resolve()
+    executor.stop()
     await runPromise
-    expect(executor.getSnapshot().state).toBe('error')
+    expect(executor.getSnapshot().programPointer).toBe(1)
 
-    executor.reset()
+    executor.ppToMain()
     expect(executor.getSnapshot().state).toBe('idle')
-    expect(executor.getSnapshot().error).toBeNull()
+    expect(executor.getSnapshot().programPointer).toBe(0)
+
+    const run2 = executor.run()
+    await Promise.resolve()
+    expect(seam.calls).toEqual(['movej', 'movel', 'movej'])
+    seam.resolveNext({ ok: true, result: 'completed' })
+    await Promise.resolve()
+    seam.resolveNext({ ok: true, result: 'completed' })
+    expect(await run2).toBe('completed')
   })
 
-  it('活动状态调用 reset 不做任何修改，不产生竞态', async () => {
+  it('运行中 PP to Main 不做任何修改', async () => {
     const seam = new FakeSeam()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
     const runPromise = executor.run()
     await Promise.resolve()
 
-    executor.reset()
+    executor.ppToMain()
     expect(executor.getSnapshot().state).toBe('running')
     expect(executor.getSnapshot().programPointer).toBe(0)
-    expect(seam.calls).toEqual(['movej'])
 
     seam.resolveNext({ ok: true, result: 'completed' })
     await Promise.resolve()
@@ -398,8 +405,6 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
           runTrajectory: (waypoints, durationMs) => runner.startTrajectory(waypoints, durationMs),
         })
       },
-      pause: () => runner.pause(),
-      resume: () => runner.resume(),
       stop: () => runner.stop(),
     }
     return { model, clock, joints, runner, seam }
@@ -432,66 +437,15 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
     void joints
   })
 
-  it('真实 MoveJ 运动中暂停冻结关节、继续后完成', async () => {
-    const { clock, joints, seam } = makeModelAndRunner()
-    const executor = createProgramExecutor([makeMoveJ()], seam)
-
-    const runPromise = executor.run()
-    await Promise.resolve()
-    // 推进一段（未完成）。
-    clock.advanceBy(400)
-    const frozenAt = [...joints]
-
-    executor.pause()
-    expect(executor.getSnapshot().state).toBe('paused')
-    expect(executor.getSnapshot().programPointer).toBe(0)
-    expect(executor.getSnapshot().motionPointer).toBe(0)
-    // 暂停期间时钟继续前进，但关节冻结。
-    clock.advanceBy(5000)
-    expect(joints).toEqual(frozenAt)
-
-    executor.resume()
-    expect(executor.getSnapshot().state).toBe('running')
-    for (let index = 0; index < 300; index += 1) {
-      clock.advanceBy(50)
-      await Promise.resolve()
-    }
-    expect(await runPromise).toBe('completed')
-    expect(executor.getSnapshot().programPointer).toBe(1)
-  })
-
-  it('真实 MoveL 运动中暂停冻结关节、继续后从剩余时间完成', async () => {
-    const { clock, joints, seam } = makeModelAndRunner()
-    const executor = createProgramExecutor([makeMoveL()], seam)
-
-    const runPromise = executor.run()
-    await Promise.resolve()
-    clock.advanceBy(400)
-    const frozenAt = [...joints]
-
-    executor.pause()
-    clock.advanceBy(5000)
-    expect(joints).toEqual(frozenAt)
-
-    executor.resume()
-    for (let index = 0; index < 300; index += 1) {
-      clock.advanceBy(50)
-      await Promise.resolve()
-    }
-    expect(await runPromise).toBe('completed')
-    expect(executor.getSnapshot().programPointer).toBe(1)
-  })
-
-  it('真实程序暂停后停止：当前运动停止、指针不推进、后续不执行', async () => {
+  it('真实 MoveJ 运动中停止：关节停在当前位置、指针不推进、后续不执行', async () => {
     const { clock, joints, seam } = makeModelAndRunner()
     const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
 
     const runPromise = executor.run()
     await Promise.resolve()
-    clock.advanceBy(300)
-    executor.pause()
-    executor.stop()
+    clock.advanceBy(400)
     const stoppedAt = [...joints]
+    executor.stop()
 
     // 停止后不再推进剩余轨迹；旧程序不会继续推进到下一条指令。
     clock.advanceBy(5000)
@@ -500,6 +454,27 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
     expect(executor.getSnapshot().state).toBe('stopped')
     expect(executor.getSnapshot().programPointer).toBe(0)
     expect(executor.getSnapshot().motionPointer).toBeNull()
+  })
+
+  it('真实停止后单步从当前位置完成一条运动并停在等待下一步', async () => {
+    const { clock, joints, seam } = makeModelAndRunner()
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
+
+    const runPromise = executor.run()
+    await Promise.resolve()
+    clock.advanceBy(300)
+    executor.stop()
+    await runPromise
+    expect(executor.getSnapshot().state).toBe('stopped')
+
+    const stepPromise = executor.step()
+    for (let index = 0; index < 400; index += 1) {
+      clock.advanceBy(100)
+      await Promise.resolve()
+    }
+    expect(await stepPromise).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(1)
+    void joints
   })
 })
 

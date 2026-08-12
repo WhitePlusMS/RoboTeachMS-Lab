@@ -1,5 +1,187 @@
 # 更新日志
 
+## 2026-08-12 — 最终复审边界修复
+
+- **`src/application/program-control.ts`**：自由 textarea 编辑只有在新程序中存在唯一同文本指令时才保留 PP；重复候选统一要求 PP to Main，避免静默指向错误运动。
+- **`src/components/RapidSourceEditor.vue` / `src/style.css`**：关闭 textarea 软换行并统一编辑器与 gutter 行高为 20px，保证长 RAPID 行的 PP/MP/错误标记不漂移。
+- **`src/components/ProgramDataPanel.vue` / `src/App.vue`**：当前 FK 姿态显式允许为空并在示教时给出错误提示；robconf 明示“当前 MVP 未模拟构型控制”，Modify Position 使用 ABB 术语。
+- **`src/rapid/controlled-rapid-edit.ts` / `src/rapid/rapid-parser.ts`**：删除已无调用方的编辑范围字段和旧的单一 motionInsertOffset 契约，保留唯一的插入点列表与 PP 位移信息。
+
+## 2026-08-12 — 修复代码评审发现的 RAPID 教学闭环问题
+
+- **修改原因**：本轮 code review 发现操作数诊断定位、Program Data 插入位置、停止态 PP 映射、错误门禁、源码 gutter、轨迹采样和代理文档存在可验证缺口；本次按最简原则直接修复，不引入第二份点位状态。
+- **`src/rapid/rapid-parser.ts`**：为 MoveJ/MoveL 保存 target/speed/zone/tool/wobj 的 Token 范围，诊断不再使用 `source.indexOf` 猜测位置；新增 `motionInsertionPoints`，并在可执行指令中暴露 `operandRanges`。
+- **`src/rapid/controlled-rapid-edit.ts` / `src/components/ProgramDataPanel.vue` / `src/App.vue`**：插入命令新增 `insertionIndex`，Program Data 面板显示 main 内合法插入位置，受控编辑返回运动下标位移信息，支持首条、中间和末尾插入。
+- **`src/application/program-control.ts`**：受控编辑标记改为一次性消费并校验源码仍是编辑产物；插入运动后按下标位移保留旧 PP；idle 源码变化同步诊断；手动 Jog 仅在运行/停止程序上下文标记 off-path。
+- **`src/rapid/program-executor.ts` / `src/components/ProgramControlPanel.vue`**：快照新增 `stopReason`，区分用户停止与单步完成；静态诊断存在时禁用运行/单步。
+- **`src/components/RapidSourceEditor.vue` / `src/style.css`**：gutter 新增 parser 诊断行和运行时规划错误行标记。
+- **`src/scene/abb-scene.ts`**：TCP 轨迹采样与显示开关解耦，关闭显示时仍保留真实采样，之后打开可查看已有轨迹。
+- **`src/rapid/movej-planner.ts`**：复用 `SixAxisJointRanges` 六元 tuple，并将 `buildAlternateIKSs` 更名为 `buildAlternateIKSeeds`。
+- **`CLAUDE.md`**：删除与真实 Vue 项目不符的 React/不存在文件说明，重写为 ABB 项目事实、KUKA 保留、RAPID 单一事实源和验证约束。
+- **测试**：补充操作数精确范围、插入位置、PP 位移、停止原因、错误 gutter、静态诊断门禁和 UI 插入选择测试；针对性测试 7 文件 / 102 项通过，`npm run check` 通过。
+
+## 2026-08-11 — 代码评审修复（standards 气味清理）
+
+- **修改原因**：两轴 code-review 指出三处可验证的清理点，均符合"最简原则"——
+  1. `style.css` 遗留 `.program-state-paused` 死样式（暂停/继续概念已随 Ticket 04 删除，无任何引用）。
+  2. `ProgramDataPanel.vue` 的 `taughtRobTarget` 手写 `robconf:[0,0,0,0]` 与字面 `[9e9×6]`，与 `controlled-rapid-edit.ts` 的 `makeEmptyTaughtTarget`（用 `NO_EXTERNAL_AXIS` 工厂）重复，改外轴语义时易只改一处。
+  3. `planMoveJ` 错误路径为区分 `joint-limit`/`unreachable` 再次调用 `solveIK(primary)`，而 `resolveJointSolution` 内部已算过同一主初值。
+- **`src/style.css`**：删除 `.program-state-paused` 死样式。
+- **`src/components/ProgramDataPanel.vue`**：`taughtRobTarget` 改为复用 `makeEmptyTaughtTarget` 工厂，消除手写 robconf/extax。
+- **`src/rapid/movej-planner.ts`**：`resolveJointSolution` 改为返回 `{ joints }` 或 `{ failure: 'joint-limit' | 'unreachable' }`，`planMoveJ` 据 `failure` 构造错误，不再重复逆解。
+- **影响范围**：仅清理与重构，不改变行为；TypeScript 检查通过、全量单测 211 通过；未启动开发服务、未提交 Git。
+
+## 2026-08-11 — Ticket 06：完成源码与运动教学观察闭环
+
+- **修改原因**：学生在三栏工作台上完成 Jog、示教点位、编写 MoveJ/MoveL、单步与连续运行时，应能同时看见源码执行位置、结构化运动参数、机器人状态与实际 TCP 轨迹。
+- **`src/rapid/rapid-parser.ts`**：为可执行指令补充 `operands`（target/speed/zone/tool/wobj 原始拼写），使组件展示结构化摘要时不需解析 RAPID 字符串。
+- **`src/components/RapidSourceEditor.vue`**（新增）：原生 textarea 旁的行号/状态 gutter（与 textarea 同步滚动），PP 蓝色、MP 橙色、同行可并存；其下结构化指令摘要展示指令类型与操作数原始名称。
+- **`src/components/ProgramControlPanel.vue` / `src/App.vue`**：接入 `RapidSourceEditor`；按 `program`（parser 结果）把快照 PP/MP 索引映射到源码行 gutter，并从当前活动/待执行指令派生结构化摘要；off-path Clear、PP to Main、Program Data 与程序控制保持前票 ABB 语义。
+- **测试**：`RapidSourceEditor.test.ts` 新增 6 个 gutter/摘要测试；`ProgramControlPanel.test.ts` 新增 PP/MP 行标记与结构化摘要测试；parser 通过。
+- **浏览器验收（独立临时 preview）**：改写 `e2e/abb-program.spec.ts` 为运行/单步/停止/PP to Main —— 完整运行、单步等待下一步、停止不推进、停止续跑、完成 PP to Main 重跑、诊断阻止、运行锁源码、教学闭环（新建→插入 MoveJ→单步→连续运行→修改位置→再运行）与结构化摘要联动。删除旧暂停/继续浏览器场景。
+- **最终验证**：一次 TypeScript 检查、全量单测（211 通过）、生产构建、浏览器 E2E（14 通过）全部通过；E2E 使用独立临时 4173 preview，结束后已终止该 preview 并确认端口释放，未触碰用户 5173 服务；未提交 Git。
+
+## 2026-08-11 — Ticket 05：处理停止后的源码编辑与 Jog
+
+- **修改原因**：程序停止后用户应能安全修改 RAPID 或手动 Jog；系统要保持正确 PP，无法映射时要求 PP to Main，机器人偏离路径时按 ABB Clear 语义从当前位置继续。
+- **`src/rapid/program-executor.ts`**：`createProgramExecutor` 支持 `initialPointer`，供源码编辑后按原 PP 重建执行器。
+- **`src/application/program-control.ts`**：新增停止态 PP 映射与 off-path 协调 —
+  - `watch(parsed)` 在源码变化后 `reconcileProgramAfterSourceChange()`：受控编辑（带编辑范围）保留指令集合与顺序，PP 按同一下标映射；自由 textarea 编辑用保守策略（下标处 sourceText 一致才保留，否则置 `needsPPtoMain`）；新源码不可执行或无法唯一映射时要求 PP to Main。
+  - `offPath`/`needsPPtoMain` 进入快照；`run()`/`step()` 被 `needsPPtoMain`（要求 PP to Main）和 `offPath`（转为 Clear 确认）门控，不立即运动。
+  - `stopActiveProgram()`（手动命令入口）在已有停止程序上下文后标记 off-path（初始空闲 Jog 不提示）；`stop()`（用户点击停止）本身不标记。
+  - `pendingClear` + `confirmClearToNext()`/`cancelClearToNext()`：off-path 确认后清除标记并从当前姿态按原请求模式规划；PP to Main 不清零机器人、不伪装已回原路径，重建执行器到 main。
+- **`src/components/ProgramControlPanel.vue` / `src/App.vue`**：PP 无法映射时禁用运行/单步并提示先 PP to Main；off-path 提示偏离并显示 Clear 确认（从当前位置规划到下一目标）。
+- **测试**：`program-control.test.ts` 新增 5 个 PP 映射测试（Modify Position/重命名/自由删除/保守保留）、4 个 off-path 确认测试与 1 个 stop—Jog—confirm—run 单一 MotionRunner 集成测试；`ProgramControlPanel.test.ts` 新增 off-path/PP 门控与 Clear 确认测试。
+- **影响范围**：仅修改执行器（首指针）、程序控制器与程序面板；全量单测 202 通过、TypeScript 检查通过；未启动开发服务、未提交 Git。
+
+## 2026-08-11 — Ticket 04：对齐 ABB 程序执行操作
+
+- **修改原因**：用户需要通过 ABB 风格的“运行、单步、停止、PP to Main”操作同一份 RAPID 程序；单步完整完成一条运动后停在下一条，停止后可从当前执行位置继续，PP to Main 只移动程序指针，不再提供独立暂停/继续。
+- **`src/rapid/program-executor.ts`**：重构执行器为 ABB 语义 — 状态机收敛为 `idle/running/stopped/completed/error`（删除 `paused`），公开命令为 `run`（从当前 PP 连续运行）、`step`（只执行 PP 对应的一条完整运动，成功后 PP 推进，末条置 completed 否则 stopped 等待下一步）、`stop`（只委托一次 seam.stop）、`ppToMain`（非运行态把 PP 移到 main，不清零机器人/轨迹）。删除 `pause`/`resume`/`reset`，`ProgramExecutionSeam` 收敛为 `execute`+`stop`。
+- **`src/application/program-control.ts`**：`ProgramControllerMotion` 移除 `pauseMotion`/`resumeMotion`；控制器命令改为 `run`/`step`/`stop`/`ppToMain`，删除 `pause`/`resume`/`reset`。
+- **`src/components/ProgramControlPanel.vue` / `src/App.vue`**：界面只提供运行/单步/停止/PP to Main，删除暂停/继续/复位入口与兼容包装；运行期间源码只读，停止后“等待下一步”提示由 stopped 状态派生。
+- **测试**：`program-executor.test.ts` 整体改写覆盖连续、逐步、末条完成、停止续跑、PP to Main、错误与重复命令；`ProgramControlPanel.test.ts` 改写覆盖四类按钮可用性与命令映射；`program-control.test.ts` 更新为 run/step/stop/ppToMain 日志与抢占语义。
+- **影响范围**：删除旧暂停/继续/复位后整个 TypeScript 项目独立编译通过、全量单测 191 通过、生产构建通过；未启动开发服务、未提交 Git。
+
+## 2026-08-11 — Ticket 03：完成 Program Data 点位示教与编辑
+
+- **修改原因**：用户 Jog 机器人后应能把当前 TCP 创建为命名点位、Modify Position 更新已有点位、管理名称与引用、并把选中点位插入为 MoveJ/MoveL；所有确认结果都表现为可见的 RAPID 源码最小修改。
+- **`src/rapid/rapid-parser.ts`**：为每个 robtarget 派生视图补齐 `declarationRange`（完整声明语句）与 `valueRange`（值字面量），并暴露 `dataInsertOffset`（main PROC 前）与 `motionInsertOffset`（main ENDPROC 前）两个受控编辑插入点。
+- **`src/rapid/controlled-rapid-edit.ts`**（新增）：RAPID 受控源码编辑深模块。一次执行一条结构化命令（创建命名目标 / Modify Position / 重命名 / 删除未引用目标 / 插入 MoveJ/MoveL），只做符号级最小文本替换；新建声明与新运动指令使用固定 ABB 风格；源程序存在 error 时禁止编辑；非法名称、重名、缺失目标与删除有引用目标都返回结构化拒绝原因，源文本逐字不变。
+- **`src/application/program-control.ts`**：新增唯一受控编辑入口 `applyEdit`，把命令委托给 RAPID 层；成功才更新源码 ref（`parsed` 随之重算），失败保持源码不变。
+- **`src/components/ProgramDataPanel.vue`**：在只读浏览基础上加入六类操作——“新建点位”（名称输入 + 当前 ABB 基座 tool0 TCP）、示教 Modify Position、重命名、删除、插入 MoveJ、插入 MoveL；共享目标示教前提示引用影响范围，失败展示结构化拒绝原因，`canExecute=false` 时只读。
+- **`src/App.vue`**：为 Program Data 面板提供 `toolPose`（由 FK 派生的当前 ABB 基座 TCP）与 `applyEdit` 回调。
+- **测试**：`controlled-rapid-edit.test.ts` 新增 13 个受控编辑测试，`program-control.test.ts` 新增 4 个唯一入口测试，`ProgramDataPanel.test.ts` 新增 5 个示教/编辑组件测试。
+- **影响范围**：仅修改 RAPID 受控编辑、程序控制器与 Program Data 面板；运行相关编辑/控制/组件测试（33 通过）与一次 TypeScript 检查；未启动开发服务、未提交 Git。
+
+## 2026-08-11 — Ticket 02：建立三栏 Program Data 浏览闭环
+
+- **修改原因**：需要在同一工作台左侧浏览右侧 RAPID 源码中声明的命名点位，且点位始终由源码实时派生，不存在第二份点位表。
+- **`src/rapid/rapid-parser.ts`**：扩展同一份解析结果，暴露 `data`（模块级命名 robtarget 的名称原始拼写、存储类别 `const`/`pers`、值、声明名精确源码范围、每条 MoveJ/MoveL 操作数引用范围）。在 `parseRobTargetDeclaration` 记录存储类别，在程序构建循环按操作数记录引用（大小写不敏感归并，注释/相似标识符不会被误识别）；即使存在 error 也暴露已识别数据供只读浏览。
+- **`src/application/program-control.ts`**：新增单一解析事实源 `parsed`（computed 随源码实时重算），`run()` 复用该结果，快照诊断统一取自 `parsed`；消除平行 parser，暴露 `parsed` 供页面与面板共享。
+- **`src/components/ProgramDataPanel.vue`**（新增）：左侧 Program Data 派生视图，按声明顺序列出名称、存储、坐标/姿态/robconf/外轴与引用次数；存在 error 时只读浏览并提示禁用结构化编辑。
+- **`src/App.vue` / `src/style.css`**：把工作台重构为左中右三栏（左侧控制与 Program Data、中间 Three.js、右侧 RAPID 编辑器），窄屏按左→中→右顺序堆叠。
+- **测试**：`rapid-parser.test.ts` 新增 6 个派生视图测试，`ProgramDataPanel.test.ts` 新增 4 个组件测试，覆盖声明/值/共享引用/大小写/错误源码与三栏列表。
+- **影响范围**：新增 parser data 输出与 Program Data 面板，重构为三栏布局；运行相关 parser/组件测试（26 通过）与一次 TypeScript 检查；未启动开发服务、未提交 Git。
+
+## 2026-08-11 — Ticket 01：可靠回放大幅 MoveJ（多初值 IK）
+
+- **修改原因**：已示教且可达的大幅 MoveJ 从远端姿态回放时，单一当前关节初值的数值 IK 常落入错误分支或无法收敛（如目标 J1=+60°、当前 J1=-120°），导致被误报为不可达。
+- **`src/rapid/movej-planner.ts`**：在 `planMoveJ` 收敛到 `resolveJointSolution` — 主初值仍是当前关节姿态且成功不夹边则立即返回（贴近目标不做多余候选搜索）；主初值无效后才扫描有限、确定性、受关节范围约束的备用初值，从当前姿态按物理构型翻转派生（腕部翻转、J1 ±180° 肩部镜像、肩肘翻转），去重后数量固定。多个候选中按各轴关节范围归一化距离选择离当前姿态最近的解，首见顺序平局稳定。主初值夹边而备用无解仍保持既有 `joint-limit` 语义，真正不可达仍返回 `unreachable` 且不启动运动。
+- **`src/rapid/movej-planner.test.ts`**：新增 5 个多初值回放测试 — 大幅 J1 复合目标远端回放、含大幅 J1/肩肘/腕复合目标回放、最近解选择与平局稳定、近距离主初值优先、真正不可达不启动运动。
+- **影响范围**：仅修改 MoveJ 规划层；MoveL、通用 IK 接口、KUKA 预留与 Three.js 显示逻辑不变。运行相关 MoveJ 测试（25 通过）与一次 TypeScript 检查通过；未启动开发服务。
+
+## 2026-08-11 — 按 `$to-tickets` 正式发布六张纵向实施票
+
+- **修改原因**：此前九张文档属于模块化实施草稿，没有先经过用户粒度确认，也不符合 `$to-tickets` 的纵向 tracer 与正式发布格式；用户确认将正式执行步骤收敛为六张。
+- **删除内容**：移除 `implementation/` 下九张旧草稿，避免小模型同时看到两套冲突执行说明。
+- **`implementation/issues/01` 至 `06`**：按用户确认的顺序正式发布六张一票一文件 tickets，覆盖大幅 MoveJ、三栏 Program Data 浏览、点位示教编辑、ABB 程序操作、停止态源码/Jog 处理和最终教学观察闭环。
+- **阻塞关系**：Ticket 01 与 Ticket 02 可立即开始；Program Data 编辑由 02 阻塞，随后 03 → 04 → 05 → 06 形成线性主链。
+- **票据内容**：每张票只描述用户可验证的端到端行为，声明现有 seam、验收清单和验证边界；正式票不绑定具体源码路径或实现片段。
+- **影响范围**：只更新当前里程碑实施文档与 `UPDATE_LOG.md`，不修改父 Wayfinder 地图、业务代码、测试或 KUKA 预留；未运行测试、未启动服务。
+
+## 2026-08-11 — 按小模型 Tracer 审查修正实施票
+
+- **修改原因**：`claude-small-model-check` 发现原 Ticket 05 删除 ProgramExecutor 旧接口却未覆盖调用方，无法独立通过编译；原 Ticket 06 同时承载源码 PP 映射和 off-path 两个状态机，不是单一 tracer。
+- **Ticket 05**：扩展为从纯 executor 到 ProgramController/按钮接线的编译绿色纵切，仍不包含源码映射或 off-path。
+- **Ticket 06/07**：拆为“停止态受控源码编辑保持 PP”和“停止后 Jog/off-path Clear”两张线性票，各自只有一个状态变化轴。
+- **Ticket 08/09**：顺延为三栏 Program Data UI 与最终源码/运动观察；删除重复的程序按钮迁移，明确 Program Data edit result 如何通知 ProgramController，并修正最终 E2E 的独立 4173 preview 流程。
+- **Ticket 04/README**：补充写操作返回 `RapidSourceEditResult` 的交接契约，并把线性顺序更新为九张票。
+- **影响范围**：仅修订实施文档与日志，不修改业务代码，不运行测试或启动服务。
+
+## 2026-08-11 — 完成 ABB 点位示教与程序观察里程碑实施拆票
+
+- **修改原因**：Wayfinder 的 ABB 操作、Program Data、受控源码编辑、可靠回放、单步状态和三栏观察界面决策已经全部收敛，需要交付小模型可按顺序直接执行且不会重复造轮子的实施 tickets。
+- **`.scratch/abb-teach-target-and-observe/implementation/README.md`**：新增线性执行索引与共同约束。
+- **`implementation/01` 至 `08`**：依次覆盖 MoveJ 有限备用初值、RAPID inspection、受控源码编辑、Program Data 控制器、ABB ProgramExecutor、源码/off-path 协调、三栏 UI 和最终观察闭环；每票写明现有 seam、允许写集、禁止范围、验收向量和最小验证。
+- **`.scratch/abb-teach-target-and-observe/map.md`**：地图状态更新为 `resolved`，清空剩余迷雾并链接实施交接目录。
+- **影响范围**：仅新增当前新里程碑的实施文档并更新日志，不修改业务代码、测试或 KUKA 预留，不运行测试或启动服务。
+
+## 2026-08-11 — 复用既有原型完成源码与运动观察决策
+
+- **修改原因**：用户指出三栏原型已经完成；继续创建第二份观察原型属于重复设计，应直接在既有布局上确定最小观察规则。
+- **`.scratch/abb-teach-target-and-observe/issues/11-source-motion-observation-ui.md`**：状态更新为 `resolved`，引用现有 `program-data-ui-prototype.html`；确定右侧源码的 PP/MP 行标、结构化指令摘要、中间实际 TCP 轨迹、off-path 提示和错误行定位，并明确复用现有状态区域。
+- **`.scratch/abb-teach-target-and-observe/map.md`**：加入观察界面决策；地图剩余迷雾收敛为面向小模型的线性实施拆票。
+- **未进行的工作**：没有创建第二份 HTML 原型，没有修改正式 Vue、RAPID 执行器、Three.js 或 KUKA 代码，没有运行测试或启动服务。
+
+## 2026-08-11 — 领取源码与运动观察界面原型票
+
+- **修改原因**：ABB 单步执行契约已经完成，下一开放前沿是确定源码、结构化运动信息与 Three.js 轨迹的最小教学呈现方式。
+- **`.scratch/abb-teach-target-and-observe/issues/11-source-motion-observation-ui.md`**：添加当前会话负责人，避免其他会话重复处理。
+- **影响范围**：仅更新 Wayfinder 票据与日志，不修改正式代码，不运行测试或启动服务。
+
+## 2026-08-11 — 依据 ABB 官方操作逻辑完成单步执行契约
+
+- **修改原因**：用户要求按正常 ABB 示教器逻辑设计，官方资料证明早期“停止后必须复位”“等待时锁定源码”“Jog 自动终止会话”等建议过于接近普通播放器而不符合 ABB。
+- **`.scratch/abb-teach-target-and-observe/research/02-abb-program-step-and-pointer-workflow.md`**：新增 ABB RobotWare 6/7/8 与官方 SDK 一手资料调研，核对 PP、MP、Step、Stop、PP to Main、RegainMode 和停止后源码编辑。
+- **`.scratch/abb-teach-target-and-observe/issues/10-program-step-execution-contract.md`**：以官方结论重写并标记 `resolved`；确定运行/单步共用 ProgramExecutor、停止后从当前执行位置继续、PP to Main 独立、Jog 后采用 Clear 语义，并排除程序级暂停/继续入口。
+- **`.scratch/abb-teach-target-and-observe/issues/11-source-motion-observation-ui.md`**：前置契约已完成，状态由 `blocked` 更新为 `open`。
+- **`.scratch/abb-teach-target-and-observe/map.md`**：加入已确认的 ABB 单步执行决策。
+- **`CONTEXT.md`**：将“等待下一步”修正为派生 UI 提示，并新增 PP、MP、PP to Main 和 off path 领域术语。
+- **影响范围**：只更新研究、领域与 Wayfinder 文档，不修改 ProgramExecutor、Vue、Three.js 或 KUKA 代码；未运行测试、未启动服务。
+
+## 2026-08-11 — 确认 RAPID 单步契约第二轮边界
+
+- **修改原因**：用户确认等待单步期间的手动 Jog 抢占、末条指令、重复命令和规划错误行为。
+- **`.scratch/abb-teach-target-and-observe/issues/10-program-step-execution-contract.md`**：补充第二轮四项决策；明确手动操作先停止程序、末条单步直接完成、活动期间不排队命令、规划失败不推进指针。
+- **影响范围**：仅更新 Wayfinder 决策票与日志，不修改业务代码，不运行测试或启动服务。
+
+## 2026-08-11 — 确认 RAPID 单步契约第一轮语义
+
+- **修改原因**：用户确认单步完成后的程序边界状态、继续运行起点、源码锁定和按钮可用性。
+- **`CONTEXT.md`**：新增“等待下一步”领域术语，明确它表示一条指令已经完成且当前没有活动运动，不能与运动中途冻结的“暂停”混用。
+- **`.scratch/abb-teach-target-and-observe/issues/10-program-step-execution-contract.md`**：记录第一轮五项确认结论，作为后续状态机与 UI 按钮契约依据。
+- **影响范围**：仅更新领域与规划文档，不修改 `ProgramExecutor`、控制面板或运行时代码，不运行测试或启动服务。
+
+## 2026-08-11 — 领取 RAPID 单步执行状态契约决策票
+
+- **修改原因**：Program Data 三栏界面已经确认，Wayfinder 下一开放前沿是确定连续运行与单步共用同一执行器的最小状态契约。
+- **`.scratch/abb-teach-target-and-observe/issues/10-program-step-execution-contract.md`**：添加当前会话负责人，避免并行会话重复处理同一决策。
+- **影响范围**：仅更新里程碑票据与日志，不修改业务代码，不运行测试或启动服务。
+
+## 2026-08-11 — 确认 Program Data 三栏界面决策
+
+- **修改原因**：用户已确认收敛后的 Program Data MVP 原型，可结束界面方案比较并推进下一项执行契约。
+- **`.scratch/abb-teach-target-and-observe/issues/09-program-data-teaching-ui.md`**：状态更新为 `resolved`，记录正式实现采用左侧点位、中间 Three.js、右侧 RAPID 编辑器的三栏职责划分。
+- **`.scratch/abb-teach-target-and-observe/map.md`**：将三栏教学工作台加入已确认决策，下一开放前沿为单步执行状态契约。
+- **影响范围**：仅更新 Wayfinder 规划文档，不修改业务代码，不运行测试或启动服务。
+
+## 2026-08-11 — 收敛 Program Data MVP 为三栏教学工作台
+
+- **修改原因**：用户明确指出不能把所有功能卡片堆在左侧，RAPID 代码输入需要在右侧拥有独立常驻卡片。
+- **`.scratch/abb-teach-target-and-observe/prototypes/program-data-ui-prototype.html`**：删除 A/B/C 方案切换，收敛为左侧 Program Data 点位操作、中间 Three.js 显示、右侧 RAPID 代码编辑器的单一三栏布局；右侧使用真实可输入的 `textarea`，保留最小运行、单步、暂停/继续和停止入口。
+- **`.scratch/abb-teach-target-and-observe/issues/09-program-data-teaching-ui.md`**：记录用户确认的职责分区，避免正式实现再次把源码编辑器塞入左栏或中间视图区。
+- **影响范围**：只修改抛弃式 UI 原型和规划记录，不改正式 Vue、RAPID 解析/执行、Three.js 场景或 KUKA 预留代码；未启动服务、未运行测试。
+
+## 2026-08-11 — 修正 ABB Profile 与内置 RAPID 验收测试
+
+- **修改原因**：复核发现 `robot-profile.test.ts` 中的 `@ts-expect-error` 赋值仍会在 Vitest 运行时执行，真实污染共享 profile 单例；既有 App 测试只比较全局常量，未证明页面控制链使用该模型；MoveL 测试用绝对值比较 Y 坐标且遗漏 MoveJ 终点到首 waypoint 的过渡，可能掩盖镜像和关节跳变。
+- **`src/robot-models/abb-irb1200/robot-profile.test.ts`**：把只读契约的负向类型检查移入不可执行分支，继续由 TypeScript 校验 `@ts-expect-error`，但不再在测试运行时替换 `model` 或改写 `homeJoints`。
+- **`src/application/app-profile-stability.test.ts`**：合并恒真断言，改为在 `loading/ready/error` 三种状态下分别提交真实 J1 输入；监听唯一 profile 模型的 FK 调用，并核对页面显示位置，证明场景状态不会改变 App 的运动学操作链；同时保留场景组件无 `model` prop 的边界检查。
+- **`src/application/builtin-program.test.ts`**：位置和姿态统一使用向量误差；MoveL 以实际 MoveJ 终点为起点校验 Z 向下降和 X/Y 横向误差，不再对 Y 坐标取绝对值；关节步长路径加入 MoveJ 终点到首 waypoint 的过渡；MoveJ 终点使用现有 IK 配置容差。
+- **影响范围**：仅修正测试及验收口径，不改生产规划器、运动学、RAPID 程序点位、场景显示或 KUKA 预留代码。
+- **最小验证**：只运行 3 个相关 Vitest 文件，结果为 3 files / 8 tests passed；`npm run check` 通过；`git diff --check` 通过。按要求未重复执行全量测试、build 或 E2E，也未启动任何服务。
+
 ## 2026-08-11 — 依据小模型代码审查的 ABB Profile/坐标/RAPID 收尾实现
 
 > 本轮落实 `.scratch/abb-profile-coordinate-semantics/reviews/01-small-model-code-review-fix-guide.md` 的六步修复，按红灯测试与最小修复顺序执行，只改动允许范围内的文件。
@@ -585,3 +767,92 @@
 - 修改文件：`.scratch/abb-teaching-simulation/research/04-abb1200-dh-mdh-search-result.md`
 - 修改原因：补充联网检索到的 `a2=448 mm` DH 候选，并与 ABB 5/0.9 官方尺寸、ROS-Industrial URDF 和用户 FBX 检查结果区分记录，避免将 `a2=350 mm` 的冲突论文表直接作为经典 5/0.9 参数。
 - 修改影响：研究结论现在区分“官方可确认尺寸”“论文 DH 候选”“URDF 等价刚体变换”和“当前项目坐标约定下的适配偏置”；未修改 `src`、`package.json` 或运行时逻辑。
+# 2026-08-11：建立 ABB 点位示教与程序观察新里程碑地图
+
+## 修改文件
+
+- `.scratch/abb-teach-target-and-observe/map.md`
+  - 新建独立 Wayfinder 路线地图，目标是形成 Jog、点位示教、RAPID 运行与教学观察的闭环。
+  - 明确 ABB 操作为主、Three.js 只负责显示，并排除 FlexPendant 像素复刻、课程系统和控制柜通信。
+- `.scratch/abb-teach-target-and-observe/issues/01-abb-flexpendant-teach-target-workflow.md`
+  - 新建 ABB 官方点位示教流程研究票，避免凭产品假设设计点位写入行为。
+- `.scratch/abb-teach-target-and-observe/issues/02-teaching-workbench-boundary.md`
+  - 记录已确认的 Web 教学实验台边界。
+- `.scratch/abb-teach-target-and-observe/issues/03-program-step-semantics.md`
+  - 记录单步完整执行一条运动指令的语义。
+- `.scratch/abb-teach-target-and-observe/issues/04-runtime-teaching-observation.md`
+  - 记录当前源码、结构化指令与轨迹联动的观察范围。
+- `.scratch/abb-teach-target-and-observe/issues/05-taught-target-replay-reliability.md`
+  - 记录示教点可靠回放及大幅 J1 运动的验收要求。
+- `.scratch/abb-teach-target-and-observe/issues/06-product-teach-target-boundary.md`
+  - 新建依赖官方资料研究结果的产品示教边界决策票。
+
+## 修改原因
+
+上一里程碑已经完成 RAPID 文本到 MoveJ/MoveL 执行闭环；下一阶段的主要教学缺口是无法按照 ABB 工作方式记录点位、逐条观察程序并可靠回放。用户要求先查明 ABB 示教器真实行为，因此将该事实调查设置为新地图的首个研究前沿。
+
+## 影响
+
+- 本次只增加规划与研究文档，不修改运行时代码。
+- 新里程碑与既有 RAPID 执行、坐标语义里程碑物理隔离，避免票据混写。
+- 后续点位示教产品决策必须等待 ABB 官方资料结论，减少重复设计和错误语义。
+
+## ABB FlexPendant 官方点位示教研究补充
+
+- 新增 `.scratch/abb-teach-target-and-observe/research/01-abb-flexpendant-teach-target-workflow.md`，依据 ABB RobotWare 6/7/8、OmniCore、FlexPendant SDK 与 RobotStudio 官方资料记录点位创建、Modify Position、`robconf` 和 RobotStudio 同步边界。
+- 更新研究票为 `resolved` 并链接完整证据；研究确认 ABB 控制器以 RAPID `robtarget` 为点位事实源，新目标默认规则是当前活动工具 TCP、名称根 `p` 和 `CONST`，不是项目此前假设的默认 `PERS`。
+- 将“产品中的 ABB 点位示教边界”票从阻塞状态转为开放状态；地图移除已经查明的事实迷雾，仅保留构型求解和界面布局等后续决策。
+- 本补充只调整规划与研究文档，不修改业务代码，不运行项目测试。
+
+## ABB Program Data 产品边界决策补充
+
+- 将 `.scratch/abb-teach-target-and-observe/issues/06-product-teach-target-boundary.md` 更新为 `resolved`：确认首期提供从 RAPID 派生的 Program Data 视图，支持独立创建和示教模块级 `CONST robtarget`、MoveJ/MoveL 引用、Modify Position、重命名与删除；共享引用必须提示影响范围。
+- 更新新里程碑 `map.md` 的 Decisions so far，并把已经清晰的后续问题升级为五张决策票：RAPID 受控源码编辑、robconf/回放原型、Program Data UI 原型、单步执行状态契约、源码与运动观察 UI 原型。
+- 更新 `CONTEXT.md`：修正此前“RAPID 源程序不反向改写”的旧边界，新增“程序数据”“点位示教”“修改位置”三个领域词，明确 UI 操作通过可见源码编辑维护唯一事实源。
+- 影响仅限领域模型和新里程碑规划；未修改业务代码，未运行测试或启动服务。
+
+## Wayfinder：领取 RAPID 源程序受控编辑契约决策票
+
+- 将 `.scratch/abb-teach-target-and-observe/issues/07-controlled-rapid-source-editing.md` 分配给当前 Wayfinder 会话，作为新里程碑的首张开放前沿票。
+- 本次只更新票据领取状态，不修改业务代码；后续先依据现有 parser 的源码范围与符号能力确定最小契约。
+
+## Wayfinder：完成 RAPID 源程序受控编辑契约
+
+- 将 `.scratch/abb-teach-target-and-observe/issues/07-controlled-rapid-source-editing.md` 更新为 `resolved`，记录检查源程序与应用单条结构化编辑命令的最小深模块接口。
+- 决定源程序存在 error 时禁用 Program Data 结构化操作；Modify Position、重命名与删除全部依据符号和源码范围执行，禁止 Vue 组件全文查找替换或拼接 RAPID。
+- 决定只规范新生成片段，未涉及的空格、大小写、注释和换行逐字保留；重命名更新所有解析引用，存在引用时阻止删除。
+- 更新新里程碑地图 Decisions so far，并在 `CONTEXT.md` 新增“受控源码编辑”术语，避免后续把它误解为格式化器或双向同步。
+- 本轮未修改业务代码，未运行测试或启动服务。
+
+## Wayfinder：领取 robconf 与可靠回放求解原型票
+
+- 将 `.scratch/abb-teach-target-and-observe/issues/08-robconf-and-replay-resolution.md` 分配给当前 Wayfinder 会话。
+- 本票只创建抛弃式验证资产，比较现有数值 IK、候选初值和 ABB 构型约束，不直接修改生产求解器或运动规划器。
+
+## robconf 可靠回放逻辑原型
+
+- 新增 `.scratch/abb-teach-target-and-observe/prototypes/robconf-replay-prototype.html`：单文件、可双击运行的抛弃式逻辑原型，比较当前单初值 IK 与构型引导多初值选择。
+- 原型数据来自当前 ABB FK/数值 IK 的一次性采样：覆盖 J1 +60°、复合大动作、同一 TCP 的 J6 多圈/腕部翻转和肩肘腕分支场景；未启动项目服务或运行测试套件。
+- 原型将 `cf1/cf4/cf6` 作为轴 1/4/6 的 90°区间，并展示错误 robconf 必须拒绝；同时明确把 IRB 1200 的 `cfx` 标记为待官方 mechanism/RobotStudio 对照向量核验，禁止用猜测公式进入生产。
+- 本次只增加 `.scratch` 原型资产和更新日志，不修改生产 IK、规划器、Vue 或 Three.js 代码。
+
+## Wayfinder：收缩并完成 robconf/回放决策
+
+- 根据用户“最简单 MVP、保留后续架构位置”的反馈，将 `.scratch/abb-teach-target-and-observe/issues/08-robconf-and-replay-resolution.md` 更新为 `resolved`。
+- 决定当前里程碑不实现完整 cfx、八种肩肘腕分支或 ConfJ/ConfL；MoveJ 只在当前单初值失败后尝试有限确定性备用初值，并选择与当前关节距离最近的成功解。MoveL 继续沿路径复用上一 waypoint。
+- 保留 `RobTarget.robconf` 的 ABB 四字段和 parser 数据形状，首期仍只执行 `[0,0,0,0]` 并明确标注未模拟构型控制；未来构型过滤在 MoveJ 求解位置替换，不预建 adapter 注册体系。
+- 更新新里程碑地图 Decisions so far 和 Out of scope；抛弃式 HTML 仅作为收缩决策证据，不进入生产界面。
+- 本轮未修改业务代码，未运行测试或启动服务。
+
+## Wayfinder：领取 Program Data 点位示教 UI 原型票
+
+- `.scratch/abb-teach-target-and-observe/issues/09-program-data-teaching-ui.md` 的两个前置决策已经完成，当前会话领取该票。
+- 原型只比较现有 Web 卡片中的最小 Program Data 操作布局，不修改正式 Vue 页面、不增加课程系统或完整 FlexPendant 菜单。
+
+## Program Data MVP 界面原型
+
+- 将 `.scratch/abb-teach-target-and-observe/issues/09-program-data-teaching-ui.md` 从已解除依赖的 `blocked` 更新为 `open`。
+- 新增 `.scratch/abb-teach-target-and-observe/prototypes/program-data-ui-prototype.html`：单文件、无需服务的三方案 UI 原型，通过 `?variant=A/B/C`、底部箭头或键盘左右键切换。
+- A 为独立 Program Data 卡片；B 为 RAPID 卡片内“程序/Program Data”双标签；C 为点位浏览器、源码、Three.js 三栏。三者使用相同派生点位与最小操作集，不接真实源码写入。
+- 原型延续现有深色卡片和工作台密度，并明确 Three.js 只显示机器人/轨迹、`robconf=[0,0,0,0]` 是未模拟构型控制的 MVP。
+- 本次未修改正式 Vue/CSS/业务代码，未运行测试或启动服务。

@@ -359,7 +359,8 @@ export function createAbbScene(
     const point: ScenePoint = [position.x, position.y, position.z]
     const previousPoint = lastTrajectoryPoint
     lastTrajectoryPoint = point
-    if (!showTrajectory || !previousPoint) return
+    // 轨迹采样是教学事实源，和可见性开关解耦；用户运行后再打开显示也能看到已采样路径。
+    if (!previousPoint) return
     if (Math.hypot(
       point[0] - previousPoint[0],
       point[1] - previousPoint[1],

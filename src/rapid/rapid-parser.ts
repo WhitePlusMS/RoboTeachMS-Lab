@@ -40,10 +40,33 @@ export interface RapidDiagnostic {
   range: RapidSourceRange
 }
 
-/** 解析后交给 ProgramExecutor 的指令；源码范围用于回溯运行时规划错误。 */
+/** 解析后交给 ProgramExecutor 的指令；源码范围用于回溯运行时规划错误，操作数名保留原始拼写。 */
 export type RapidExecutableInstruction = StructuredMotionInstruction & {
   sourceRange: RapidSourceRange
   sourceText: string
+  /** 运动操作数标识符（原始拼写），供结构化指令摘要展示，组件不另行解析 RAPID 字符串。 */
+  operands: {
+    target: string
+    speed: string
+    zone: string
+    tool: string
+    wobj: string
+  }
+  /** 每个运动操作数的精确源码范围，供诊断、编辑器标记与教学回溯使用。 */
+  operandRanges: {
+    target: RapidSourceRange
+    speed: RapidSourceRange
+    zone: RapidSourceRange
+    tool: RapidSourceRange
+    wobj: RapidSourceRange | null
+  }
+}
+
+/** main 内可插入一条新运动的合法锚点；index 表示插入到第几条现有运动之前。 */
+export interface RapidMotionInsertionPoint {
+  index: number
+  offset: number
+  line: number
 }
 
 export interface RapidParseResult {
@@ -51,6 +74,28 @@ export interface RapidParseResult {
   program: readonly RapidExecutableInstruction[]
   diagnostics: readonly RapidDiagnostic[]
   canExecute: boolean
+  /** 模块级命名 robtarget 的派生 Program Data 视图：来自同一次解析，无第二份点位存储。 */
+  data: readonly RapidProgramDataTarget[]
+  /** 新模块级声明的插入偏移（位于 main PROC 之前）。 */
+  dataInsertOffset: number
+  /** main 内所有合法插入位置，最后一项表示追加到程序末尾。 */
+  motionInsertionPoints: readonly RapidMotionInsertionPoint[]
+}
+
+/** Program Data 中的一个模块级 robtarget：名称、存储类别、值与每次引用的精确源码范围。 */
+export interface RapidProgramDataTarget {
+  /** 源码原始拼写（大小写不敏感匹配，但保留原样）。 */
+  name: string
+  storage: 'const' | 'pers'
+  target: RobTarget
+  /** 完整声明语句范围（自存储关键字到分号，含行内尾随内容）。 */
+  declarationRange: RapidSourceRange
+  /** 声明名在源码中的范围，供受控编辑与 PP 映射使用。 */
+  nameRange: RapidSourceRange
+  /** 声明值字面量 `[[...]]` 的范围，供 Modify Position 替换。 */
+  valueRange: RapidSourceRange
+  /** 每条 MoveJ/MoveL 操作数中引用该名称的源码范围。 */
+  referenceRanges: readonly RapidSourceRange[]
 }
 
 type TokenKind = 'identifier' | 'number' | 'symbol' | 'eof'
@@ -65,17 +110,30 @@ interface Token {
 interface PendingMotion {
   kind: 'movej' | 'movel'
   targetName: string
+  targetToken: Token
   speedName: string
+  speedToken: Token
   zoneName: string
+  zoneToken: Token
   toolName: string
+  toolToken: Token
   wobjName: string
+  wobjToken: Token | null
   range: RapidSourceRange
   sourceText: string
 }
 
 interface SymbolEntry {
   target: RobTarget
+  /** 声明的名称范围。 */
   range: RapidSourceRange
+  /** 完整声明语句范围（自存储关键字到分号）。 */
+  declarationRange: RapidSourceRange
+  /** 声明值字面量范围。 */
+  valueRange: RapidSourceRange
+  storage: 'const' | 'pers'
+  /** 各条运动指令操作数中引用该名称的源码范围。 */
+  references: RapidSourceRange[]
 }
 
 const NUMBER_PATTERN = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?/
@@ -222,6 +280,9 @@ export function parseRapidProgram(source: string): RapidParseResult {
   let moduleCount = 0
   let mainCount = 0
   let sawEndModule = false
+  // 受控编辑插入点：新模块级声明的插入位置（main PROC 之前）、main 内运动指令插入位置（ENDPROC 之前）。
+  let dataInsertOffset = 0
+  const motionInsertionPoints: RapidMotionInsertionPoint[] = []
 
   function current(): Token {
     return tokens[cursor] ?? tokens[tokens.length - 1]
@@ -331,11 +392,16 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
   function parseRobTargetDeclaration(): void {
     const storage = advance()
+    const declarationStart = storage.start
+    let storageKind: 'const' | 'pers' = 'const'
     if (isKeyword(storage, 'TASK')) {
       if (!expectKeyword('PERS')) {
         skipToStatementEnd()
         return
       }
+      storageKind = 'pers'
+    } else if (isKeyword(storage, 'PERS')) {
+      storageKind = 'pers'
     }
 
     const type = expectIdentifier('数据类型')
@@ -351,22 +417,32 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
     const name = expectIdentifier('robtarget 名称')
     expectSymbol(':=')
+    const valueStartOffset = current().start
     const target = parseRobTarget()
-    expectSymbol(';')
+    const semicolon = expectSymbol(';')
     if (!name || !target) return
+    const declarationEnd = semicolon ? semicolon.end : current().start
+    const nameRange = rangeFromToken(name, lineStarts)
 
     const key = normalizeName(name.text)
-    const nameRange = rangeFromToken(name, lineStarts)
     if (symbols.has(key)) {
       addDiagnostic('duplicate-symbol', `重复定义 robtarget ${name.text}`, name)
       return
     }
-    symbols.set(key, { target, range: nameRange })
+    symbols.set(key, {
+      target,
+      range: nameRange,
+      declarationRange: rangeFromOffsets(declarationStart, declarationEnd, lineStarts),
+      valueRange: rangeFromOffsets(valueStartOffset, semicolon ? semicolon.start : valueStartOffset, lineStarts),
+      storage: storageKind,
+      references: [],
+    })
   }
 
   function parseMotion(): void {
     const start = advance()
     const kind = normalizeName(start.text) as PendingMotion['kind']
+    motionInsertionPoints.push({ index: pendingMotions.length, offset: start.start, line: positionAt(start.start, lineStarts).line })
     const target = expectIdentifier('目标点名称')
     expectSymbol(',')
     const speed = expectIdentifier('速度名称')
@@ -375,6 +451,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
     expectSymbol(',')
     const tool = expectIdentifier('工具名称')
     let wobjName = 'wobj0'
+    let wobjToken: Token | null = null
 
     if (isSymbol(current(), '\\')) {
       advance()
@@ -384,7 +461,10 @@ export function parseRapidProgram(source: string): RapidParseResult {
       if (option && normalizeName(option.text) !== 'wobj') {
         addDiagnostic('unsupported-option', `不支持可选参数 ${option.text}`, option)
       }
-      if (wobj) wobjName = wobj.text
+      if (wobj) {
+        wobjName = wobj.text
+        wobjToken = wobj
+      }
     }
 
     const semicolon = expectSymbol(';')
@@ -393,10 +473,15 @@ export function parseRapidProgram(source: string): RapidParseResult {
     pendingMotions.push({
       kind,
       targetName: target.text,
+      targetToken: target,
       speedName: speed.text,
+      speedToken: speed,
       zoneName: zone.text,
+      zoneToken: zone,
       toolName: tool.text,
+      toolToken: tool,
       wobjName,
+      wobjToken,
       range: rangeFromOffsets(start.start, end.end, lineStarts),
       sourceText: source.slice(start.start, end.end),
     })
@@ -433,6 +518,12 @@ export function parseRapidProgram(source: string): RapidParseResult {
         skipToStatementEnd()
       }
     }
+    // 在 main 末尾追加运动指令。
+    motionInsertionPoints.push({
+      index: pendingMotions.length,
+      offset: current().start,
+      line: positionAt(current().start, lineStarts).line,
+    })
     expectKeyword('ENDPROC')
   }
 
@@ -442,7 +533,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
   }
 
   function parseProcedure(): void {
-    advance()
+    const procStart = advance().start
     const name = expectIdentifier('过程名称')
     const open = expectSymbol('(')
     let hasParameters = false
@@ -467,6 +558,8 @@ export function parseRapidProgram(source: string): RapidParseResult {
     if (mainCount > 1) {
       addDiagnostic('duplicate-symbol', '程序只能包含一个 PROC main()', name ?? current())
     }
+    // 新模块级 robtarget 声明插入到 main PROC 之前。
+    dataInsertOffset = procStart
     parseMainBody()
   }
 
@@ -506,19 +599,13 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
   const program: RapidExecutableInstruction[] = []
   for (const pending of pendingMotions) {
-    const tokenForName = (name: string): Token => {
-      const start = source.indexOf(name, pending.range.start.offset)
-      return {
-        kind: 'identifier',
-        text: name,
-        start: start >= 0 ? start : pending.range.start.offset,
-        end: start >= 0 ? start + name.length : pending.range.start.offset,
-      }
-    }
     let valid = true
     const symbol = symbols.get(normalizeName(pending.targetName))
-    if (!symbol) {
-      addDiagnostic('undefined-symbol', `未定义 robtarget ${pending.targetName}`, tokenForName(pending.targetName))
+    if (symbol) {
+      // 该名称确实作为运动操作数使用；引用计数与源码范围由此记录，与指令其它字段是否合法无关。
+      symbol.references.push(rangeFromToken(pending.targetToken, lineStarts))
+    } else {
+      addDiagnostic('undefined-symbol', `未定义 robtarget ${pending.targetName}`, pending.targetToken)
       valid = false
     }
 
@@ -527,7 +614,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       addDiagnostic(
         'undefined-symbol',
         `未定义或不支持速度 ${pending.speedName}`,
-        tokenForName(pending.speedName),
+        pending.speedToken,
       )
       valid = false
     }
@@ -535,7 +622,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       addDiagnostic(
         'unsupported-option',
         `首期只支持 fine，暂不支持 ${pending.zoneName}`,
-        tokenForName(pending.zoneName),
+        pending.zoneToken,
       )
       valid = false
     }
@@ -543,7 +630,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       addDiagnostic(
         'unsupported-option',
         `首期只支持 tool0，暂不支持 ${pending.toolName}`,
-        tokenForName(pending.toolName),
+        pending.toolToken,
       )
       valid = false
     }
@@ -551,7 +638,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       addDiagnostic(
         'unsupported-option',
         `首期只支持 wobj0，暂不支持 ${pending.wobjName}`,
-        tokenForName(pending.wobjName),
+        pending.wobjToken ?? pending.toolToken,
       )
       valid = false
     }
@@ -566,6 +653,20 @@ export function parseRapidProgram(source: string): RapidParseResult {
       ...common,
       sourceRange: pending.range,
       sourceText: pending.sourceText,
+      operands: {
+        target: pending.targetName,
+        speed: pending.speedName,
+        zone: pending.zoneName,
+        tool: pending.toolName,
+        wobj: pending.wobjName,
+      },
+      operandRanges: {
+        target: rangeFromToken(pending.targetToken, lineStarts),
+        speed: rangeFromToken(pending.speedToken, lineStarts),
+        zone: rangeFromToken(pending.zoneToken, lineStarts),
+        tool: rangeFromToken(pending.toolToken, lineStarts),
+        wobj: pending.wobjToken ? rangeFromToken(pending.wobjToken, lineStarts) : null,
+      },
     })
   }
 
@@ -573,6 +674,27 @@ export function parseRapidProgram(source: string): RapidParseResult {
     addDiagnostic('missing-entrypoint', 'RAPID 源程序必须包含无参数 PROC main()')
   }
 
+  // Program Data 视图：由同一份解析派生，声明顺序稳定；即使存在 error 也暴露已识别数据供只读浏览。
+  const data: RapidProgramDataTarget[] = []
+  for (const entry of symbols.values()) {
+    data.push({
+      name: source.slice(entry.range.start.offset, entry.range.end.offset),
+      storage: entry.storage,
+      target: cloneTarget(entry.target),
+      declarationRange: { ...entry.declarationRange },
+      nameRange: entry.range,
+      valueRange: { ...entry.valueRange },
+      referenceRanges: entry.references.map((range) => ({ ...range })),
+    })
+  }
+
   const canExecute = diagnostics.length === 0 && moduleCount === 1 && mainCount === 1 && sawEndModule
-  return { program: canExecute ? program : [], diagnostics, canExecute }
+  return {
+    program: canExecute ? program : [],
+    diagnostics,
+    canExecute,
+    data,
+    dataInsertOffset,
+    motionInsertionPoints,
+  }
 }

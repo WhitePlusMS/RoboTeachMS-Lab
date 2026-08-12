@@ -3,9 +3,9 @@ import type { StructuredMotionInstruction } from './rapid-types.ts'
 
 /**
  * 程序状态；只有 ProgramExecutor 内部维护这些值，调用方通过 getSnapshot 读取。
- * paused 是程序控制状态，不属于运动终止结果。
+ * 对齐 ABB 操作：运行/单步/停止/PP to Main；不提供程序级暂停/继续。
  */
-export type ProgramState = 'idle' | 'running' | 'paused' | 'completed' | 'stopped' | 'error'
+export type ProgramState = 'idle' | 'running' | 'stopped' | 'completed' | 'error'
 
 /** 规划错误快照：指令索引 + 稳定错误码（复用规划错误 kind，不接受任意 string）+ 可读消息。 */
 export interface ProgramError {
@@ -17,10 +17,12 @@ export interface ProgramError {
 /** 调用方主动查询的稳定程序快照；字段不可被调用方直接改写内部状态。 */
 export interface ProgramSnapshot {
   state: ProgramState
-  /** 下一条允许执行的指令索引；只有当前运动返回 completed 后才加一。 */
+  /** 下一条允许执行的指令索引（PP）；只有当前运动返回 completed 后才加一。 */
   programPointer: number
-  /** 当前正在规划或运动的指令索引；没有活动指令时为 null。 */
+  /** 当前正在规划或运动的指令索引（MP）；没有活动指令时为 null。 */
   motionPointer: number | null
+  /** stopped 的来源；用于区分用户停止与单步完成后的等待状态。 */
+  stopReason: 'user-stop' | 'step-completed' | null
   error: ProgramError | null
 }
 
@@ -30,50 +32,52 @@ export type InstructionOutcome =
   | { ok: false; error: MotionPlanError }
 
 /**
- * 程序运动执行 seam：ProgramExecutor 只按顺序 await execute，并委托 pause/resume/stop
+ * 程序运动执行 seam：ProgramExecutor 只按顺序 await execute，并委托 stop
  * 给当前底层运动（在 UI/集成 seam 中即 MotionRunner）。ProgramExecutor 本身不含
- * FK/IK/路径采样/关节插值/RAF/通用队列/UI 文案。
+ * FK/IK/路径采样/关节插值/RAF/通用队列/UI 文案。MotionRunner 可保留内部暂停能力，
+ * 但程序产品界面不提供独立“暂停/继续”。
  */
 export interface ProgramExecutionSeam {
   execute: (instruction: StructuredMotionInstruction) => Promise<InstructionOutcome>
-  pause: () => void
-  resume: () => void
   stop: () => void
 }
 
 export interface ProgramExecutor {
   /**
-   * 从 idle 启动程序执行链。仅当当前处于 idle 时才开始；否则幂等返回当前状态，
-   * 不产生第二条执行链。resolve 值为程序最终到达的终止状态。
+   * 从 idle 或 stopped 连续运行剩余程序（始于当前 PP 直到末尾）。仅当未运行时才开始；
+   * 否则幂等返回当前状态，不产生第二条执行链。resolve 值为最终终止状态。
    */
   run: () => Promise<ProgramState>
-  /** 仅在 running 时暂停并委托当前运动；其余状态幂等，指针与未完成 Promise 不变。 */
-  pause: () => void
-  /** 仅在 paused 时恢复同一次运动与同一条执行链；其余状态幂等。 */
-  resume: () => void
-  /** 在 running/paused 时终止当前运动；终止结果由执行链恢复后结算为 stopped。 */
+  /**
+   * 单步只执行 PP 对应的一条完整运动指令。成功后 MP 清空、PP 推进，若还有指令则
+   * 保持 stopped（等待下一步），否则 completed。仅当未运行时才开始，否则幂等。
+   */
+  step: () => Promise<ProgramState>
+  /** 在 running 时终止当前运动；终止结果由执行链恢复后结算为 stopped。 */
   stop: () => void
-  /** 仅在无活动运动的 idle/completed/stopped/error 清理状态；active 时不做任何修改。 */
-  reset: () => void
+  /** PP to Main：在非运行状态把 PP 移到 main 入口，不让机器人回零、不清空轨迹。 */
+  ppToMain: () => void
   getSnapshot: () => ProgramSnapshot
 }
 
 /**
- * 串行执行只含结构化 MoveJ/MoveL 的内存程序，并支持暂停/继续/停止/复位。
+ * 串行执行只含结构化 MoveJ/MoveL 的内存程序，提供 ABB 风格的运行、单步、停止与 PP to Main。
  *
- * 指针语义：只有当前运动返回 completed 才推进 programPointer；stopped 不推进、
- * 后续指令不执行；规划错误进入 error 且保存准确指令索引。暂停/继续保持同一次运动，
- * 不重复规划、不重复提交轨迹、不创建第二个执行 Promise。
+ * 指针语义：只有当前运动返回 completed 才推进 PP；stopped 不推进、后续指令不执行，
+ * 停止后再次运行/单步从当前执行位置继续。规划错误进入 error 且保存准确指令索引。
+ * initialPointer 允许在源码编辑后按原 PP 重建执行器。
  */
 export function createProgramExecutor(
   instructions: readonly StructuredMotionInstruction[],
   seam: ProgramExecutionSeam,
+  initialPointer = 0,
 ): ProgramExecutor {
   let state: ProgramState = 'idle'
-  let programPointer = 0
+  let programPointer = initialPointer
   let motionPointer: number | null = null
+  let stopReason: ProgramSnapshot['stopReason'] = null
   let error: ProgramError | null = null
-  // 最小停止请求状态：保证一次运行中连续多次 stop 只委托一次 seam.stop()。
+  // 最小停止请求状态：保证一次运动中连续多次 stop 只委托一次 seam.stop()。
   let stopRequested = false
 
   function currentSnapshot(): ProgramSnapshot {
@@ -81,83 +85,105 @@ export function createProgramExecutor(
       state,
       programPointer,
       motionPointer,
+      stopReason,
       error: error ? { ...error } : null,
     }
   }
 
+  /** 只有未运行时才可启动新的执行（idle/stopped）；运行中返回 false 防止第二条链。 */
+  function canStart(): boolean {
+    return state !== 'running'
+  }
+
+  /** 指令执行后的统一结算：completed 推进 PP 并继续，stopped/error 终止并记录。 */
+  function settleOutcome(index: number, outcome: InstructionOutcome): 'continue' | 'stopped' | 'error' {
+    if (!outcome.ok) {
+      error = { index, code: outcome.error.kind, message: outcome.error.message }
+      motionPointer = null
+      stopRequested = false
+      stopReason = null
+      state = 'error'
+      return 'error'
+    }
+    if (outcome.result === 'stopped') {
+      // 停止不算完成：PP 不增加，MP 清空，程序进入 stopped。
+      motionPointer = null
+      stopRequested = false
+      stopReason = 'user-stop'
+      state = 'stopped'
+      return 'stopped'
+    }
+    // completed 推进 PP，继续执行下一条。
+    programPointer += 1
+    motionPointer = null
+    return 'continue'
+  }
+
   async function executeLoop(): Promise<ProgramState> {
     state = 'running'
-    // 新一次运行不继承上一次停止请求。
+    stopReason = null
+    // 新一次执行不继承上一次停止请求。
     stopRequested = false
     while (programPointer < instructions.length) {
       const index = programPointer
       motionPointer = index
       const outcome = await seam.execute(instructions[index])
-
-      if (!outcome.ok) {
-        error = { index, code: outcome.error.kind, message: outcome.error.message }
-        motionPointer = null
-        stopRequested = false
-        state = 'error'
-        return 'error'
+      const decision = settleOutcome(index, outcome)
+      if (decision === 'continue') {
+        if (programPointer >= instructions.length) break
+        continue
       }
-      if (outcome.result === 'stopped') {
-        // 停止不算完成：programPointer 不增加，motionPointer 清空，程序进入 stopped。
-        motionPointer = null
-        // 当前指令已结算为 stopped，清空停止请求，后续 reset/重新运行不再视为停止中。
-        stopRequested = false
-        state = 'stopped'
-        return 'stopped'
-      }
-      programPointer += 1
-      motionPointer = null
+      return state
     }
-    // 最后一条指令完成：programPointer 等于程序长度。
     state = 'completed'
     return 'completed'
   }
 
   function run(): Promise<ProgramState> {
-    // 幂等处理重复运行：只从 idle 启动；运行中/已终止时返回当前状态，不启动第二条链。
-    if (state !== 'idle') return Promise.resolve(state)
+    if (!canStart()) return Promise.resolve(state)
     return executeLoop()
   }
 
-  function pause(): void {
-    if (state !== 'running') return
-    state = 'paused'
-    // 指针与未完成的运动 Promise 保持不变；只委托当前运动冻结。
-    seam.pause()
-  }
-
-  function resume(): void {
-    if (state !== 'paused') return
+  function step(): Promise<ProgramState> {
+    if (!canStart()) return Promise.resolve(state)
+    if (programPointer >= instructions.length) {
+      state = 'completed'
+      return Promise.resolve('completed')
+    }
     state = 'running'
-    // 恢复同一次运动与同一条执行链：不重新规划、不重复提交、不创建第二个 Promise。
-    seam.resume()
+    stopRequested = false
+    stopReason = null
+    const index = programPointer
+    motionPointer = index
+    return seam.execute(instructions[index]).then((outcome) => {
+      const decision = settleOutcome(index, outcome)
+      if (decision !== 'continue') return state
+      // 单步完成一条指令：PP 已推进；还有指令则等待下一步，否则已完成。
+      state = programPointer < instructions.length ? 'stopped' : 'completed'
+      stopReason = state === 'stopped' ? 'step-completed' : null
+      return state
+    })
   }
 
   function stop(): void {
-    if (state !== 'running' && state !== 'paused') return
-    // 只委托一次 seam.stop；第二次 stop 在当前指令返回前不得再次调用 seam。
+    if (state !== 'running') return
+    // 只委托一次 seam.stop；第二次 stop 在当前指令返回前不得再次调用。
     if (stopRequested) return
     stopRequested = true
-    // 不在这里直接改状态，避免“旧 async 链在 stop/reset 后再次写状态”的竞态。
-    // 终止结果由 executeLoop 在恢复后统一结算为 stopped（指针不推进）。
+    // 不在这里直接改状态，避免“旧 async 链在 stop 后再次写状态”的竞态。
     seam.stop()
   }
 
-  function reset(): void {
-    // 仅在无活动运动（空闲/已终止）时清理；active 时不修改，调用方必须先 stop。
-    if (state === 'idle' || state === 'completed' || state === 'stopped' || state === 'error') {
-      programPointer = 0
-      motionPointer = null
-      error = null
-      stopRequested = false
-      state = 'idle'
-      // 不移动机器人、不回零、不清空场景轨迹、不重新规划程序。
-    }
+  function ppToMain(): void {
+    // 只在无活动运动时把 PP 移到 main；不让机器人回零、不清空轨迹。
+    if (state === 'running') return
+    programPointer = 0
+    motionPointer = null
+    error = null
+    stopReason = null
+    stopRequested = false
+    state = 'idle'
   }
 
-  return { run, pause, resume, stop, reset, getSnapshot: currentSnapshot }
+  return { run, step, stop, ppToMain, getSnapshot: currentSnapshot }
 }

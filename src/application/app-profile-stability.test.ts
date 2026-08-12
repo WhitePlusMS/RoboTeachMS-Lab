@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { defineComponent, h } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import App from '../App.vue'
 import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
 import type { AbbSceneStatus } from '../scene/abb-scene.ts'
@@ -30,63 +30,49 @@ function mountApp(): { wrapper: VueWrapper; fireStatus: (status: AbbSceneStatus)
   return { wrapper, fireStatus }
 }
 
-async function cycleStatuses(fireStatus: (status: AbbSceneStatus) => void, wrapper: VueWrapper): Promise<void> {
-  for (const status of ['loading', 'ready', 'error'] as AbbSceneStatus[]) {
-    fireStatus(status)
-    await wrapper.vm.$nextTick()
-  }
-}
-
 describe('场景状态不改变运动学 profile', () => {
-  it('loading/ready/error 均不替换 profile，也不改变页面使用的模型', async () => {
-    const profileBefore = ABB_IRB1200_PROFILE
-    const modelBefore = ABB_IRB1200_PROFILE.model
-
-    const { wrapper, fireStatus } = mountApp()
-    await cycleStatuses(fireStatus, wrapper)
-
-    // 场景状态从未替换模块级 profile 或模型引用。
-    expect(ABB_IRB1200_PROFILE).toBe(profileBefore)
-    expect(ABB_IRB1200_PROFILE.model).toBe(modelBefore)
-  })
-
-  it('场景状态流转后回零正解仍由同一 profile 提供，且与初始零位一致', async () => {
-    const homeJoints: JointAngles = [...ABB_IRB1200_PROFILE.homeJoints]
-    const zeroBefore = ABB_IRB1200_PROFILE.model.forwardKinematics(homeJoints)
-    expect(zeroBefore).not.toBeNull()
-
-    const { wrapper, fireStatus } = mountApp()
-    await cycleStatuses(fireStatus, wrapper)
-
-    const zeroAfter = ABB_IRB1200_PROFILE.model.forwardKinematics(homeJoints)
-    expect(zeroAfter).not.toBeNull()
-    if (zeroBefore && zeroAfter) {
-      expect(zeroAfter.position).toEqual(zeroBefore.position)
-    }
-  })
-
-  it('场景状态流转后可控单关节变更的正解结果不变', async () => {
-    const joints: JointAngles = [10, 0, 0, 0, 0, 0]
-    const before = ABB_IRB1200_PROFILE.model.forwardKinematics(joints)
-    expect(before).not.toBeNull()
-
-    const { wrapper, fireStatus } = mountApp()
-    await cycleStatuses(fireStatus, wrapper)
-
-    const after = ABB_IRB1200_PROFILE.model.forwardKinematics(joints)
-    expect(after).not.toBeNull()
-    if (before && after) {
-      expect(after.position).toEqual(before.position)
-    }
-  })
-
-  it('场景组件不存在向页面回传模型的 model 通道（无 model prop/emit）', () => {
-    const wrapper = mount(App, {
-      global: { stubs: { SceneViewport: SceneViewportStub } },
+  it('loading/ready/error 后，关节输入仍通过唯一 profile 模型更新页面 FK', async () => {
+    const cases: readonly {
+      status: AbbSceneStatus
+      label: string
+      joints: JointAngles
+    }[] = [
+      { status: 'loading', label: '正在加载模型', joints: [10, 0, 0, 0, 0, 0] },
+      { status: 'ready', label: '场景已就绪', joints: [20, 0, 0, 0, 0, 0] },
+      { status: 'error', label: '场景几何加载失败，使用占位显示', joints: [30, 0, 0, 0, 0, 0] },
+    ]
+    const expectedPositions = cases.map(({ joints }) => {
+      const pose = ABB_IRB1200_PROFILE.model.forwardKinematics(joints)
+      if (!pose) throw new Error(`测试关节不可正解：${joints.join(',')}`)
+      return pose.position.map((value) => value.toFixed(1))
     })
-    const stub = wrapper.findComponent(SceneViewportStub)
-    // 页面只订阅 status 事件，场景不向 App 回传/交换模型。
-    expect(stub.props()).not.toHaveProperty('model')
-    expect(wrapper.emitted()).not.toHaveProperty('model')
+    const fkSpy = vi.spyOn(ABB_IRB1200_PROFILE.model, 'forwardKinematics')
+    const { wrapper, fireStatus } = mountApp()
+
+    try {
+      const scene = wrapper.findComponent(SceneViewportStub)
+      expect(scene.props()).not.toHaveProperty('model')
+
+      for (const [index, testCase] of cases.entries()) {
+        fireStatus(testCase.status)
+        await wrapper.vm.$nextTick()
+        expect(wrapper.get('.status-pill').text()).toContain(testCase.label)
+
+        fkSpy.mockClear()
+        const input = wrapper.get('input[aria-label="J1 角度输入"]')
+        ;(input.element as HTMLInputElement).value = String(testCase.joints[0])
+        await input.trigger('change')
+
+        expect(fkSpy).toHaveBeenCalledWith(testCase.joints)
+        const displayedPosition = wrapper
+          .findAll('.pose-card[aria-label="正解结果"] .pose-grid strong')
+          .slice(0, 3)
+          .map((node) => node.text())
+        expect(displayedPosition).toEqual(expectedPositions[index])
+      }
+    } finally {
+      wrapper.unmount()
+      fkSpy.mockRestore()
+    }
   })
 })

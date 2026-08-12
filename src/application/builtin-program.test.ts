@@ -6,6 +6,7 @@ import { planMoveL } from '../rapid/movel-planner.ts'
 import { isDefaultTool0, isDefaultWobj0 } from '../rapid/rapid-types.ts'
 import { robTargetToPose } from '../rapid/plan-shared.ts'
 import { orientationError } from '../robotics/math/rotation3d.ts'
+import { DEFAULT_IK_CONFIG } from '../robotics/ik-solver.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import { parseRapidProgram } from '../rapid/rapid-parser.ts'
 
@@ -17,6 +18,14 @@ const JOINT_STEP_EPS_DEG = 1e-6
 const P_APPROACH = [451, 150, 680]
 const P_WORK = [451, 150, 630]
 const P_REST = [451, 0, 807.1]
+
+function positionError(actual: readonly number[], target: readonly number[]): number {
+  return Math.hypot(...actual.map((value, index) => value - target[index]))
+}
+
+function rotationErrorMagnitude(actual: Parameters<typeof orientationError>[0], target: Parameters<typeof orientationError>[1]): number {
+  return Math.hypot(...orientationError(actual, target))
+}
 
 describe('页面默认 RAPID 源程序', () => {
   it('固定三条 MoveJ → MoveL → MoveJ，全部使用 tool0/wobj0/fine、无外部轴', () => {
@@ -74,11 +83,9 @@ describe('页面默认 RAPID 源程序', () => {
     const approachPose = model.forwardKinematics(moveJ.joints)
     expect(approachPose).not.toBeNull()
     if (approachPose) {
-      expect(Math.abs(approachPose.position[0] - P_APPROACH[0])).toBeLessThan(2)
-      expect(Math.abs(approachPose.position[1] - P_APPROACH[1])).toBeLessThan(2)
-      expect(Math.abs(approachPose.position[2] - P_APPROACH[2])).toBeLessThan(2)
+      expect(positionError(approachPose.position, P_APPROACH)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.posTolerance)
       const approachTargetRotation = robTargetToPose(first.target).rotation
-      expect(Math.max(...orientationError(approachPose.rotation, approachTargetRotation))).toBeLessThan(1e-3)
+      expect(rotationErrorMagnitude(approachPose.rotation, approachTargetRotation)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.oriTolerance)
     }
 
     // —— 第二条 MoveL -> pWork（沿 ABB 基座 Z 轴下降约 50mm）——
@@ -90,17 +97,15 @@ describe('页面默认 RAPID 源程序', () => {
     expect(waypoints.length).toBeGreaterThanOrEqual(2)
 
     // 逐 waypoint 做 FK：MoveL 主体沿 ABB 基座 Z 轴下降约 50mm，横向（X/Y）位移保持极小。
-    const startL = model.forwardKinematics(waypoints[0])
     const endFk = model.forwardKinematics(waypoints[waypoints.length - 1])
-    expect(startL).not.toBeNull()
     expect(endFk).not.toBeNull()
-    if (startL && endFk) {
-      // 下降主导为 Z；X/Y 仅有由首条 MoveJ IK 近似带来的微小横向分量（<1mm）。
-      const lateralX = Math.abs(startL.position[0] - endFk.position[0])
-      const lateralY = Math.abs(startL.position[1] - endFk.position[1])
-      expect(lateralX).toBeLessThan(1)
-      expect(lateralY).toBeLessThan(1)
-      const deltaZ = endFk.position[2] - startL.position[2]
+    if (approachPose && endFk) {
+      const lateralError = Math.hypot(
+        endFk.position[0] - approachPose.position[0],
+        endFk.position[1] - approachPose.position[1],
+      )
+      expect(lateralError).toBeLessThan(0.5)
+      const deltaZ = endFk.position[2] - approachPose.position[2]
       // 首条 MoveJ 到 pApproach 的 IK 近似（亚毫米级）会带入微小 Z 误差，故用“约 50mm”。
       expect(deltaZ).toBeCloseTo(-50, 0)
     }
@@ -110,27 +115,30 @@ describe('页面默认 RAPID 源程序', () => {
       const wpFk = model.forwardKinematics(waypointJoints)
       expect(wpFk).not.toBeNull()
       if (wpFk) {
-        // 直线沿 ABB 基座 Z 轴，横向（X/Y）应保持大致恒定。
-        expect(Math.abs(wpFk.position[0] - P_APPROACH[0])).toBeLessThan(1)
-        expect(Math.abs(Math.abs(wpFk.position[1]) - Math.abs(P_APPROACH[1]))).toBeLessThan(1)
+        if (!approachPose) throw new Error('MoveJ 终点 FK 不可用')
+        // 以实际 MoveJ 终点为线段起点，不能用绝对值掩盖 Y 轴镜像错误。
+        const lateralError = Math.hypot(
+          wpFk.position[0] - approachPose.position[0],
+          wpFk.position[1] - approachPose.position[1],
+        )
+        expect(lateralError).toBeLessThan(0.5)
       }
     }
 
-    // 相邻 waypoint 任一关节步长不超过 5° 上限（只允许合理浮点 epsilon）。
-    for (let i = 1; i < waypoints.length; i += 1) {
-      const prev = waypoints[i - 1]
-      const curr = waypoints[i]
+    // 包含 MoveJ 终点到首个 waypoint 的过渡，任一相邻关节步长不超过 5°。
+    const jointPath = [moveJ.joints, ...waypoints]
+    for (let i = 1; i < jointPath.length; i += 1) {
+      const prev = jointPath[i - 1]
+      const curr = jointPath[i]
       const maxStep = Math.max(...curr.map((value, index) => Math.abs(value - prev[index])))
       expect(maxStep).toBeLessThanOrEqual(MAX_WAYPOINT_JOINT_STEP_DEG + JOINT_STEP_EPS_DEG)
     }
 
     // MoveL 终点 FK 的位置/姿态误差满足既有 IK 容差。
     if (endFk) {
-      expect(Math.abs(endFk.position[0] - P_WORK[0])).toBeLessThan(2)
-      expect(Math.abs(endFk.position[1] - P_WORK[1])).toBeLessThan(2)
-      expect(Math.abs(endFk.position[2] - P_WORK[2])).toBeLessThan(2)
+      expect(positionError(endFk.position, P_WORK)).toBeLessThan(0.2)
       const workTargetRotation = robTargetToPose(second.target).rotation
-      expect(Math.max(...orientationError(endFk.rotation, workTargetRotation))).toBeLessThan(1e-3)
+      expect(rotationErrorMagnitude(endFk.rotation, workTargetRotation)).toBeLessThan(1e-3)
     }
 
     // —— 第三条 MoveJ -> pRest（从 MoveL 最后 waypoint 起）——
@@ -142,11 +150,9 @@ describe('页面默认 RAPID 源程序', () => {
     const restPose = model.forwardKinematics(moveJFinal.joints)
     expect(restPose).not.toBeNull()
     if (restPose) {
-      expect(Math.abs(restPose.position[0] - P_REST[0])).toBeLessThan(2)
-      expect(Math.abs(restPose.position[1] - P_REST[1])).toBeLessThan(2)
-      expect(Math.abs(restPose.position[2] - P_REST[2])).toBeLessThan(2)
+      expect(positionError(restPose.position, P_REST)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.posTolerance)
       const restTargetRotation = robTargetToPose(third.target).rotation
-      expect(Math.max(...orientationError(restPose.rotation, restTargetRotation))).toBeLessThan(1e-3)
+      expect(rotationErrorMagnitude(restPose.rotation, restTargetRotation)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.oriTolerance)
     }
   })
 })

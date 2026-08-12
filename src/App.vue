@@ -4,6 +4,7 @@ import CartesianControlPanel from './components/CartesianControlPanel.vue'
 import CoordinateInfoPanel from './components/CoordinateInfoPanel.vue'
 import JointControlPanel from './components/JointControlPanel.vue'
 import ProgramControlPanel from './components/ProgramControlPanel.vue'
+import ProgramDataPanel from './components/ProgramDataPanel.vue'
 import SceneViewport from './components/SceneViewport.vue'
 import type { JointAngles } from './robotics/types.ts'
 import { ABB_IRB1200_PROFILE } from './robot-models/abb-irb1200/robot-profile.ts'
@@ -36,8 +37,6 @@ const {
   startSpeedLimitedAnimation,
   startCartesianTrajectory,
   stopAnimation,
-  pauseMotion,
-  resumeMotion,
 } = useMotion({
   getCurrentJoints: () => joints.value,
   setJoints: setJointsImmediate,
@@ -83,11 +82,18 @@ const programControl = useProgramController({
     startEasedAnimation,
     startCartesianTrajectory,
     stopAnimation,
-    pauseMotion,
-    resumeMotion,
   },
 })
 const programSnapshot = programControl.snapshot
+/** off-path Clear 确认的等待模式；作为本地 setup ref 以便模板自动解包传给面板。 */
+const pendingClearState = programControl.pendingClear
+
+/** Program Data 派生视图：来自同一次解析，实时随源码更新。 */
+const programData = computed(() => programControl.parsed.value.data)
+const programDataCanExecute = computed(() => programControl.parsed.value.canExecute)
+
+/** 当前 ABB 基座 tool0 TCP（Pose：位置 + 旋转矩阵）；由 FK 派生，供点位示教使用。 */
+const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
 
 const {
   coordinateSystem,
@@ -183,15 +189,13 @@ const statusLabel = computed(() => {
           @orientation-step-change="setOrientationStep"
         />
 
-        <ProgramControlPanel
-          :snapshot="programSnapshot"
-          :source="rapidSource"
-          @run="programControl.run()"
-          @pause="programControl.pause()"
-          @resume="programControl.resume()"
-          @stop="programControl.stop()"
-          @reset="programControl.reset()"
-          @source-change="rapidSource = $event"
+        <ProgramDataPanel
+          :targets="programData"
+          :can-execute="programDataCanExecute"
+          :program="programControl.parsed.value.program"
+          :insertion-points="programControl.parsed.value.motionInsertionPoints"
+          :pose="toolPose"
+          :apply-edit="programControl.applyEdit"
         />
       </aside>
 
@@ -215,6 +219,22 @@ const statusLabel = computed(() => {
           <span>OrbitControls</span>
         </div>
       </div>
+
+      <aside class="source-panel">
+        <ProgramControlPanel
+          :snapshot="programSnapshot"
+          :source="rapidSource"
+          :program="programControl.parsed.value.program"
+          :pending-clear="pendingClearState"
+          @run="programControl.run()"
+          @step="programControl.step()"
+          @stop="programControl.stop()"
+          @pp="programControl.ppToMain()"
+          @confirm-clear="programControl.confirmClearToNext()"
+          @cancel-clear="programControl.cancelClearToNext()"
+          @source-change="rapidSource = $event"
+        />
+      </aside>
     </section>
 
     <footer class="app-footer">
