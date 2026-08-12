@@ -145,6 +145,26 @@ const SPEEDS: Record<string, SpeedData> = {
   v200: { v_tcp: 200, v_ori: 500, v_leax: 5000, v_reax: 1000 },
 }
 
+/**
+ * 真实 RAPID 数据类型中本项目首期尚未支持的类型名。用于区分“漏写数据类型”
+ * （后面跟的是 robtarget 名称）与“使用了已知但不支持的类型”（num/tooldata 等）。
+ */
+const KNOWN_UNSUPPORTED_TYPES = new Set([
+  'num',
+  'bool',
+  'string',
+  'intnum',
+  'dnum',
+  'tooldata',
+  'wobjdata',
+  'speeddata',
+  'zonedata',
+  'loaddata',
+])
+
+/** 模块级结构化关键字；出现在 MODULE 后而不是模块名称位置时，表示模块名称缺失。 */
+const MODULE_NAME_KEYWORDS = new Set(['proc', 'func', 'trap', 'record', 'const', 'pers', 'var', 'module', 'endmodule'])
+
 function normalizeName(text: string): string {
   return text.toLocaleLowerCase('en-US')
 }
@@ -280,6 +300,8 @@ export function parseRapidProgram(source: string): RapidParseResult {
   let moduleCount = 0
   let mainCount = 0
   let sawEndModule = false
+  // 是否解析到有效 MODULE 关键字；没有它时省略“缺少 ENDMODULE”等误导性尾随噪声。
+  let hasModuleHeader = false
   // 受控编辑插入点：新模块级声明的插入位置（main PROC 之前）、main 内运动指令插入位置（ENDPROC 之前）。
   let dataInsertOffset = 0
   const motionInsertionPoints: RapidMotionInsertionPoint[] = []
@@ -302,21 +324,51 @@ export function parseRapidProgram(source: string): RapidParseResult {
     diagnostics.push({ code, severity: 'error', message, range: rangeFromToken(token, lineStarts) })
   }
 
+  /** 缺失 token 的根因诊断：零长度范围，指向当前游标（应插入该 token 的位置）。 */
+  function addMissingDiagnostic(
+    code: RapidDiagnosticCode,
+    message: string,
+    token: Token = current(),
+  ): void {
+    diagnostics.push({
+      code,
+      severity: 'error',
+      message,
+      range: rangeFromOffsets(token.start, token.start, lineStarts),
+    })
+  }
+
+  /** 当前 token 是否为已知运动关键字或过程/模块结构边界（用于运动参数恢复终结点）。 */
+  function isMotionBoundary(token: Token): boolean {
+    const text = normalizeName(token.text)
+    return (
+      text === 'movej' ||
+      text === 'movel' ||
+      text === 'moveabsj' ||
+      text === 'movec' ||
+      text === 'endproc' ||
+      text === 'endmodule' ||
+      text === 'endif' ||
+      text === 'endwhile' ||
+      text === 'endfor'
+    )
+  }
+
   function expectKeyword(keyword: string): Token | null {
     if (isKeyword(current(), keyword)) return advance()
-    addDiagnostic('syntax-error', `期望关键字 ${keyword}`)
+    addMissingDiagnostic('syntax-error', `期望关键字 ${keyword}`)
     return null
   }
 
   function expectIdentifier(description: string): Token | null {
     if (current().kind === 'identifier') return advance()
-    addDiagnostic('syntax-error', `期望${description}`)
+    addMissingDiagnostic('syntax-error', `期望${description}`)
     return null
   }
 
   function expectSymbol(symbol: string): Token | null {
     if (isSymbol(current(), symbol)) return advance()
-    addDiagnostic('syntax-error', `期望符号 ${symbol}`)
+    addMissingDiagnostic('syntax-error', `期望符号 ${symbol}`)
     return null
   }
 
@@ -409,18 +461,30 @@ export function parseRapidProgram(source: string): RapidParseResult {
       skipToStatementEnd()
       return
     }
-    if (normalizeName(type.text) !== 'robtarget') {
-      addDiagnostic('unsupported-option', `首期只支持 robtarget 声明，暂不支持 ${type.text}`, type)
+    const typeName = normalizeName(type.text)
+    if (typeName !== 'robtarget') {
+      // 已知但不支持的类型名（num/tooldata 等）才报 unsupported；否则像是漏写了数据类型、把名称顶到了类型位。
+      if (KNOWN_UNSUPPORTED_TYPES.has(typeName)) {
+        addDiagnostic('unsupported-option', `首期只支持 robtarget 声明，暂不支持 ${type.text}`, type)
+        skipToStatementEnd()
+        return
+      }
+      addMissingDiagnostic('syntax-error', `缺少数据类型（期望 robtarget）`, type)
       skipToStatementEnd()
       return
     }
 
     const name = expectIdentifier('robtarget 名称')
-    expectSymbol(':=')
+    const assign = expectSymbol(':=')
+    if (!name || !assign) {
+      // 缺少名称或 `:=`：值无法与名称可靠对应，恢复本声明但不生成半合法 Program Data 条目。
+      skipToStatementEnd()
+      return
+    }
     const valueStartOffset = current().start
     const target = parseRobTarget()
     const semicolon = expectSymbol(';')
-    if (!name || !target) return
+    if (!target) return
     const declarationEnd = semicolon ? semicolon.end : current().start
     const nameRange = rangeFromToken(name, lineStarts)
 
@@ -439,32 +503,136 @@ export function parseRapidProgram(source: string): RapidParseResult {
     })
   }
 
+  /** 当前 token 是否已不是本运动指令的有效操作数位置（下一条运动、结构结束或 EOF）。 */
+  function atOperandBoundary(): boolean {
+    return isMotionBoundary(current()) || current().kind === 'eof'
+  }
+
+  /**
+   * 把解析到的目标名作为引用记录：已定义则计入 Program Data 引用范围，否则发未定义诊断。
+   * 目标操作数无论指令最终是否完整都唯一可识别，因此在解析阶段立即结算，避免断裂恢复丢失根因。
+   */
+  function recordTargetReference(nameToken: Token): void {
+    const symbol = symbols.get(normalizeName(nameToken.text))
+    if (symbol) {
+      symbol.references.push(rangeFromToken(nameToken, lineStarts))
+    } else {
+      addDiagnostic('undefined-symbol', `未定义 robtarget ${nameToken.text}`, nameToken)
+    }
+  }
+
+  /**
+   * 断裂运动恢复：跳过本指令剩余 token，直到分号、可选参数反斜杠或下一结构边界。
+   * 不消费边界 token，让外层循环正确解析下一条运动或 ENDPROC/ENDMODULE。
+   */
+  function recoverMotionTail(): void {
+    while (current().kind !== 'eof' && !atOperandBoundary()) {
+      const token = advance()
+      if (token.text === ';' || token.text === '\\') break
+    }
+  }
+
+  /**
+   * 解析一个必选位置操作数。
+   * - 当前是逗号 → 空操作数：定位到该位置报告缺少操作数，并消费逗号以继续；
+   * - 当前是结构边界 → 指令不完整：发一次根因并让调用方中止；
+   * - 否则解析并返回该操作数（缺失时报缺操作数，返回 null）。
+   */
+  function expectOperandSlot(desc: string, onAbort: () => void): Token | null {
+    if (isSymbol(current(), ',')) {
+      addMissingDiagnostic('syntax-error', `缺少${desc}（空操作数，当前为 ","）`, current())
+      advance()
+      return null
+    }
+    if (atOperandBoundary()) {
+      addMissingDiagnostic('syntax-error', '运动指令参数不完整（缺少 "," 分隔的操作数或分号）', current())
+      onAbort()
+      return null
+    }
+    return expectIdentifier(desc)
+  }
+
   function parseMotion(): void {
     const start = advance()
     const kind = normalizeName(start.text) as PendingMotion['kind']
     motionInsertionPoints.push({ index: pendingMotions.length, offset: start.start, line: positionAt(start.start, lineStarts).line })
-    const target = expectIdentifier('目标点名称')
-    expectSymbol(',')
-    const speed = expectIdentifier('速度名称')
-    expectSymbol(',')
-    const zone = expectIdentifier('zone 名称')
-    expectSymbol(',')
-    const tool = expectIdentifier('工具名称')
+    let abandoned = false
+    const abort = (): void => {
+      abandoned = true
+    }
+
+    const target = expectOperandSlot('目标点名称', abort)
+    if (target) recordTargetReference(target)
+    if (abandoned) return
+
+    // 期望 "," 分隔后解析下一个操作数；缺逗号时只报一次根因并中止，避免连锁缺参错误。
+    const operandAfterSeparator = (desc: string): Token | null => {
+      if (!isSymbol(current(), ',')) {
+        if (atOperandBoundary()) {
+          addMissingDiagnostic('syntax-error', '运动指令参数不完整（缺少 "," 分隔的操作数或分号）', current())
+        } else {
+          addMissingDiagnostic('syntax-error', '运动操作数之间缺少逗号 ","', current())
+          // 漏逗号后残余的操作数不再逐条误报，直接恢复本指令。
+          recoverMotionTail()
+        }
+        abort()
+        return null
+      }
+      advance()
+      return expectOperandSlot(desc, abort)
+    }
+
+    const speed = operandAfterSeparator('速度名称')
+    if (abandoned) return
+    const zone = operandAfterSeparator('zone 名称')
+    if (abandoned) return
+    const tool = operandAfterSeparator('工具名称')
+    if (abandoned) return
+
+    // 第 5 个及更多普通位置参数 / 尾随逗号：多出的参数根因。
+    if (!isSymbol(current(), ';') && !isSymbol(current(), '\\') && !atOperandBoundary()) {
+      addMissingDiagnostic('syntax-error', `运动指令包含多余参数 ${current().text || '（空）'}`, current())
+      recoverMotionTail()
+      return
+    }
+
     let wobjName = 'wobj0'
     let wobjToken: Token | null = null
-
-    if (isSymbol(current(), '\\')) {
+    let sawWobjOption = false
+    while (isSymbol(current(), '\\')) {
       advance()
       const option = expectIdentifier('可选参数名称')
-      expectSymbol(':=')
-      const wobj = expectIdentifier('工件坐标名称')
-      if (option && normalizeName(option.text) !== 'wobj') {
+      if (!option) {
+        // 残缺反斜杠或缺失可选参数名：已报缺名根因，恢复。
+        recoverMotionTail()
+        return
+      }
+      if (normalizeName(option.text) !== 'wobj') {
         addDiagnostic('unsupported-option', `不支持可选参数 ${option.text}`, option)
+        recoverMotionTail()
+        return
       }
-      if (wobj) {
-        wobjName = wobj.text
-        wobjToken = wobj
+      if (sawWobjOption) {
+        addDiagnostic('unsupported-option', '重复的 WObj 可选参数', option)
+        recoverMotionTail()
+        return
       }
+      sawWobjOption = true
+      const assign = expectSymbol(':=')
+      const wobj = expectIdentifier('工件坐标名称')
+      if (!assign || !wobj) {
+        recoverMotionTail()
+        return
+      }
+      wobjName = wobj.text
+      wobjToken = wobj
+    }
+
+    // 可选参数之后仍有非分号内容：多余的参数根因。
+    if (!isSymbol(current(), ';') && !atOperandBoundary()) {
+      addMissingDiagnostic('syntax-error', `运动指令包含多余参数 ${current().text || '（空）'}`, current())
+      recoverMotionTail()
+      return
     }
 
     const semicolon = expectSymbol(';')
@@ -499,7 +667,11 @@ export function parseRapidProgram(source: string): RapidParseResult {
   }
 
   function parseMainBody(): void {
-    while (current().kind !== 'eof' && !isKeyword(current(), 'ENDPROC')) {
+    while (
+      current().kind !== 'eof' &&
+      !isKeyword(current(), 'ENDPROC') &&
+      !isKeyword(current(), 'ENDMODULE')
+    ) {
       if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL')) {
         parseMotion()
       } else if (
@@ -566,8 +738,14 @@ export function parseRapidProgram(source: string): RapidParseResult {
   if (!expectKeyword('MODULE')) {
     addDiagnostic('missing-module', 'RAPID 源程序必须以 MODULE 开始')
   } else {
+    hasModuleHeader = true
     moduleCount += 1
-    expectIdentifier('模块名称')
+    // 模块名称必须是普通标识符；若紧跟的是结构化关键字，说明模块名称缺失。
+    if (current().kind === 'identifier' && !MODULE_NAME_KEYWORDS.has(normalizeName(current().text))) {
+      expectIdentifier('模块名称')
+    } else {
+      addMissingDiagnostic('syntax-error', '缺少模块名称')
+    }
   }
 
   while (current().kind !== 'eof' && !isKeyword(current(), 'ENDMODULE')) {
@@ -588,26 +766,22 @@ export function parseRapidProgram(source: string): RapidParseResult {
   if (isKeyword(current(), 'ENDMODULE')) {
     advance()
     sawEndModule = true
-  } else {
-    addDiagnostic('syntax-error', '缺少 ENDMODULE')
+  } else if (hasModuleHeader) {
+    // 已建立 MODULE 却没有闭合：缺失 ENDMODULE 是唯一根因（零长度插入点）。
+    addMissingDiagnostic('syntax-error', '缺少 ENDMODULE')
   }
+  // 从未解析出 MODULE 关键字时，上面已用 missing-module 给出唯一根因，不再补“缺少 ENDMODULE”噪声。
   if (sawEndModule && current().kind !== 'eof') {
     addDiagnostic('unsupported-syntax', 'ENDMODULE 后不允许出现尾随内容')
     while (current().kind !== 'eof') advance()
   }
-  if (!sawEndModule && moduleCount === 0) addDiagnostic('missing-module', '缺少有效 MODULE')
 
   const program: RapidExecutableInstruction[] = []
   for (const pending of pendingMotions) {
     let valid = true
     const symbol = symbols.get(normalizeName(pending.targetName))
-    if (symbol) {
-      // 该名称确实作为运动操作数使用；引用计数与源码范围由此记录，与指令其它字段是否合法无关。
-      symbol.references.push(rangeFromToken(pending.targetToken, lineStarts))
-    } else {
-      addDiagnostic('undefined-symbol', `未定义 robtarget ${pending.targetName}`, pending.targetToken)
-      valid = false
-    }
+    // 目标引用已在解析阶段结算（parseMotion 内 recordTargetReference）；此处仅需判定是否可生成可执行指令。
+    if (!symbol) valid = false
 
     const speed = SPEEDS[normalizeName(pending.speedName)]
     if (!speed) {
@@ -672,6 +846,27 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
   if (mainCount === 0) {
     addDiagnostic('missing-entrypoint', 'RAPID 源程序必须包含无参数 PROC main()')
+  }
+
+  // 稳定诊断契约：按 (start.offset, end.offset, 生成次序) 升序排列，并按 相同 code + 相同起止 offset 去重，
+  // 使同一源码重复解析得到顺序完全一致、无重复项的诊断列表。
+  diagnostics.sort((a, b) => {
+    const aStart = a.range.start.offset
+    const bStart = b.range.start.offset
+    if (aStart !== bStart) return aStart - bStart
+    return a.range.end.offset - b.range.end.offset
+  })
+  for (let index = 1; index < diagnostics.length; index += 1) {
+    const prev = diagnostics[index - 1]
+    const cur = diagnostics[index]
+    if (
+      prev.code === cur.code &&
+      prev.range.start.offset === cur.range.start.offset &&
+      prev.range.end.offset === cur.range.end.offset
+    ) {
+      diagnostics.splice(index, 1)
+      index -= 1
+    }
   }
 
   // Program Data 视图：由同一份解析派生，声明顺序稳定；即使存在 error 也暴露已识别数据供只读浏览。

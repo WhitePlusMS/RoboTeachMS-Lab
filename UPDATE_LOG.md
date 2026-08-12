@@ -1,5 +1,178 @@
 # 更新日志
 
+## 2026-08-12 — 完成 Ticket 04：用真实 RAPID 语料完成诊断闭环验收
+
+### 修改文件
+
+- `src/rapid/rapid-parser-corpus.test.ts`（新增）
+  - 用真实 ABB RAPID 片段验证加固后的 parser 韧性。fixture 保留真实大小写/空格/注释风格并注明来源与裁剪原因：
+    - `docs/rapid-real-code-examples.md`（rafacastalla Pick&Place / ptiago 产线 / 0-robinson-1 规则轨迹 / CalibData 工具工件声明）。
+    - `.scratch/rapid-research/Drive.mod`（真实 `SetDO/Reset/WaitTime` 写法）。
+  - 覆盖：真实 MoveJ 用 z100 与 `\WObj`、VAR/控制流、I/O/WaitTime、MoveC/MoveAbsJ、Offs/RelTool、支持与不支持混合（绝不部分执行）、嵌套块/复杂表达式/真实注释（不崩溃/不死循环/不吞 ENDPROC/ENDMODULE）、损坏声明不生成半合法数据。
+- `docs/platform-current-rapid-capabilities.md`
+  - §4 新增 `4.3 稳定诊断契约（parser 加固）`：排序去重、缺失 token 零长度范围、有限恢复边界、损坏声明不生成半合法 Program Data、LF/CRLF 平价。
+- `docs/rapid-official-reference-notes.md`
+  - 修正 §10 将未来建议误写为当前已具备的表述：把"VAR/PERS/MoveC/MoveAbsJ/Offs/控制流/I/O"从"当前已具备"改为"真实但当前明确未实现（识别并报 unsupported）"，并只把实际可实现能力列为当前已具备。
+- `.scratch/abb-rapid-parser-hardening/README.md`
+  - 记录四张票均已 resolved 与最终支持边界。
+- `.scratch/abb-rapid-parser-hardening/issues/04-real-rapid-corpus-validation.md`：状态置为 `resolved`。
+
+### 修改原因
+
+Ticket 04 要求用真实语料证明 parser 能稳定区分当前可执行子集与真实但暂不支持能力，并完整反馈而不崩溃/死循环/静默忽略/部分执行；同时收口绑定文档，避免把未实现能力写成当前已具备。
+
+### 影响
+
+- 当前未支持的关键字（VAR/IF/WHILE/FOR/MoveC/MoveAbsJ/SetDO/WaitTime 等）得到 `unsupported-syntax`/`unsupported-option`/`undefined-symbol`，绝不静默忽略；真实表达式内的未知运算符字符（`+/*=/<` 等）按 `lexical-error` 显式上报。
+- 支持与不支持混合时 `canExecute=false`、`program=[]`，绝不执行支持部分；无歧义正确 robtarget 仍只读展示。
+- 未新增 VAR、控制流、I/O、过程调用、Offs/RelTool、MoveC/MoveAbsJ 的执行能力；KUKA、planner、ProgramExecutor、Three.js 均未改动。
+- 已执行验证：`npx vue-tsc -b` 通过；`npx vitest run src` 全量单测 274 通过（1 个既有 expected fail）；`npx vite build` 生产构建通过；`git diff --check` 通过；未运行 E2E（本轮未改浏览器交互）。
+
+## 2026-08-12 — 完成 Ticket 03：加固 MoveJ、MoveL 参数与可选参数诊断
+
+### 修改文件
+
+- `src/rapid/rapid-parser.ts`
+  - 重写 `parseMotion` 的运动操作数解析，改为按位置解析的 `expectOperandSlot` / `operandAfterSeparator`：
+    - 空操作数（开头/连续/尾随逗号）在对应位置给出零长度 `缺少…（空操作数）` 诊断并消费逗号继续，不再把逗号误报为首期不支持内容。
+    - 操作数间缺逗号只报一次 `运动操作数之间缺少逗号 ","` 根因并恢复，不派生一串缺参错误，也不把残余 token 误报为 unsupported 语句。
+    - 第 5 个及以上普通位置参数/尾随逗号报 `运动指令包含多余参数 …` 根因，而非静默忽略或 generic unsupported。
+    - 缺分号在语句末尾给零长度 `期望符号 ;`，并恢复到下一条运动或 `ENDPROC`。
+  - 可选参数 `\...:=...` 处理：
+    - `\WObj:=wobj0` 保持合法；未知可选参数报 `unsupported-option`（范围精确覆盖参数名）后恢复，不再误报 `期望工件坐标名称` 或待解析值。
+    - 残缺反斜杠/缺可选名只报缺名根因；缺 `:=` 或工件坐标名给出对应根因；重复 WObj、可选参数后多余 token 明确报出，不再被当作 `首期不支持 \` 或 generic unsupported。
+  - 新增 `recoverMotionTail`：断裂运动恢复到分号/下一结构边界，不消费边界 token，保证下一条独立指令继续被分析、`ENDPROC` 不被吞掉。
+  - 实际不再被调用的 `expectRequiredOperand` / `failsAtBoundary` 两个 helper 一并删除。
+- `src/rapid/rapid-parser-motion-diagnostics.test.ts`（新增）
+  - 覆盖：缺 target（开头逗号）、连续逗号、尾随逗号、第 5 个位置参数、缺逗号、缺分号恢复；合法/未知/重复/残缺 WObj 可选参数；未定义 target/speed 的精确范围；z20/自定义 tool/wobj 的 unsupported；target 与 speed 文本重复时仍指向真正操作数；错误运动后的独立指令继续被分析、不吞 ENDPROC。
+
+### 修改原因
+
+Ticket 03 要求运动命令的缺失、过量、错位和不支持操作数都精确指向根因，并在错误指令后继续分析后续独立指令；此前空操作数/多余参数/残缺可选参数会产生误导性 unsupported 诊断甚至吞掉下一条指令。
+
+### 影响
+
+- 合法 MoveJ/MoveL 的 `sourceText`、`sourceRange`、`operandRanges`、Program Data 引用与插入锚点保持原行为（由既有回归与新增测试共同锁定）。
+- 运动命令的根因诊断更加精确、无连锁；错误运动后的独立指令继续被分析。
+- 未增加 MoveC/MoveAbsJ/zone 过渡/自定义工具或工件的执行能力，不修改 planner 与 ProgramExecutor 契约。
+- 已执行验证：`npx vue-tsc -b` 通过；`src/rapid` 130 测试、`src/application` 31 测试通过；`git diff --check` 通过。本票不运行完整 E2E。
+
+## 2026-08-12 — 完成 Ticket 02：加固 MODULE、PROC 与 robtarget 声明诊断
+
+### 修改文件
+
+- `src/rapid/rapid-parser.ts`
+  - 新增 `KNOWN_UNSUPPORTED_TYPES`（num/bool/string/tooldata/wobjdata/speeddata/zonedata/loaddata 等）与 `MODULE_NAME_KEYWORDS` 两类声明期分类常量。
+  - `parseRobTargetDeclaration`：区分“漏写数据类型”（紧跟的是 robtarget 名称，报零长度 `缺少数据类型（期望 robtarget）`）与“已知但不支持的类型”（num/tooldata 等，报 `unsupported-option`）；缺少 robtarget 名称或 `:=` 时恢复本声明但**不生成半合法 Program Data 条目**，避免损坏声明进入 `data`。
+  - 模块门禁：`MODULE` 后紧跟结构化关键字（PROC/ENDMODULE/CONST 等）时报告 `缺少模块名称`，不再把 `PROC` 误当模块名。
+  - `parseMainBody`：循环在 `ENDPROC` **和 `ENDMODULE`** 双边界停止；缺少 `ENDPROC` 时给出单一 `期望关键字 ENDPROC` 根因，不再把 `ENDMODULE` 误报为首期不支持/尾随内容，也保留模块边界的正确闭合。
+- `src/rapid/rapid-parser-decl-diagnostics.test.ts`（新增）
+  - 覆盖：缺模块名称、第二个 MODULE、ENDMODULE 尾随、main 带参数/重复、其它过程/VAR/IF 的 unsupported（非 lexical-error）、缺数据类型、已知不支持类型、缺 `:=`、缺声明分号、tuple 长度/尾逗号、大小写重复名范围、损坏声明后正确声明仍入数据、缺 ENDPROC/ENDMODULE 恢复边界。
+
+### 修改原因
+
+Ticket 02 要求学习者在 MODULE/main/robtarget 声明写错时得到精确且可继续解析的诊断；此前缺数据类型会把名称误判为不支持的类型名，缺 `:=` 会生成半合法数据条目，缺 ENDPROC 会产生吞掉 ENDMODULE 的连锁噪声。
+
+### 影响
+
+- 正确声明仍进入只读 Program Data；任意 error 时 `canExecute=false` 且 `program=[]`，既有结构化写入门禁不受影响。
+- 损坏声明不再生成半合法 Program Data 条目；缺失结构的回归范围显著收窄为单一根因。
+- 合法 CONST/PERS/TASK PERS robtarget、大小写匹配与引用行为无回归。
+- 已执行验证：`npx vue-tsc -b` 通过；`src/rapid` 113 测试通过、`src/application` 31 测试通过；`git diff --check` 通过。本票不运行完整 E2E。
+
+## 2026-08-12 — 完成 Ticket 01：建立稳定诊断与源码保真基础
+
+### 修改文件
+
+- `src/rapid/rapid-parser.ts`
+  - 新增 `addMissingDiagnostic`：缺失 token 的根因诊断使用零长度范围，指向应插入位置（当前游标），替代原先覆盖下一个 token 的已有范围。
+  - 新增 `isMotionBoundary` / `atOperandBoundary` / `failsAtBoundary` / `expectRequiredOperand`：建立运动参数有限恢复边界——在一个运动指令缺少后续必选操作数或已到达 `ENDPROC`/`ENDMODULE`/下一条运动/EOF 时，只发一条定位到光标处的“参数不完整”根因诊断并中止本指令，不再派生“后续所有操作数均缺失”的连锁错误，也不再吞掉下一条已知运动或过程结束标记。
+  - 新增 `recordTargetReference`：目标名在解析阶段即结算引用（已定义计入 Program Data 引用范围，未定义发 undefined-symbol），即使指令随后因断裂恢复被中止，无歧义识别的目标引用根因也不会丢失。
+  - 新增 `hasModuleHeader` 状态与模块门禁收口：从未解析出 `MODULE` 关键字时，省略尾随的“缺少 ENDMODULE”与重复的“缺少有效 MODULE”噪声，仅保留一条 `missing-module` 根因；已建立 MODULE 却未闭合时用零长度“缺少 ENDMODULE”作为唯一根因。
+  - 解析结束时新增诊断排序与去重：按 `range.start.offset`、`range.end.offset`、生成次序升序排列，并消除“相同 code + 相同起止 offset”的重复条目，使同一源码重复解析得到顺序完全一致、无重复的诊断列表。
+- `src/rapid/rapid-parser-diagnostics.test.ts`（新增）
+  - 覆盖 Ticket 01 验收：重复解析诊断稳定一致、按 offset 严格排序、同 code 同范围去重、缺失 token 零长度范围、已有错误 token 非零范围、根因不派生连锁、运动断裂后恢复不误吞下一条指令、LF/CRLF 行列平价、注释/空行不改指令顺序与引用、合法程序输出回归。
+
+### 修改原因
+
+现有 parser 对损坏指令会连续抛出多个缺参/缺分隔符诊断，断裂恢复甚至会吞掉下一条合法运动或 `ENDPROC`/`ENDMODULE`，产生误导性噪声。按 Ticket 01 要求把诊断契约固化为“顺序稳定、范围精确、无重复、无连锁”。
+
+### 影响
+
+- 合法 MoveJ/MoveL 程序的结构化输出、Program Data、引用范围与插入锚点保持不变（已由回归测试锁定）。
+- 损坏指令现在只产生定位准确的单一根因诊断，而非一串缺参错误；`ENDPROC`/`ENDMODULE` 不再被误报缺失。
+- 空源码/缺 MODULE 的噪声显著减少，保留最能指导用户的根因诊断。
+- 已执行验证：`npx vue-tsc -b` 通过；`src/rapid`、`src/application` 定向测试 131 通过；`git diff --check` 通过。本票不运行完整 E2E。
+
+## 2026-08-12 — 发布 ABB RAPID Parser 与诊断加固里程碑 Tickets
+
+### 修改文件
+
+- `.scratch/abb-rapid-parser-hardening/README.md`
+  - 建立独立 parser 加固里程碑，明确唯一解析入口、复用边界、统一禁止事项和 `01 → 02 → 03 → 04` 线性执行顺序。
+- `.scratch/abb-rapid-parser-hardening/issues/01-stable-diagnostics-and-source-fidelity.md`
+  - 规划稳定诊断顺序、去重、零长度缺失范围、错误恢复和 LF/CRLF 源码保真基础。
+- `.scratch/abb-rapid-parser-hardening/issues/02-module-procedure-and-data-diagnostics.md`
+  - 规划 MODULE、main 过程和 robtarget 声明的精确诊断、连锁错误抑制及错误源码只读 Program Data。
+- `.scratch/abb-rapid-parser-hardening/issues/03-motion-operand-diagnostics.md`
+  - 规划 MoveJ/MoveL 必选操作数、分隔符、分号、`\WObj` 和未定义/暂不支持参数的精确诊断与恢复。
+- `.scratch/abb-rapid-parser-hardening/issues/04-real-rapid-corpus-validation.md`
+  - 规划使用现有真实 `.mod` 片段验证 unsupported 诊断韧性、禁止部分执行、现有 UI 诊断闭环和最终完整验证。
+
+### 修改原因
+
+现有 parser 已经能执行 MoveJ/MoveL，但结构错误和损坏操作数仍需要更稳定的恢复与精确诊断。用户确认本轮严格限制为加固现有可执行子集，不顺带实现 VAR、控制流、I/O 或更多运动指令，因此将工作拆成小模型可线性执行且不会重复造轮子的四张票。
+
+### 影响
+
+- 本次只新增规划票据和更新说明，不修改业务代码、测试或运行时行为。
+- 前三张票只做定向验证，完整单测与构建集中在最后一票，避免重复测试。
+- 新里程碑与已完成的点位示教、工作台 UI 和旧 RAPID 路线物理隔离，不回写 resolved 票据。
+
+## 2026-08-12 — 确定 ABB RAPID 教学平台的合理支持范围
+
+### 修改文件
+
+- `docs/research/abb-rapid-teaching-scope.md`
+  - 依据 ABB RAPID 官方手册、ABB Programming I/II/III 课程目录、RobotStudio 官方教程与操作手册，以及国内 ABB 实训案例，确定本项目应以“ABB 基础编程课程核心实验”为毕业目标。
+  - 给出程序结构、数据类型、控制流、运动指令、位置函数、I/O/等待和教学观察的建议支持清单。
+  - 明确中断、错误恢复、多任务、Socket/OPC、SafeMove、视觉、外部轴与工艺包只做识别和 unsupported 诊断，不进入当前核心执行范围。
+  - 将实施路线拆为 parser 加固、真实运动数据与坐标、变量与控制流、虚拟 I/O、MoveC/MoveAbsJ 五个阶段，并指出控制流需要最小可执行 IR，不能塞入现有 MotionRunner。
+- `docs/research/abb-training-market-scope.md`
+  - 汇总 ABB 官方培训与浏览器教学产品样本，比较基础操作、Programming I、Programming II 和高级工程课程的实际教学边界。
+  - 对照当前源码确认项目处于 L0，并给出 L0–L3 的课程能力分层与里程碑建议。
+
+### 修改原因
+
+官方 RAPID 参考手册包含数百项能力，不能直接作为教学软件开发清单。本次研究把语言全集、ABB 官方课程、市场实训范围和项目现状分开，避免把“完整”误解为复制 ABB 控制器，也避免只实现零散指令而无法完成教学任务。
+
+### 影响
+
+- 本次只新增研究与路线判断文档，不修改 RAPID parser、执行器、运动规划、Vue 页面或 Three.js。
+- 后续开发应先完成现有 MoveJ/MoveL parser 加固，再按研究路线拆成独立里程碑；不得把未实现能力写成当前已支持。
+- 研究发现 `docs/rapid-official-reference-notes.md` 第 10 节存在将未来建议误写为当前能力的表述，已在新研究中标明，待文档整理时修正。
+
+## 2026-08-12 — 修正 Program Data 选中操作区布局
+
+- `src/components/ProgramDataPanel.vue`：为选中点位操作区增加“收起/展开”控制；收起时保留当前点位选择和列表高亮，不再占用完整操作区高度。
+- `src/style.css`：增加选中操作区标题操作布局和可访问的切换按钮样式；限制展开区高度并允许其内部滚动，避免右侧点位列表被操作区挤压到不可见。
+
+### 影响
+
+- 选中点位后可以收起操作区，恢复完整点位列表；需要继续 Modify Position、查看引用或插入运动时可再次展开。
+- 未修改 RAPID 解析、点位派生数据、受控编辑和执行逻辑。
+
+## 2026-08-12 — Three.js WebGL 初始化失败降级
+
+- `src/components/SceneViewport.vue`：捕获 `createAbbScene` 创建 WebGL 渲染器时抛出的异常，向上层发送 `error` 状态并记录单条关键错误日志；WebGL 正常时保持原有初始化、关节同步和资源释放流程不变。
+- `src/components/SceneViewport.vue`：增加场景不可用降级提示，明确说明浏览器未提供 WebGL 时的处理建议，避免 Vue mounted hook 未处理异常导致整个示教工作台崩溃。
+- `src/components/SceneViewport.test.ts`：新增 WebGL 创建失败回归测试，验证组件可以挂载、显示降级提示并发出 `error` 状态。
+
+### 影响
+
+- 在禁用硬件加速、浏览器沙箱无法创建 WebGL context 或其他 Three.js 初始化异常的环境中，左侧/右侧教学面板仍可继续使用，中央场景区域显示可理解的故障提示。
+- 未修改 ABB 运动学、RAPID 执行、轨迹记录或 Three.js 正常渲染路径；恢复可用 WebGL 后无需额外配置即可继续使用三维场景。
+
 ## 2026-08-12 — 修复工作台界面复审阻断项
 
 - `src/components/WorkbenchLayout.vue`：折叠/展开按钮增加 `aria-expanded`，明确面板当前可见状态。
