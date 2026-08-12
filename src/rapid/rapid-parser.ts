@@ -589,12 +589,23 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const tool = operandAfterSeparator('工具名称')
     if (abandoned) return
 
-    // 第 5 个及更多普通位置参数 / 尾随逗号：多出的参数根因。
-    if (!isSymbol(current(), ';') && !isSymbol(current(), '\\') && !atOperandBoundary()) {
-      addMissingDiagnostic('syntax-error', `运动指令包含多余参数 ${current().text || '（空）'}`, current())
-      recoverMotionTail()
-      return
+    /**
+     * 参数解析收尾：若当前位置既非分号、又非法继续（普通参数位/可选参数位允许的延续不同），
+     * 则视为多出的参数，报一根因并恢复；返回 true 表示已因多余参数中止本指令。
+     * allowWobj 为 true 时允许可选参数反斜杠（普通位置参数后）；false 用于可选参数之后（无第二个反斜杠）。
+     */
+    const rejectTrailingParams = (allowWobj: boolean): boolean => {
+      const hasWobj = allowWobj && isSymbol(current(), '\\')
+      if (!isSymbol(current(), ';') && !hasWobj && !atOperandBoundary()) {
+        addMissingDiagnostic('syntax-error', `运动指令包含多余参数 ${current().text || '（空）'}`, current())
+        recoverMotionTail()
+        return true
+      }
+      return false
     }
+
+    // 第 5 个及更多普通位置参数 / 尾随逗号：多出的参数根因。
+    if (rejectTrailingParams(true)) return
 
     let wobjName = 'wobj0'
     let wobjToken: Token | null = null
@@ -629,11 +640,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
 
     // 可选参数之后仍有非分号内容：多余的参数根因。
-    if (!isSymbol(current(), ';') && !atOperandBoundary()) {
-      addMissingDiagnostic('syntax-error', `运动指令包含多余参数 ${current().text || '（空）'}`, current())
-      recoverMotionTail()
-      return
-    }
+    if (rejectTrailingParams(false)) return
 
     const semicolon = expectSymbol(';')
     const end = semicolon ?? current()

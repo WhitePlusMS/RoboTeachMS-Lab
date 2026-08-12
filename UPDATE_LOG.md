@@ -1,5 +1,21 @@
 # 更新日志
 
+## 2026-08-12 — code-review 收尾：提取运动多余参数守卫（去重）
+
+### 修改文件
+
+- `src/rapid/rapid-parser.ts`
+  - 将 `parseMotion` 中两处近似同构的"多余参数"守卫（普通位置参数之后、可选参数之后）提取为 `rejectTrailingParams(allowWobj)` 辅助函数复用，消除 Duplicated Code 坏味道。`allowWobj` 区分普通位置参数后可跟可选参数反斜杠、可选参数之后不允许第二个反斜杠的差异。
+
+### 修改原因
+
+完成 /code-review 后按 Standards 轴唯一一项判断性发现收敛重复逻辑，符合项目"最简/去重"原则。
+
+### 影响
+
+- 行为不变：两个守卫的触发条件与原实现等价，全部 138 个 rapid 测试与 TS 检查通过。
+- 仅结构性去重，无新增能力、无 `any`、无 Vue/planner/KUKA 改动。
+
 ## 2026-08-12 — 完成 Ticket 04：用真实 RAPID 语料完成诊断闭环验收
 
 ### 修改文件
