@@ -46,7 +46,8 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
     const varDecl = parseRapidProgram(
       'MODULE A\n    VAR num x := 5;\n    PROC main()\n    ENDPROC\nENDMODULE\n',
     )
-    expect(varDecl.diagnostics.some((d) => d.code === 'unsupported-syntax')).toBe(true)
+    // VAR 声明已进入声明分发：不支持的 num 类型报 unsupported-option（仍属 unsupported 分类，非 lexical）。
+    expect(varDecl.diagnostics.some((d) => d.code === 'unsupported-option')).toBe(true)
 
     // 不存在 lexical-error：以上真实 RAPID 结构必须按 unsupported 分类，不误判为词法错误。
     expect([other, varDecl].every((r) => r.diagnostics.every((d) => d.code !== 'lexical-error'))).toBe(true)

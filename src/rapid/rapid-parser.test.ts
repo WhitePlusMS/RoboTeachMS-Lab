@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
+
+/** 从解析结果取 robtarget 点位条目（Program Data 联合中的点位视图）。 */
+function robtargets(result: ReturnType<typeof parseRapidProgram>): RapidProgramDataTarget[] {
+  return result.data.filter(isRobtargetProgramData)
+}
 
 const VALID_PROGRAM = `
 MODULE TeachingDemo
@@ -111,7 +116,8 @@ ENDMODULE
     expect(result.canExecute).toBe(false)
     expect(codes).toContain('duplicate-symbol')
     expect(codes).toContain('invalid-data')
-    expect(codes).toContain('unsupported-option')
+    // v999/tool1/wobj1 未定义 → undefined-symbol（z20 是官方 fly-by 名，票据 04 起可执行，不再 unsupported）。
+    expect(codes).toContain('undefined-symbol')
   })
 
   it('要求唯一的无参数 main 入口', () => {
@@ -172,52 +178,52 @@ ENDMODULE
   it('按声明顺序暴露模块级命名 robtarget 的名称、存储类别与值', () => {
     const result = parseRapidProgram(SOURCE)
 
-    expect(result.data).toHaveLength(2)
-    expect(result.data[0].name).toBe('pApproach') // 保留源码原始拼写。
-    expect(result.data[0].storage).toBe('const')
-    expect(result.data[0].target.trans).toEqual([551, 613, 60])
-    expect(result.data[0].target.rot).toEqual([1, 0, 0, 0])
-    expect(result.data[0].target.robconf).toEqual([0, 0, 0, 0])
-    expect(result.data[0].target.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
+    expect(robtargets(result)).toHaveLength(2)
+    expect(robtargets(result)[0].name).toBe('pApproach') // 保留源码原始拼写。
+    expect(robtargets(result)[0].storage).toBe('const')
+    expect(robtargets(result)[0].target.trans).toEqual([551, 613, 60])
+    expect(robtargets(result)[0].target.rot).toEqual([1, 0, 0, 0])
+    expect(robtargets(result)[0].target.robconf).toEqual([0, 0, 0, 0])
+    expect(robtargets(result)[0].target.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
 
-    expect(result.data[1].name).toBe('p_work')
-    expect(result.data[1].storage).toBe('pers')
-    expect(result.data[1].target.trans).toEqual([551, 613, 25])
+    expect(robtargets(result)[1].name).toBe('p_work')
+    expect(robtargets(result)[1].storage).toBe('pers')
+    expect(robtargets(result)[1].target.trans).toEqual([551, 613, 25])
   })
 
   it('声明名称范围精确定位源码名 token', () => {
     const result = parseRapidProgram(SOURCE)
 
-    expect(result.data[0].nameRange.start.line).toBe(3)
-    expect(result.data[0].nameRange.start.column).toBe(21)
-    expect(result.data[0].nameRange.end.column).toBe(30) // 排他：pApproach 长 9 字符后一列。
+    expect(robtargets(result)[0].nameRange.start.line).toBe(3)
+    expect(robtargets(result)[0].nameRange.start.column).toBe(21)
+    expect(robtargets(result)[0].nameRange.end.column).toBe(30) // 排他：pApproach 长 9 字符后一列。
   })
 
   it('同一目标被多条 MoveJ/MoveL 引用时，引用数量与每处源码范围准确', () => {
     const result = parseRapidProgram(SOURCE)
 
     // pApproach 被 MoveJ 第 8 行与 MOVEJ 第 10 行（大小写不同）各引用一次。
-    expect(result.data[0].referenceRanges).toHaveLength(2)
-    expect(result.data[0].referenceRanges[0].start.line).toBe(8)
-    expect(result.data[0].referenceRanges[1].start.line).toBe(10)
+    expect(robtargets(result)[0].referenceRanges).toHaveLength(2)
+    expect(robtargets(result)[0].referenceRanges[0].start.line).toBe(8)
+    expect(robtargets(result)[0].referenceRanges[1].start.line).toBe(10)
     // p_work 只在第 9 行被引用一次。
-    expect(result.data[1].referenceRanges).toHaveLength(1)
-    expect(result.data[1].referenceRanges[0].start.line).toBe(9)
+    expect(robtargets(result)[1].referenceRanges).toHaveLength(1)
+    expect(robtargets(result)[1].referenceRanges[0].start.line).toBe(9)
   })
 
   it('名称匹配遵循 RAPID 大小写不敏感规则，同时保留源码原始拼写', () => {
     const result = parseRapidProgram(SOURCE)
 
     // 第 8/10 行的 MoveJ 以不同大小写引用同一目标，仍归并到 pApproach。
-    expect(result.data[0].referenceRanges).toHaveLength(2)
-    expect(result.data[0].name).toBe('pApproach')
+    expect(robtargets(result)[0].referenceRanges).toHaveLength(2)
+    expect(robtargets(result)[0].name).toBe('pApproach')
   })
 
   it('注释中的同名文本不会被误识别成目标引用', () => {
     const result = parseRapidProgram(SOURCE)
 
     // 第 6 行注释里的 pApproach 不产生引用。
-    expect(result.data[0].referenceRanges.every((range) => range.start.line !== 6)).toBe(true)
+    expect(robtargets(result)[0].referenceRanges.every((range) => range.start.line !== 6)).toBe(true)
   })
 
   it('源码存在 error 时仍暴露已识别数据（只读浏览），但不可执行', () => {
@@ -234,7 +240,7 @@ ENDMODULE
     expect(result.canExecute).toBe(false)
     expect(result.program).toHaveLength(0)
     // 已识别的 pGood 仍可见，供只读 Program Data 浏览。
-    expect(result.data).toHaveLength(1)
-    expect(result.data[0].name).toBe('pGood')
+    expect(robtargets(result)).toHaveLength(1)
+    expect(robtargets(result)[0].name).toBe('pGood')
   })
 })

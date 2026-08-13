@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRapidProgram, type RapidDiagnostic } from './rapid-parser.ts'
+import { isRobtargetProgramData, parseRapidProgram, type RapidDiagnostic } from './rapid-parser.ts'
 import {
   MAIN_MODULE_CLOSING,
   MODULE_WITH_P1_MAIN_PREFIX,
@@ -132,8 +132,10 @@ describe('Ticket 01 — 诊断稳定契约', () => {
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
     expect(result.program).toHaveLength(2)
-    expect(result.data).toHaveLength(1)
-    expect(result.data[0].referenceRanges).toHaveLength(2)
+    // 只读 Program Data 中的 robtarget 点位保持原语义（其余四类 + 系统预定义项不在此断言之列）。
+    const rb = result.data.filter(isRobtargetProgramData)
+    expect(rb).toHaveLength(1)
+    expect(rb[0].referenceRanges).toHaveLength(2)
     expect(result.motionInsertionPoints.map((p) => p.index)).toEqual([0, 1, 2])
   })
 })

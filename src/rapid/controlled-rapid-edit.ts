@@ -1,4 +1,4 @@
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
 import { NO_EXTERNAL_AXIS, type RobTarget } from './rapid-types.ts'
 
 /**
@@ -119,13 +119,18 @@ export function applyRapidEdit(source: string, command: RapidEditCommand): Rapid
   }
 }
 
+/** 仅考虑 robtarget 条目：受控编辑只作用于点位符号，不覆盖 tooldata/wobjdata/speeddata/zonedata。 */
+function robtargetSymbols(parsed: ReturnType<typeof parseRapidProgram>): Map<string, RapidProgramDataTarget> {
+  return new Map(parsed.data.filter(isRobtargetProgramData).map((d) => [normalizeName(d.name), d]))
+}
+
 function createTarget(
   source: string,
   parsed: ReturnType<typeof parseRapidProgram>,
   name: string,
   target: RobTarget,
 ): RapidEditResult {
-  const symbols = new Map(parsed.data.map((d) => [normalizeName(d.name), d]))
+  const symbols = robtargetSymbols(parsed)
   const nameError = validateNewName(name, symbols)
   if (nameError) return { ok: false, error: nameError }
 
@@ -144,9 +149,14 @@ function createTarget(
 function findTarget(
   parsed: ReturnType<typeof parseRapidProgram>,
   name: string,
-): (typeof parsed.data)[number] | null {
+): RapidProgramDataTarget | null {
   const key = normalizeName(name)
-  return parsed.data.find((entry) => normalizeName(entry.name) === key) ?? null
+  return (
+    parsed.data.find(
+      (entry): entry is RapidProgramDataTarget =>
+        isRobtargetProgramData(entry) && normalizeName(entry.name) === key,
+    ) ?? null
+  )
 }
 
 function modifyPosition(
@@ -174,7 +184,7 @@ function renameTarget(
   const entry = findTarget(parsed, name)
   if (!entry) return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
 
-  const symbols = new Map(parsed.data.map((d) => [normalizeName(d.name), d]))
+  const symbols = robtargetSymbols(parsed)
   const nameError = validateNewName(newName, symbols, normalizeName(name))
   if (nameError) return { ok: false, error: nameError }
 

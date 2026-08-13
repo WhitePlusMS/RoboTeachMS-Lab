@@ -118,20 +118,27 @@ export interface StructuredMoveL {
 
 export type StructuredMotionInstruction = StructuredMoveJ | StructuredMoveL
 
-/** 默认 tool0：robhold=true、单位 tframe、零负载（含主惯量 ix/iy/iz）。 */
+/**
+ * 默认 tool0 —— 与 ABB 官方预定义 tool0 一致：
+ * robhold=true、单位 tframe、tload 使用官方“零负载 epsilon”（质量 0.001kg、质心 [0,0,0.001]）。
+ * 负载不影响当前 MoveJ/MoveL 运动学结果，故保留官方字面量以保持 Program Data 与真实 RAPID 一致。
+ */
 export function defaultTool0(): ToolData {
   return {
     robhold: true,
     tframe: { trans: [0, 0, 0], rot: [...RAPID_UNIT_QUAT] },
-    tload: { mass: 0, cog: [0, 0, 0], aom: [...RAPID_UNIT_QUAT], ix: 0, iy: 0, iz: 0 },
+    tload: { mass: 0.001, cog: [0, 0, 0.001], aom: [...RAPID_UNIT_QUAT], ix: 0, iy: 0, iz: 0 },
   }
 }
 
-/** 默认 wobj0：robhold=false、ufprog=false、空 ufmec、用户/物体 frame 均单位变换。 */
+/**
+ * 默认 wobj0 —— 与 ABB 官方预定义 wobj0 一致：robhold=false、ufprog=true、
+ * 空 ufmec、用户/物体 frame 均单位变换（物体坐标系与机器人世界坐标系重合）。
+ */
 export function defaultWobj0(): WobjData {
   return {
     robhold: false,
-    ufprog: false,
+    ufprog: true,
     ufmec: '',
     uframe: { trans: [0, 0, 0], rot: [...RAPID_UNIT_QUAT] },
     oframe: { trans: [0, 0, 0], rot: [...RAPID_UNIT_QUAT] },
@@ -161,11 +168,13 @@ function isIdentityPose(pose: RapidPose): boolean {
   )
 }
 
-/** 负载是否为“零惯性负载”：零质量、零质心、单位 aom、零主惯量长度项。 */
+/** 是否为 ABB 官方 tool0/load0 的“零负载 epsilon”负载：0.001kg、质心 [0,0,0.001]、单位 aom、零主惯量长度项。 */
 function isDefaultLoad(load: LoadData): boolean {
   return (
-    load.mass === 0 &&
-    load.cog.every((value) => value === 0) &&
+    load.mass === 0.001 &&
+    load.cog[0] === 0 &&
+    load.cog[1] === 0 &&
+    load.cog[2] === 0.001 &&
     load.aom[0] === RAPID_UNIT_QUAT[0] &&
     load.aom[1] === 0 &&
     load.aom[2] === 0 &&
@@ -176,18 +185,91 @@ function isDefaultLoad(load: LoadData): boolean {
   )
 }
 
-/** 是否为默认 tool0（robhold=true、单位 tframe、零负载含主惯量）。 */
+/** 是否为默认 tool0（robhold=true、单位 tframe、官方零负载 epsilon）。 */
 export function isDefaultTool0(tool: ToolData): boolean {
   return tool.robhold === true && isIdentityPose(tool.tframe) && isDefaultLoad(tool.tload)
 }
 
-/** 是否为默认 wobj0（robhold=false、ufprog=false、空 ufmec、两个 frame 均单位变换）。 */
+/** 是否为默认 wobj0（robhold=false、ufprog=true、空 ufmec、两个 frame 均单位变换）。 */
 export function isDefaultWobj0(wobj: WobjData): boolean {
   return (
     wobj.robhold === false &&
-    wobj.ufprog === false &&
+    wobj.ufprog === true &&
     wobj.ufmec === '' &&
     isIdentityPose(wobj.uframe) &&
     isIdentityPose(wobj.oframe)
   )
+}
+
+/**
+ * ABB 官方“最大 TCP 速度”（vmax）占位值：vmax 的值依赖具体机器人型号（= 该型号 MaxRobSpeed），
+ * 不是固定字面量。解析阶段用它占位登记名称；运行阶段（SpeedData 时长求值）需将其替换为
+ * 当前机器人型号的最大 TCP 速度，见票据 04。
+ */
+export const MAX_ROB_SPEED_SENTINEL = Number.POSITIVE_INFINITY
+
+/**
+ * ABB RobotWare 官方预定义工具/负载/工件坐标。名称大小写不敏感、系统数据只读、源码不能重定义。
+ */
+export const SYSTEM_TOOLDATA: Readonly<Record<string, ToolData>> = {
+  tool0: defaultTool0(),
+}
+
+export const SYSTEM_WOBJDATA: Readonly<Record<string, WobjData>> = {
+  wobj0: defaultWobj0(),
+}
+
+export const SYSTEM_LOADDATA: Readonly<Record<string, LoadData>> = {
+  load0: { mass: 0.001, cog: [0, 0, 0.001], aom: [...RAPID_UNIT_QUAT], ix: 0, iy: 0, iz: 0 },
+}
+
+/**
+ * ABB RobotWare 官方预定义 speeddata（每个 TCP speed 的 v_ori=500°/s、v_leax=5000mm/s、v_reax=1000°/s）。
+ * v_tcp 单位 mm/s；vmax 的 v_tcp 用 MAX_ROB_SPEED_SENTINEL 占位（依赖机器人型号，见票据 04）。
+ */
+const TCP_SPEED_VALUES: ReadonlyArray<readonly [string, number]> = [
+  ['v5', 5], ['v10', 10], ['v20', 20], ['v30', 30], ['v40', 40], ['v50', 50], ['v60', 60], ['v80', 80],
+  ['v100', 100], ['v150', 150], ['v200', 200], ['v300', 300], ['v400', 400], ['v500', 500], ['v600', 600],
+  ['v800', 800], ['v1000', 1000], ['v1500', 1500], ['v2000', 2000], ['v2500', 2500], ['v3000', 3000],
+  ['v4000', 4000], ['v5000', 5000], ['v6000', 6000], ['v7000', 7000],
+]
+
+const commonSpeed: SpeedData = { v_tcp: 0, v_ori: 500, v_leax: 5000, v_reax: 1000 }
+
+export const SYSTEM_SPEED: Readonly<Record<string, SpeedData>> = {
+  ...Object.fromEntries(TCP_SPEED_VALUES.map(([name, vTcp]) => [name, { ...commonSpeed, v_tcp: vTcp }])),
+  vmax: { ...commonSpeed, v_tcp: MAX_ROB_SPEED_SENTINEL },
+}
+
+/**
+ * ABB RobotWare 官方预定义 zonedata（fine + fly-by 各档）。
+ * 结构 [finep, pzoneTcp, pzoneOri, pzoneEax, zoneOri, zoneLeax, zoneReax]：
+ * pzone* 为停点允差(mm)，zone* 为过渡区半径（zoneOri/zoneReax 单位 °，zoneLeax 单位 mm）。
+ * 当前 MVP 仅 fine 作为精确停点执行；各 fly-by 档识别为“已识别、未模拟路径融合”（见票据 04）。
+ */
+const ZONE_TABLE: ReadonlyArray<readonly [string, false, number, number, number, number, number, number]> = [
+  ['z0', false, 0.3, 0.3, 0.3, 0.03, 0.3, 0.03],
+  ['z1', false, 1, 1, 1, 0.1, 1, 0.1],
+  ['z5', false, 5, 8, 8, 0.8, 8, 0.8],
+  ['z10', false, 10, 15, 15, 1.5, 15, 1.5],
+  ['z15', false, 15, 23, 23, 2.3, 23, 2.3],
+  ['z20', false, 20, 30, 30, 3.0, 30, 3.0],
+  ['z30', false, 30, 45, 45, 4.5, 45, 4.5],
+  ['z40', false, 40, 60, 60, 6.0, 60, 6.0],
+  ['z50', false, 50, 75, 75, 7.5, 75, 7.5],
+  ['z60', false, 60, 90, 90, 9.0, 90, 9.0],
+  ['z80', false, 80, 120, 120, 12, 120, 12],
+  ['z100', false, 100, 150, 150, 15, 150, 15],
+  ['z150', false, 150, 225, 225, 23, 225, 23],
+  ['z200', false, 200, 300, 300, 30, 300, 30],
+]
+
+export const SYSTEM_ZONE: Readonly<Record<string, ZoneData>> = {
+  fine: defaultZoneFine(),
+  ...Object.fromEntries(
+    ZONE_TABLE.map(([name, finep, pzoneTcp, pzoneOri, pzoneEax, zoneOri, zoneLeax, zoneReax]) => [
+      name,
+      { finep, pzoneTcp, pzoneOri, pzoneEax, zoneOri, zoneLeax, zoneReax },
+    ]),
+  ),
 }

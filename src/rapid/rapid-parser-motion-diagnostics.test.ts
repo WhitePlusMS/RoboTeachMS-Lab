@@ -141,12 +141,17 @@ describe('Ticket 03 — 名称与能力诊断', () => {
     expect(result.canExecute).toBe(false)
   })
 
-  it('z20 / 自定义 tool / wobj 报 unsupported-option', () => {
+  it('z20 执行于安全停点近似；未声明的 tool1/wobj1 报未定义（各自精确分类）', () => {
     const result = parseMotionFixture('        MoveJ p1,v100,z20,tool1\\WObj:=wobj1;\n')
     const msgs = result.diagnostics.map((d) => d.message)
-    expect(msgs.some((m) => m.includes('fine')).toString()).toBeTruthy()
-    expect(msgs.some((m) => m.includes('tool0'))).toBe(true)
-    expect(msgs.some((m) => m.includes('wobj0'))).toBe(true)
+    // z20 是官方 zone 名（票据 04 起可执行，fly-by 以安全停点近似），不再产生 "fine 提示" 拦截。
+    expect(msgs.some((m) => m.includes('fine'))).toBe(false)
+    // tool1/wobj1 未声明：报 undefined-symbol，而非旧的“仅 tool0/wobj0”文案。
+    expect(result.diagnostics.some((d) => d.code === 'undefined-symbol' && d.message.includes('工具 tool1'))).toBe(true)
+    expect(result.diagnostics.some((d) => d.code === 'undefined-symbol' && d.message.includes('工件坐标 wobj1'))).toBe(true)
+    // v100 是合法官方速度，不产生未定义。
+    expect(result.diagnostics.some((d) => d.message.includes('v100'))).toBe(false)
+    // tool1/wobj1 未定义阻止执行。
     expect(result.canExecute).toBe(false)
   })
 

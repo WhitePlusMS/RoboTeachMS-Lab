@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyRapidEdit, formatRobTarget } from './controlled-rapid-edit.ts'
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
 
 const BASE = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -17,6 +17,11 @@ function parse(source: string) {
   return parseRapidProgram(source)
 }
 
+/** 从解析结果中取 robtarget 点位条目（受控编辑只作用于点位符号）。 */
+function robtargets(parsed: ReturnType<typeof parse>): RapidProgramDataTarget[] {
+  return parsed.data.filter(isRobtargetProgramData)
+}
+
 function target(trans: [number, number, number]) {
   return { trans, rot: [1, 0, 0, 0] as [number, number, number, number], robconf: [0, 0, 0, 0] as [number, number, number, number], extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9] as [number, number, number, number, number, number] }
 }
@@ -29,10 +34,11 @@ describe('新建目标', () => {
 
     const next = parse(result.result.source)
     expect(next.canExecute).toBe(true)
-    expect(next.data.map((d) => d.name)).toEqual(['pApproach', 'pRest', 'pWork'])
-    expect(next.data[2].storage).toBe('const')
-    expect(next.data[2].target.trans).toEqual([300, 0, 400])
-    expect(next.data[2].target.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
+    const rb = robtargets(next)
+    expect(rb.map((d) => d.name)).toEqual(['pApproach', 'pRest', 'pWork'])
+    expect(rb[2].storage).toBe('const')
+    expect(rb[2].target.trans).toEqual([300, 0, 400])
+    expect(rb[2].target.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
   })
 
   it('非法名称被拒绝且源文本逐字不变', () => {
@@ -58,10 +64,10 @@ describe('Modify Position', () => {
 
     const next = parse(result.result.source)
     expect(next.canExecute).toBe(true)
-    const entry = next.data.find((d) => d.name === 'pApproach')
+    const entry = robtargets(next).find((d) => d.name === 'pApproach')
     expect(entry?.target.trans).toEqual([999, 111, 222])
     // 未涉及的声明（pRest）保持原样。
-    expect(next.data.find((d) => d.name === 'pRest')?.target.trans).toEqual([451, 0, 807.1])
+    expect(robtargets(next).find((d) => d.name === 'pRest')?.target.trans).toEqual([451, 0, 807.1])
     // 注释中的 pWork 未被改动。
     expect(result.result.source).toContain('! a comment that mentions pWork must not be touched')
   })
@@ -83,7 +89,7 @@ describe('重命名', () => {
 
     const next = parse(result.result.source)
     expect(next.canExecute).toBe(true)
-    expect(next.data.map((d) => d.name)).toEqual(['pStart', 'pRest'])
+    expect(robtargets(next).map((d) => d.name)).toEqual(['pStart', 'pRest'])
     expect(next.program[0].sourceText).toContain('pStart')
     // 声明中新名称已替换。
     expect(result.result.source).toContain('CONST robtarget pStart :=')
@@ -108,7 +114,7 @@ describe('删除目标', () => {
 
     const next = parse(result.result.source)
     expect(next.canExecute).toBe(true)
-    expect(next.data.map((d) => d.name)).toEqual(['pApproach'])
+    expect(robtargets(next).map((d) => d.name)).toEqual(['pApproach'])
   })
 
   it('有引用目标返回稳定错误且源码逐字不变', () => {

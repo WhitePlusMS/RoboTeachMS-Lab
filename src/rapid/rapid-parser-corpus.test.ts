@@ -8,7 +8,7 @@ import { parseRapidProgram } from '../rapid/rapid-parser.ts'
  * 保留真实的大小写、空格、缩进与注释风格；真实语料仅作诊断韧性验证，不要求本轮可执行。
  */
 describe('Ticket 04 — 真实 RAPID 语料诊断韧性', () => {
-  it('真实 MoveJ 用 z100 速度与 \WObj，得到 unsupported-option 而非崩溃', () => {
+  it('真实 MoveJ 用 v40/z100/fine 识别的官方 speed/zone 名可解析执行（票据 04 起）', () => {
     // 来源：docs/rapid-real-code-examples.md 片段1（rafacastalla Pick&Place MainModule）；裁剪：去掉 IO/WaitTime，只留一条运动与最小上下文。
     const source = `MODULE MainModule
     CONST robtarget POS_ORIGEN := [[515,0,712],[0,0,1,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
@@ -18,14 +18,15 @@ describe('Ticket 04 — 真实 RAPID 语料诊断韧性', () => {
 ENDMODULE
 `
     const result = parseRapidProgram(source)
-    // 真实存在但暂不支持的 zone/speed 命名得到 unsupported / undefined，而非 lexical-error。
-    expect(result.diagnostics.some((d) => d.code === 'lexical-error')).toBe(false)
-    expect(result.diagnostics.length).toBeGreaterThan(0)
-    expect(result.canExecute).toBe(false)
-    // 正确拼写但平台边界外的能力按 unsupported/undefined 分类。
-    expect(
-      result.diagnostics.some((d) => d.code === 'unsupported-option' || d.code === 'undefined-symbol'),
-    ).toBe(true)
+    // v40 与 z100 均为官方预定义名：无需猜测、不报词法错误；z100 是 fly-by，MVP 以安全停点近似执行。
+    expect(result.diagnostics).toEqual([])
+    expect(result.canExecute).toBe(true)
+    expect(result.program).toHaveLength(1)
+    if (result.program[0]) {
+      expect(result.program[0].speed.v_tcp).toBe(40)
+      expect(result.program[0].zone.finep).toBe(false)
+      expect(result.program[0].zone.pzoneTcp).toBe(100)
+    }
   })
 
   it('VAR 赋值与控制流得到 unsupported-syntax，而不是崩溃或被静默忽略', () => {
@@ -170,8 +171,16 @@ ENDMODULE
     const result = parseRapidProgram(source)
     // 正确且无歧义的 robtarget 仍可只读浏览。
     expect(result.data.some((d) => d.name === 'pGood')).toBe(true)
-    // tooldata 声明（真实但暂不支持的类型）不产生半合法 robtarget 数据。
-    expect(result.data.every((d) => d.name !== 'TCP_VentosaTool')).toBe(true)
-    expect(result.canExecute).toBe(false)
+    // 票据 01 起，真实 tooldata 声明被解析成 tooldata 类型条目（不再被当作“半合法 robtarget”丢弃）。
+    const ventosa = result.data.find((d) => d.name === 'TCP_VentosaTool')
+    expect(ventosa?.kind).toBe('tooldata')
+    // 该工具由机器人持有、tframe 平移为 z=184。
+    expect(ventosa?.kind === 'tooldata' && ventosa.value.robhold).toBe(true)
+    // 但该工具在运动中未被使用（运动仍用 tool0），且 tooldata 不是 robtarget：点位列表不受污染。
+    expect(ventosa?.kind).not.toBe('robtarget')
+    // 自定义工具不会被当作默认 tool0 执行：任何使用非默认为工具的运动都会被拦截。
+    // 本语料运动仍用 tool0/fine/wobj0，且 tooldata 声明本身合法，故整段可执行。
+    expect(result.canExecute).toBe(true)
+    expect(result.program.map((i) => i.kind)).toEqual(['movej'])
   })
 })
