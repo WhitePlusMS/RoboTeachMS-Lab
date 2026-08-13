@@ -89,8 +89,8 @@ describe('planMoveL 校验与支持边界', () => {
       [0, 0, 0, 0, 0, 0],
       ABB_JOINT_RANGES,
     )
-    expect(nonFine.ok).toBe(false)
-    if (!nonFine.ok) expect(nonFine.error.kind).toBe('unsupported-option')
+    // 非 fine（fly-by）票据 04 起不再因 zone 被 unsupported-option 拦截；若路径可达则成功。
+    if (!nonFine.ok) expect(nonFine.error.kind).not.toBe('unsupported-option')
 
     const extAx: RobTarget = { ...base.target, extax: [1, 0, 0, 0, 0, 0] }
     const externalAxis = planMoveL(

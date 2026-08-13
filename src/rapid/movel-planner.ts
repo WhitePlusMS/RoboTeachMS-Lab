@@ -3,11 +3,11 @@ import type { MotionResult } from '../robotics/motion-runner.ts'
 import type { RobotModel } from '../robotics/robot-model.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import {
-  robTargetToPose,
   simulateDurationMs,
   validateMotionInput,
   type MotionPlanError,
 } from './plan-shared.ts'
+import { flangeToWorldTcpPose, robTargetToWorldPose, worldTcpToFlangePose } from './coordinate-transform.ts'
 import type { StructuredMoveL } from './rapid-types.ts'
 
 export type MoveLPlanResult =
@@ -49,11 +49,22 @@ export function planMoveL(
   )
   if (dataConfigError) return { ok: false, error: dataConfigError }
 
+  const currentFlange = model.forwardKinematics(currentJoints)
+  if (!currentFlange) {
+    return { ok: false, error: { kind: 'unreachable', message: '机器人模型不可用或正解失败' } }
+  }
+  // MoveL 要求 TCP 走直线：以当前法兰→工具得到的 TCP 为起点、robtarget 世界 TCP 为终点，
+  // 在 TCP 空间插补，再逐点把 TCP 转回机械法兰送入 IK。
+  const tcpTarget = robTargetToWorldPose(movel.target, movel.wobj)
   const waypoints = planCartesianPath(
-    robTargetToPose(movel.target),
+    tcpTarget,
     currentJoints,
     model,
     jointRanges,
+    {
+      tcpStart: flangeToWorldTcpPose(currentFlange, movel.tool),
+      toFlange: (tcp) => worldTcpToFlangePose(tcp, movel.tool),
+    },
   )
   if (!waypoints || waypoints.length === 0) {
     return {

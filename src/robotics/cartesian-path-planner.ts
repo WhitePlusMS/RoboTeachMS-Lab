@@ -46,14 +46,26 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
  * 规划器只依赖 RobotModel 的 FK/Jacobian seam，因此 ABB 之外的六轴设备也能复用；
  * 调用方只负责播放返回的关节 waypoint，不需要了解内部插补和 IK 细节。
  */
+/**
+ * 规划器只依赖 RobotModel 的 FK/Jacobian seam，因此 ABB 之外的六轴设备也能复用；
+ * 调用方只负责播放返回的关节 waypoint，不需要了解内部插补和 IK 细节。
+ *
+ * 可选 `opts`（票据 02，MoveL 带自定义 Tool/WObj 时）：
+ * - `tcpStart`：直线插补的起点 TCP 位姿（默认取 `model.forwardKinematics(initialJoints)`，
+ *   即“法兰即 TCP”的 tool0/wobj0 快照）。提供后插补在 TCP 空间进行。
+ * - `toFlange`：把插补得到的 TCP 位姿变换为机械法兰位姿后再送入 IK；缺省为原样（tool0 时法兰=TCP）。
+ * 未提供两参数时行为与旧版一致（Jog 笛卡尔控制）。
+ */
 export function planCartesianPath(
   targetPose: Pose,
   initialJoints: JointAngles,
   model: RobotModel,
   jointRanges: readonly (readonly [number, number])[],
+  opts?: { tcpStart?: Pose; toFlange?: (pose: Pose) => Pose },
 ): JointAngles[] | null {
-  const startPose = model.forwardKinematics(initialJoints)
+  const startPose = opts?.tcpStart ?? model.forwardKinematics(initialJoints)
   if (!startPose) return null
+  const toFlange = opts?.toFlange ?? ((pose: Pose) => pose)
 
   const distance = Math.hypot(
     targetPose.position[0] - startPose.position[0],
@@ -89,7 +101,7 @@ export function planCartesianPath(
       rotation: waypointRotation,
     }
     const solved = solveIK(
-      waypointPose,
+      toFlange(waypointPose),
       previousJoints,
       model,
       { maxIterations: 150, posTolerance: 0.05, oriTolerance: 0.001 },

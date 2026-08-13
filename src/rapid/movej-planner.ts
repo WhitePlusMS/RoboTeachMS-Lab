@@ -5,11 +5,11 @@ import type { SixAxisJointRanges } from '../robotics/robot-profile.ts'
 import type { JointAngles, Pose } from '../robotics/types.ts'
 import {
   isJointAtLimit,
-  robTargetToPose,
   simulateDurationMs,
   validateMotionInput,
   type MotionPlanError,
 } from './plan-shared.ts'
+import { robTargetToFlangePose } from './coordinate-transform.ts'
 import type { StructuredMoveJ } from './rapid-types.ts'
 
 export type MoveJPlanResult =
@@ -122,7 +122,8 @@ export function planMoveJ(
   )
   if (dataConfigError) return { ok: false, error: dataConfigError }
 
-  const targetPose = robTargetToPose(movej.target)
+  // 目标法兰位姿：robtarget(Obj) → uframe·oframe → 逆(tool.tframe) → 法兰；IK 以法蓝为目标。
+  const targetPose = robTargetToFlangePose(movej.target, movej.wobj, movej.tool)
   const solution = resolveJointSolution(targetPose, currentJoints, model, jointRanges)
   if ('failure' in solution) {
     const error: MotionPlanError =

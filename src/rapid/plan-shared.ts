@@ -2,8 +2,6 @@ import { quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '../robotic
 import type { RobotModel } from '../robotics/robot-model.ts'
 import type { JointAngles, Pose } from '../robotics/types.ts'
 import {
-  isDefaultTool0,
-  isDefaultWobj0,
   NO_EXTERNAL_AXIS,
   type RapidQuat,
   type RobTarget,
@@ -151,23 +149,26 @@ function validateSpeed(speed: SpeedData): MotionPlanError | null {
 }
 
 /**
- * 首期只支持默认 tool0、默认 wobj0、fine、零 robconf 与非外部轴目标；
- * 不支持的合法配置必须明确拒绝，且消息指出具体字段。
+ * 固定单机器人 MVP 只支持：机器人持工具（tool.robhold=TRUE）、固定工件坐标
+ * （wobj.robhold=FALSE、ufprog=TRUE、ufmec=''）。此外仍只支持零 robconf 与非外部轴目标。
+ * 越界的合法配置必须明确拒绝，且消息指出具体字段（票据 02 开放自定义 Tool/WObj 坐标求值）。
  */
 function checkSupportedConfiguration(
   tool: ToolData,
   wobj: WobjData,
-  zone: ZoneData,
   target: RobTarget,
 ): MotionPlanError | null {
-  if (!isDefaultTool0(tool)) {
-    return { kind: 'unsupported-option', message: '不支持用户工具，仅支持默认 tool0' }
+  if (tool.robhold !== true) {
+    return { kind: 'unsupported-option', message: '暂不支持机器人不持工具（tooldata.robhold=FALSE）' }
   }
-  if (!isDefaultWobj0(wobj)) {
-    return { kind: 'unsupported-option', message: '不支持用户工件坐标，仅支持默认 wobj0' }
+  if (wobj.robhold !== false) {
+    return { kind: 'unsupported-option', message: '暂不支持机器人持工件（wobjdata.robhold=TRUE）' }
   }
-  if (zone.finep !== true) {
-    return { kind: 'unsupported-option', message: 'zone.finep 必须为 true（首期不支持 zone 过渡）' }
+  if (wobj.ufprog !== true) {
+    return { kind: 'unsupported-option', message: '暂不支持可移动用户坐标系（wobjdata.ufprog=FALSE）' }
+  }
+  if (wobj.ufmec !== '') {
+    return { kind: 'unsupported-option', message: '暂不支持协调外部机械单元（wobjdata.ufmec 非空）' }
   }
   if (target.robconf.some((value) => value !== 0)) {
     return { kind: 'unsupported-option', message: '首期只支持 robtarget.robconf=[0,0,0,0] 构型' }
@@ -196,7 +197,7 @@ export function validateMotionInput(
     validateNumericData(target, speed, tool, wobj, zone) ??
     validateQuaternions(target, tool, wobj) ??
     validateSpeed(speed) ??
-    checkSupportedConfiguration(tool, wobj, zone, target)
+    checkSupportedConfiguration(tool, wobj, target)
   )
 }
 

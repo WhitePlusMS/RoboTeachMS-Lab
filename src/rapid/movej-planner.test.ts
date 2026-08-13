@@ -6,6 +6,7 @@ import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
 import type { JointAngles, Pose } from '../robotics/types.ts'
 import { executeMoveJ, planMoveJ, type MoveJPlanResult } from './movej-planner.ts'
 import { internalQuatToRapid, robTargetToPose } from './plan-shared.ts'
+import { robTargetToFlangePose } from './coordinate-transform.ts'
 import { orientationError, rotationMatrixToQuaternion } from '../robotics/math/rotation3d.ts'
 import {
   defaultTool0,
@@ -79,25 +80,25 @@ describe('planMoveJ 数据与配置校验', () => {
     if (!result.ok) expect(result.error.kind).toBe('invalid-data')
   })
 
-  it('非默认工具返回 unsupported-option', () => {
-    const customTool: ToolData = {
-      robhold: true,
+  it('机器人不持工具（robhold=FALSE）返回 unsupported-option', () => {
+    const stationaryTool: ToolData = {
+      robhold: false,
       tframe: { trans: [0, 0, 0], rot: [1, 0, 0, 0] },
       tload: { mass: 1, cog: [0, 0, 0], aom: [1, 0, 0, 0], ix: 0, iy: 0, iz: 0 },
     }
-    const result = planMoveJ(makeMoveJ({ tool: customTool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    const result = planMoveJ(makeMoveJ({ tool: stationaryTool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.error.kind).toBe('unsupported-option')
-      expect(result.error.message).toContain('tool0')
+      expect(result.error.message).toContain('robhold')
     }
   })
 
-  it('非 fine zone 返回 unsupported-option', () => {
+  it('非 fine zone（fly-by）可用安全停点近似执行，不再报 unsupported-option（票据 04）', () => {
     const zone = { ...defaultZoneFine(), finep: false }
     const result = planMoveJ(makeMoveJ({ zone }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error.kind).toBe('unsupported-option')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.joints.length).toBeGreaterThan(0)
   })
 
   it('有效外部轴返回 unsupported-option', () => {
@@ -289,19 +290,34 @@ describe('planMoveJ 补齐的结构/数值/配置输入校验', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.error.kind).toBe('unsupported-option')
-      expect(result.error.message).toContain('wobj0')
+      expect(result.error.message).toContain('ufmec')
     }
   })
 
-  it('非默认工具 frame 返回 unsupported-option（frame 分支）', () => {
+  it('自定义工具 frame（robhold=TRUE）可求值：终点法兰 FK 等于换算后的法兰目标（票据 02）', () => {
     const tool: ToolData = {
       robhold: true,
       tframe: { trans: [10, 0, 0], rot: [1, 0, 0, 0] },
       tload: { mass: 0, cog: [0, 0, 0], aom: [1, 0, 0, 0], ix: 0, iy: 0, iz: 0 },
     }
     const result = planMoveJ(makeMoveJ({ tool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error.kind).toBe('unsupported-option')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const targetFlange = robTargetToFlangePose(
+      makeMoveJ({ tool }).target,
+      makeMoveJ({ tool }).wobj,
+      tool,
+    )
+    const flangeFk = ABB_MODEL.forwardKinematics(result.joints)
+    expect(flangeFk).not.toBeNull()
+    if (flangeFk) {
+      const posErr = Math.hypot(
+        flangeFk.position[0] - targetFlange.position[0],
+        flangeFk.position[1] - targetFlange.position[1],
+        flangeFk.position[2] - targetFlange.position[2],
+      )
+      expect(posErr).toBeLessThanOrEqual(1)
+    }
   })
 })
 
