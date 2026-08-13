@@ -17,7 +17,7 @@ test-results
 .scratch/
 
 # 本地项目文档与研究资料，不纳入 Git 追踪
-/docs/
+/abb-rapid-eval/
 /CONTEXT.md
 /CLAUDE.md
 /UPDATE_LOG.md

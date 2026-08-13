@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRapidProgram } from '../rapid/rapid-parser.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from '../rapid/rapid-parser.ts'
 
 /**
  * Ticket 04 — 用真实 ABB RAPID 语料验证诊断韧性。
@@ -9,7 +9,7 @@ import { parseRapidProgram } from '../rapid/rapid-parser.ts'
  */
 describe('Ticket 04 — 真实 RAPID 语料诊断韧性', () => {
   it('真实 MoveJ 用 v40/z100/fine 识别的官方 speed/zone 名可解析执行（票据 04 起）', () => {
-    // 来源：docs/rapid-real-code-examples.md 片段1（rafacastalla Pick&Place MainModule）；裁剪：去掉 IO/WaitTime，只留一条运动与最小上下文。
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段1（rafacastalla Pick&Place MainModule）；裁剪：去掉 IO/WaitTime，只留一条运动与最小上下文。
     const source = `MODULE MainModule
     CONST robtarget POS_ORIGEN := [[515,0,712],[0,0,1,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
     PROC main()
@@ -22,15 +22,16 @@ ENDMODULE
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
     expect(result.program).toHaveLength(1)
-    if (result.program[0]) {
-      expect(result.program[0].speed.v_tcp).toBe(40)
-      expect(result.program[0].zone.finep).toBe(false)
-      expect(result.program[0].zone.pzoneTcp).toBe(100)
+    const instruction = result.program[0]
+    if (instruction && isRapidMotionInstruction(instruction)) {
+      expect(instruction.speed.v_tcp).toBe(40)
+      expect(instruction.zone.finep).toBe(false)
+      expect(instruction.zone.pzoneTcp).toBe(100)
     }
   })
 
   it('VAR 赋值与控制流得到 unsupported-syntax，而不是崩溃或被静默忽略', () => {
-    // 来源：docs/rapid-real-code-examples.md 片段2/8（可变声明、WHILE、IF/ELSE/ENDIF）。
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段2/8（可变声明、WHILE、IF/ELSE/ENDIF）。
     const source = `MODULE MainModule
     VAR intnum NUMLATASNOK := 0;
     PROC main()
@@ -78,7 +79,7 @@ ENDMODULE
   })
 
   it('MoveC 与 MoveAbsJ 得到专业 unsupported 诊断而非 lexical 或静默忽略', () => {
-    // 来源：docs/rapid-real-code-examples.md 片段6（MoveAbsJ）与 ABB 官方 MoveC 语法。
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段6（MoveAbsJ）与 ABB 官方 MoveC 语法。
     const source = `MODULE Main_Module
     CONST jointtarget pCalib := [[0,0,0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
     PROC main()
@@ -95,7 +96,7 @@ ENDMODULE
   })
 
   it('Offs/RelTool 相对定位得到区分类诊断，parser 不崩溃', () => {
-    // 来源：docs/rapid-real-code-examples.md 片段5/7（MoveJ Offs(...) 与 MoveL RelTool(...) 规则轨迹）。
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段5/7（MoveJ Offs(...) 与 MoveL RelTool(...) 规则轨迹）。
     const source = `MODULE RuleMotion
     CONST robtarget pPick := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
     PROC main()
@@ -131,7 +132,7 @@ ENDMODULE
   })
 
   it('嵌套块、复杂表达式与真实注释不崩溃、不死循环、不吞模块结束位置', () => {
-    // 来源：docs/rapid-real-code-examples.md 片段2/4/5 混合（多层 WHILE/IF、GOTO LABEL、三角函数表达式、真实注释）。
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段2/4/5 混合（多层 WHILE/IF、GOTO LABEL、三角函数表达式、真实注释）。
     const source = `MODULE Advanced
     VAR num i;
     PROC main()
@@ -159,7 +160,7 @@ ENDMODULE
   })
 
   it('真实语料中正确 robtarget 声明仍进入只读 Program Data，损坏声明不生成半合法条目', () => {
-    // 来源：docs/rapid-real-code-examples.md CalibData.mod 风格——真实 PERS tooldata/wobjdata 混入正确 robtarget。
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md CalibData.mod 风格——真实 PERS tooldata/wobjdata 混入正确 robtarget。
     const source = `MODULE CalibData
     PERS tooldata TCP_VentosaTool := [TRUE,[[0,0,184],[1,0,0,0]],[1,[0,-0.818,79.529],[1,0,0,0],0,0,0]];
     CONST robtarget pGood := [[100,0,200],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
