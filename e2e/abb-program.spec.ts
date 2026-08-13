@@ -171,4 +171,63 @@ test.describe('教学闭环：Program Data 示教与源码观察', () => {
     await expect(summary).toContainText('tool0')
     await expect(summary).toContainText('v200')
   })
+
+  test('基础逻辑任务可单步观察变量/条件/运动，逻辑修改要求 PP to Main', async ({ page }) => {
+    await waitForScene(page)
+    const editor = page.getByRole('textbox', { name: 'RAPID 源程序' })
+    await editor.fill(`MODULE LogicDemo
+    VAR num count := 0;
+    VAR bool enabled := FALSE;
+    CONST robtarget pIf := [[500,100,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pElseIf := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pElse := [[451,0,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        count := count + 1;
+        enabled := count = 1;
+        IF enabled THEN
+            MoveJ pIf,v200,fine,tool0;
+        ELSEIF count = 2 THEN
+            MoveJ pElseIf,v200,fine,tool0;
+        ELSE
+            MoveL pElse,v50,fine,tool0;
+        ENDIF
+    ENDPROC
+ENDMODULE`)
+
+    const stepButton = page.getByRole('button', { name: '单步' })
+    const dataTab = page.getByRole('tab', { name: 'Program Data' })
+    await dataTab.click()
+    await page.getByRole('tab', { name: 'num' }).click()
+    await expect(page.locator('[aria-label="选择 num count"]')).toContainText('初值 0 · 当前 0')
+
+    // 逐条跨过数值赋值、布尔赋值和条件判断；条件单步不应移动机器人，PP 落在命中 MoveJ。
+    await stepButton.click()
+    await expect(statusLabel(page)).toHaveText('已停止', { timeout: 10_000 })
+    await expect(page.locator('[aria-label="选择 num count"]')).toContainText('初值 0 · 当前 1')
+    await dataTab.click()
+    await page.getByRole('tab', { name: 'bool' }).click()
+    await stepButton.click()
+    await expect(page.locator('[aria-label="选择 bool enabled"]')).toContainText('初值 FALSE · 当前 TRUE')
+    await dataTab.click()
+    await stepButton.click()
+    await expect(programStats(page).locator('dd').nth(0)).toHaveText('3')
+    await expect(programStats(page).locator('dd').nth(1)).toHaveText('—')
+    await page.getByRole('tab', { name: 'RAPID' }).click()
+    await expect(page.locator('.program-panel').getByText('等待下一步')).toBeVisible()
+
+    // 命中 MoveJ 后完成整个教学任务。
+    await stepButton.click()
+    await expect(statusLabel(page)).toHaveText('已完成', { timeout: 30_000 })
+
+    // 修改赋值表达式属于逻辑编辑：停止/完成上下文不能静默迁移，必须 PP to Main。
+    const changedSource = (await editor.inputValue()).replace('count := count + 1', 'count := count + 2')
+    await editor.fill(changedSource)
+    await expect(page.getByText('请先执行 PP to Main')).toBeVisible()
+    await expect(page.getByRole('button', { name: '运行' })).toBeDisabled()
+    await page.getByRole('button', { name: 'PP to Main' }).click()
+    await expect(statusLabel(page)).toHaveText('空闲')
+    await dataTab.click()
+    await page.getByRole('tab', { name: 'num' }).click()
+    await expect(page.locator('[aria-label="选择 num count"]')).toContainText('初值 0 · 当前 0')
+  })
 })
