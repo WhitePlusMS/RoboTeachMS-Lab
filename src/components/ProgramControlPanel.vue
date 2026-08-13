@@ -69,6 +69,12 @@ const mpLine = computed(() =>
 // 当前结构化指令：活动运动优先，否则是下一条待执行指令。
 const activeIndex = computed(() => props.snapshot.motionPointer ?? props.snapshot.programPointer)
 const currentInstruction = computed(() => props.program[activeIndex.value] ?? null)
+/** 当前活动/下一条指令若使用非 fine（fly-by）zone，返回 zone 名（如 z50），否则 null；用于提示未模拟路径融合。 */
+const flyByZone = computed(() => {
+  const instruction = currentInstruction.value
+  if (!instruction || instruction.zone.finep) return null
+  return instruction.operands.zone
+})
 const diagnosticLines = computed(() => props.snapshot.diagnostics.map((diagnostic) => diagnostic.range.start.line))
 const runtimeErrorLine = computed(() => props.snapshot.error?.sourceRange?.start.line ?? null)
 
@@ -110,6 +116,9 @@ const errorText = computed(() => {
       />
       <p v-if="sourceLocked" class="program-hint">程序运行期间，源程序已锁定。</p>
       <p v-else-if="awaitingNext" class="program-hint">单步已完成，等待下一步；可继续单步或运行。</p>
+      <p v-if="flyByZone" class="program-hint program-hint-warn">
+        当前指令使用 {{ flyByZone }}（非 fine，fly-by）：当前 MVP 未模拟 ABB 路径融合，采用精确停点近似。
+      </p>
 
       <dl class="program-stats" aria-label="程序快照">
         <div>

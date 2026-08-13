@@ -266,4 +266,36 @@ describe('ProgramControlPanel PP/MP gutter 与结构化指令', () => {
     const wrapper = mountPanel(snapshot({ state: 'idle' }))
     expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('无活动指令')
   })
+
+  it('活动指令使用非 fine（fly-by）zone 时显示未模拟路径融合提示（票据 04）', () => {
+    const program = programWith([8], ['pA']).map((inst) => ({
+      ...inst,
+      zone: { ...inst.zone, finep: false },
+      operands: { ...inst.operands, zone: 'z50' },
+    }))
+    const wrapper = mount(ProgramControlPanel, {
+      props: {
+        snapshot: snapshot({ state: 'running', programPointer: 0, motionPointer: 0 }),
+        source: SOURCE,
+        program,
+        pendingClear: null,
+      },
+    })
+    expect(wrapper.text()).toContain('z50')
+    expect(wrapper.text()).toContain('fly-by')
+    expect(wrapper.text()).toContain('未模拟')
+  })
+
+  it('活动指令用 fine 时提示 fly-by 未出现', () => {
+    const program = programWith([8], ['pA'])
+    const wrapper = mount(ProgramControlPanel, {
+      props: {
+        snapshot: snapshot({ state: 'running', programPointer: 0, motionPointer: 0 }),
+        source: SOURCE,
+        program,
+        pendingClear: null,
+      },
+    })
+    expect(wrapper.text()).not.toContain('fly-by')
+  })
 })
