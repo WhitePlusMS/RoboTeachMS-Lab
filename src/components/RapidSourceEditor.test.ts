@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import RapidSourceEditor from './RapidSourceEditor.vue'
-import type { RapidExecutableInstruction } from '../rapid/rapid-parser.ts'
+import type { RapidExecutableInstruction, RapidConditionalInstruction } from '../rapid/rapid-parser.ts'
 import { defaultTool0, defaultWobj0, defaultZoneFine } from '../rapid/rapid-types.ts'
 
 const SOURCE = `MODULE Demo
@@ -114,5 +114,30 @@ describe('RapidSourceEditor 结构化指令摘要', () => {
     expect(text).toContain('fine')
     expect(text).toContain('tool0')
     expect(text).toContain('wobj0')
+  })
+
+  it('条件判断作为当前结构化指令显示 IF/ELSEIF 与源码条件，不读取运动字段', () => {
+    const conditional: RapidConditionalInstruction = {
+      kind: 'if',
+      conditionKind: 'elseif',
+      condition: {
+        kind: 'bool-literal',
+        value: true,
+        range: {
+          start: { offset: 0, line: 1, column: 1 },
+          end: { offset: 4, line: 1, column: 5 },
+        },
+      },
+      trueTarget: 1,
+      falseTarget: 2,
+      sourceRange: {
+        start: { offset: 0, line: 5, column: 9 },
+        end: { offset: 18, line: 5, column: 27 },
+      },
+      sourceText: 'ELSEIF ready THEN',
+    }
+    const wrapper = mountEditor({ instruction: conditional })
+    expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('ELSEIF')
+    expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('ELSEIF ready THEN')
   })
 })

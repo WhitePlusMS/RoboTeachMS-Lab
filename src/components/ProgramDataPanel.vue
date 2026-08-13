@@ -8,14 +8,14 @@ import type {
   RapidProgramData,
   RapidSourceRange,
 } from '../rapid/rapid-parser.ts'
-import { isRobtargetProgramData } from '../rapid/rapid-parser.ts'
-import type { RobTarget, ToolData, WobjData, SpeedData, ZoneData, LoadData } from '../rapid/rapid-types.ts'
+import { isRapidMotionInstruction, isRobtargetProgramData } from '../rapid/rapid-parser.ts'
+import type { RapidScalarVariable, RobTarget, ToolData, WobjData, SpeedData, ZoneData, LoadData } from '../rapid/rapid-types.ts'
 import type { Pose } from '../robotics/types.ts'
 import { rotationMatrixToQuaternion } from '../robotics/math/rotation3d.ts'
 import { internalQuatToRapid } from '../rapid/plan-shared.ts'
 
 interface Props {
-  /** 完整 Program Data 联合（robtarget/tooldata/wobjdata/speeddata/zonedata + 系统预定义项）。 */
+  /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */
   data: readonly RapidProgramData[]
   /** 当前活动/下一条指令下标；用于高亮当前使用的 Tool/WObj/Speed/Zone/目标。非 null 时指向 program。 */
   activeIndex: number | null
@@ -27,6 +27,8 @@ interface Props {
   program: readonly RapidExecutableInstruction[]
   /** 当前活动 tool0 TCP（ABB 基座坐标），用于示教新目标值。 */
   pose: Pose | null
+  /** 来自 ProgramExecutor 快照的标量当前值；缺少条目时回退到声明初值。 */
+  runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
   /** 唯一受控编辑入口；返回结果以展示结构化拒绝原因。 */
   applyEdit: (command: RapidEditCommand) => RapidEditResult
 }
@@ -44,6 +46,8 @@ const KINDS: ReadonlyArray<{ kind: RapidDataKind; label: string }> = [
   { kind: 'wobjdata', label: 'wobjdata' },
   { kind: 'speeddata', label: 'speeddata' },
   { kind: 'zonedata', label: 'zonedata' },
+  { kind: 'num', label: 'num' },
+  { kind: 'bool', label: 'bool' },
 ]
 const activeKind = ref<RapidDataKind>('robtarget')
 
@@ -53,12 +57,12 @@ const activeInstruction = computed(() =>
 )
 const activeOperandNames = computed(() => {
   const instruction = activeInstruction.value
-  if (!instruction) return { target: '', speed: '', zone: '', tool: '', wobj: '' }
+  if (!instruction || !isRapidMotionInstruction(instruction)) return { target: '', speed: '', zone: '', tool: '', wobj: '' }
   return instruction.operands
 })
 const activeZoneFlyBy = computed(() => {
   const instruction = activeInstruction.value
-  return !!instruction && !instruction.zone.finep
+  return !!instruction && isRapidMotionInstruction(instruction) && !instruction.zone.finep
 })
 
 // —— robtarget（点位示教）专用视图状态 ——
@@ -144,6 +148,20 @@ function formatNum(value: number): string {
   return Number.isFinite(value) ? String(value) : '—'
 }
 
+/** 标量 Program Data 的声明初值展示；运行当前值从 ProgramExecutor 快照读取。 */
+function scalarValueLabel(entry: RapidProgramData): string {
+  if (entry.kind === 'num') return formatNum(entry.value)
+  if (entry.kind === 'bool') return entry.value ? 'TRUE' : 'FALSE'
+  return ''
+}
+
+function currentScalarValueLabel(entry: RapidProgramData): string {
+  if (entry.kind !== 'num' && entry.kind !== 'bool') return ''
+  const current = props.runtimeValues?.get(entry.name.toLocaleLowerCase('en-US'))
+  if (!current || current.kind !== entry.kind) return scalarValueLabel(entry)
+  return current.kind === 'num' ? formatNum(current.value) : (current.value ? 'TRUE' : 'FALSE')
+}
+
 function referenceLabel(references: readonly RapidSourceRange[]): string {
   if (references.length === 0) return '未被引用'
   if (references.length === 1) return '1 处引用'
@@ -226,7 +244,10 @@ function insertMotion(kind: 'movej' | 'movel'): void {
 function insertionLabel(point: RapidMotionInsertionPoint): string {
   if (point.index >= props.program.length) return '程序末尾'
   const instruction = props.program[point.index]
-  return `第 ${point.index + 1} 条之前 · ${instruction.kind === 'movej' ? 'MoveJ' : 'MoveL'} · 行 ${point.line}`
+  const label = isRapidMotionInstruction(instruction)
+    ? (instruction.kind === 'movej' ? 'MoveJ' : 'MoveL')
+    : '赋值'
+  return `第 ${point.index + 1} 条之前 · ${label} · 行 ${point.line}`
 }
 
 // —— 非 robtarget 只读浏览 ——
@@ -327,6 +348,9 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
       return zoneDetail(entry.value)
     case 'loaddata':
       return loadDetail(entry.value)
+    case 'num':
+    case 'bool':
+      return [['初值', scalarValueLabel(entry)], ['当前值', currentScalarValueLabel(entry)]]
     case 'robtarget':
       return []
   }
@@ -349,7 +373,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
       {{ props.canExecute ? 'RAPID 模块 · 按数据类型浏览运动数据' : '源程序存在错误：仅只读浏览，已禁用结构化编辑与运行。' }}
     </p>
     <p v-if="editError" class="program-data-error">{{ editError }}</p>
-    <p v-if="selectedReadonly" class="program-data-hint">Tool/WObj/Speed/Zone 数据只读展示，避免产生第二份隐藏数据。</p>
+    <p v-if="selectedReadonly" class="program-data-hint">非 robtarget 数据只读展示，避免产生第二份隐藏数据。</p>
 
     <div class="program-data-kind-tabs" role="tablist" aria-label="数据类型">
       <button
@@ -556,6 +580,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
             <span class="program-data-row-name">{{ entry.name }}</span>
             <span v-if="entry.system" class="program-data-label program-data-system">系统只读</span>
             <span class="program-data-label program-data-storage">{{ entry.storage }}</span>
+            <span v-if="entry.kind === 'num' || entry.kind === 'bool'" class="program-data-row-coord">初值 {{ scalarValueLabel(entry) }} · 当前 {{ currentScalarValueLabel(entry) }}</span>
             <span class="program-data-label program-data-references">{{ referenceLabel(entry.referenceRanges) }}</span>
           </button>
         </li>
@@ -571,6 +596,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
           <span v-if="selectedReadonly.system" class="program-data-label program-data-system">系统预定义 · 只读</span>
         </div>
         <dl class="program-data-fields">
+          <div v-if="selectedReadonly.kind === 'num' || selectedReadonly.kind === 'bool'"><dt>类型</dt><dd>{{ selectedReadonly.kind }}</dd></div>
           <div><dt>存储</dt><dd>{{ selectedReadonly.storage }}</dd></div>
           <div v-for="[field, value] in readonlyFields(selectedReadonly)" :key="field">
             <dt>{{ field }}</dt><dd>{{ value }}</dd>

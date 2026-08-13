@@ -13,6 +13,7 @@ function snapshot(overrides: Partial<ProgramControllerSnapshot> = {}): ProgramCo
     motionPointer: null,
     stopReason: null,
     error: null,
+    variables: new Map(),
     diagnostics: [],
     needsPPtoMain: false,
     offPath: false,
@@ -200,10 +201,10 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
   })
 })
 
-import type { RapidExecutableInstruction } from '../rapid/rapid-parser.ts'
+import type { RapidMotionInstruction } from '../rapid/rapid-parser.ts'
 import { defaultTool0, defaultWobj0, defaultZoneFine } from '../rapid/rapid-types.ts'
 
-function programWith(lines: number[], operands: string[]): RapidExecutableInstruction[] {
+function programWith(lines: number[], operands: string[]): RapidMotionInstruction[] {
   return lines.map((line, index) => ({
     kind: 'movej' as const,
     target: { trans: [0, 0, 0], rot: [1, 0, 0, 0], robconf: [0, 0, 0, 0], extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9] },

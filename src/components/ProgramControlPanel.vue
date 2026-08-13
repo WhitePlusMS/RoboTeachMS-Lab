@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import RapidSourceEditor from './RapidSourceEditor.vue'
 import type { ProgramControllerSnapshot } from '../application/program-control.ts'
-import type { RapidExecutableInstruction, RapidSourceRange } from '../rapid/rapid-parser.ts'
+import { isRapidMotionInstruction, type RapidExecutableInstruction, type RapidSourceRange } from '../rapid/rapid-parser.ts'
 
 interface Props {
   snapshot: ProgramControllerSnapshot
@@ -72,7 +72,7 @@ const currentInstruction = computed(() => props.program[activeIndex.value] ?? nu
 /** 当前活动/下一条指令若使用非 fine（fly-by）zone，返回 zone 名（如 z50），否则 null；用于提示未模拟路径融合。 */
 const flyByZone = computed(() => {
   const instruction = currentInstruction.value
-  if (!instruction || instruction.zone.finep) return null
+  if (!instruction || !isRapidMotionInstruction(instruction) || instruction.zone.finep) return null
   return instruction.operands.zone
 })
 const diagnosticLines = computed(() => props.snapshot.diagnostics.map((diagnostic) => diagnostic.range.start.line))

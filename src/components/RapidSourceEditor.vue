@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import type { RapidExecutableInstruction, RapidSourceRange } from '../rapid/rapid-parser.ts'
+import { isRapidMotionInstruction, type RapidExecutableInstruction, type RapidSourceRange } from '../rapid/rapid-parser.ts'
 
 interface Props {
   source: string
@@ -55,9 +55,21 @@ watch(
   },
 )
 
+const motionInstruction = computed(() => {
+  const instruction = props.instruction
+  return instruction && isRapidMotionInstruction(instruction) ? instruction : null
+})
+const assignmentInstruction = computed(() => {
+  const instruction = props.instruction
+  return instruction && instruction.kind === 'assign' ? instruction : null
+})
+const conditionalInstruction = computed(() => {
+  const instruction = props.instruction
+  return instruction && instruction.kind === 'if' ? instruction : null
+})
 const kindLabel = computed(() => {
-  if (!props.instruction) return ''
-  return props.instruction.kind === 'movej' ? 'MoveJ' : 'MoveL'
+  if (motionInstruction.value) return motionInstruction.value.kind === 'movej' ? 'MoveJ' : 'MoveL'
+  return assignmentInstruction.value ? '赋值' : ''
 })
 </script>
 
@@ -98,31 +110,40 @@ const kindLabel = computed(() => {
 
     <div class="instruction-summary" aria-label="当前结构化指令">
       <p v-if="!props.instruction" class="instruction-summary-empty">无活动指令。</p>
-      <dl v-else class="instruction-summary-fields">
+      <dl v-else-if="motionInstruction" class="instruction-summary-fields">
         <div>
           <dt>指令</dt>
           <dd>{{ kindLabel }}</dd>
         </div>
         <div>
           <dt>目标</dt>
-          <dd>{{ props.instruction.operands.target }}</dd>
+          <dd>{{ motionInstruction.operands.target }}</dd>
         </div>
         <div>
           <dt>速度</dt>
-          <dd>{{ props.instruction.operands.speed }}</dd>
+          <dd>{{ motionInstruction.operands.speed }}</dd>
         </div>
         <div>
           <dt>zone</dt>
-          <dd>{{ props.instruction.operands.zone }}</dd>
+          <dd>{{ motionInstruction.operands.zone }}</dd>
         </div>
         <div>
           <dt>tool</dt>
-          <dd>{{ props.instruction.operands.tool }}</dd>
+          <dd>{{ motionInstruction.operands.tool }}</dd>
         </div>
         <div>
           <dt>wobj</dt>
-          <dd>{{ props.instruction.operands.wobj }}</dd>
+          <dd>{{ motionInstruction.operands.wobj }}</dd>
         </div>
+      </dl>
+      <dl v-else-if="assignmentInstruction" class="instruction-summary-fields">
+        <div><dt>指令</dt><dd>{{ kindLabel }}</dd></div>
+        <div><dt>变量</dt><dd>{{ assignmentInstruction.target.name }}</dd></div>
+        <div><dt>表达式</dt><dd>{{ assignmentInstruction.sourceText }}</dd></div>
+      </dl>
+      <dl v-else-if="conditionalInstruction" class="instruction-summary-fields">
+        <div><dt>指令</dt><dd>{{ conditionalInstruction.conditionKind === 'if' ? 'IF' : 'ELSEIF' }}</dd></div>
+        <div><dt>条件</dt><dd>{{ conditionalInstruction.sourceText }}</dd></div>
       </dl>
     </div>
   </div>

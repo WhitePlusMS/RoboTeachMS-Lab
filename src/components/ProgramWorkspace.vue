@@ -11,13 +11,14 @@ import type {
   RapidSourceRange,
 } from '../rapid/rapid-parser.ts'
 import type { Pose } from '../robotics/types.ts'
+import type { RapidScalarVariable } from '../rapid/rapid-types.ts'
 
 interface Props {
   snapshot: ProgramControllerSnapshot
   source: string
   program: readonly RapidExecutableInstruction[]
   pendingClear: 'run' | 'step' | null
-  /** 完整 Program Data 联合（五类 + 系统预定义项）。 */
+  /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */
   data: readonly RapidProgramData[]
   /** 当前活动/下一条指令下标，供 Program Data 面板高亮当前 Tool/WObj/Speed/Zone/目标。 */
   activeIndex: number | null
@@ -25,6 +26,8 @@ interface Props {
   insertionPoints: readonly RapidMotionInsertionPoint[]
   pose: Pose | null
   applyEdit: (command: RapidEditCommand) => RapidEditResult
+  /** ProgramExecutor 的标量当前值快照。 */
+  runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
 }
 
 const props = defineProps<Props>()
@@ -149,6 +152,7 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
           :insertion-points="props.insertionPoints"
           :pose="props.pose"
           :apply-edit="props.applyEdit"
+          :runtime-values="props.runtimeValues"
           @view-reference="focusRapidReference"
         />
       </div>

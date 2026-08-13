@@ -9,6 +9,7 @@ import {
   type RapidProgramData,
 } from '../rapid/rapid-parser.ts'
 import type { Pose } from '../robotics/types.ts'
+import type { RapidScalarVariable } from '../rapid/rapid-types.ts'
 import type { RapidEditCommand, RapidEditResult } from '../rapid/controlled-rapid-edit.ts'
 
 const SOURCE = `
@@ -40,6 +41,7 @@ function baseProps(overrides: {
   canExecute?: boolean
   program?: readonly RapidExecutableInstruction[]
   insertionPoints?: readonly RapidMotionInsertionPoint[]
+  runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
   applyEdit?: (command: RapidEditCommand) => RapidEditResult
 } = {}) {
   return {
@@ -48,6 +50,7 @@ function baseProps(overrides: {
     canExecute: overrides.canExecute ?? true,
     program: overrides.program ?? DEFAULT_PARSED.program,
     insertionPoints: overrides.insertionPoints ?? DEFAULT_PARSED.motionInsertionPoints,
+    runtimeValues: overrides.runtimeValues,
     pose: DEFAULT_POSE,
     applyEdit: overrides.applyEdit ?? okEdit,
   }
@@ -58,6 +61,7 @@ function mountPanel(overrides: {
   activeIndex?: number | null
   canExecute?: boolean
   program?: readonly RapidExecutableInstruction[]
+  runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
   applyEdit?: (command: RapidEditCommand) => RapidEditResult
 } = {}) {
   return mount(ProgramDataPanel, { props: baseProps(overrides) })
@@ -216,6 +220,8 @@ MODULE Multi
     PERS wobjdata wTable := [FALSE,TRUE,"",[[100,0,0],[1,0,0,0]],[[0,0,0],[1,0,0,0]]];
     VAR speeddata vFast := [250,300,4000,800];
     CONST zonedata zEnd := [FALSE,100,150,150,15,150,15];
+    VAR num cycleCount := 3;
+    VAR bool ready := TRUE;
     CONST robtarget pA := [[551,613,25],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
     PROC main()
         MoveL pA,vFast,zEnd,tGrip\\WObj:=wTable;
@@ -262,6 +268,29 @@ ENDMODULE
     expect(wrapper.get('[aria-label="speeddata 数据列表"]').text()).toContain('v100')
     await wrapper.get('[aria-label="选择 speeddata v100"]').trigger('click')
     expect(wrapper.get('[aria-label="speeddata 详情"]').text()).toContain('系统预定义')
+  })
+
+  it('num/bool Tab 展示声明类型、VAR 存储类别、声明初值和当前运行值', async () => {
+    const runtimeValues = new Map<string, RapidScalarVariable>([
+      ['cyclecount', { kind: 'num', value: 8 }],
+      ['ready', { kind: 'bool', value: false }],
+    ])
+    const wrapper = mountPanel({ data: parsed.data, runtimeValues })
+
+    await wrapper.findAll('.program-data-kind-tab').find((button) => button.text() === 'num')!.trigger('click')
+    expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('cycleCount')
+    expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('var')
+    expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('3')
+    expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('当前 8')
+    await wrapper.get('[aria-label="选择 num cycleCount"]').trigger('click')
+    expect(wrapper.get('[aria-label="num 详情"]').text()).toContain('类型num')
+    expect(wrapper.get('[aria-label="num 详情"]').text()).toContain('初值3')
+    expect(wrapper.get('[aria-label="num 详情"]').text()).toContain('当前值8')
+
+    await wrapper.findAll('.program-data-kind-tab').find((button) => button.text() === 'bool')!.trigger('click')
+    expect(wrapper.get('[aria-label="bool 数据列表"]').text()).toContain('ready')
+    expect(wrapper.get('[aria-label="bool 数据列表"]').text()).toContain('TRUE')
+    expect(wrapper.get('[aria-label="bool 数据列表"]').text()).toContain('当前 FALSE')
   })
 
   it('当前指令高亮并提示 fly-by（zEnd 非 fine）', async () => {

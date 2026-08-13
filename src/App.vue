@@ -13,6 +13,7 @@ import { createBuiltinRapidSource } from './application/builtin-program.ts'
 import { flangeToWorldTcpPose } from './rapid/coordinate-transform.ts'
 import type { AbbSceneStatus } from './scene/abb-scene.ts'
 import { useCartesianControl } from './application/cartesian-control.ts'
+import { isRapidMotionInstruction } from './rapid/rapid-parser.ts'
 
 const profile = ABB_IRB1200_PROFILE
 const sceneStatus = ref<AbbSceneStatus>('loading')
@@ -88,8 +89,8 @@ const programSnapshot = programControl.snapshot
 const pendingClearState = programControl.pendingClear
 
 /**
- * Program Data 派生视图：来自同一次解析，实时随源码更新。
- * 面板按数据类型浏览五类记录（robtarget/tooldata/wobjdata/speeddata/zonedata）；数据唯一来源于解析结果。
+ * Program Data 派生视图：声明来自同一次解析，标量当前值来自同一 ProgramExecutor 快照。
+ * 面板按数据类型浏览六类运动记录与 num/bool 标量；不建立第二份变量状态。
  */
 const programData = computed(() => programControl.parsed.value.data)
 const programDataCanExecute = computed(() => programControl.parsed.value.canExecute)
@@ -106,7 +107,8 @@ const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
 const activeInstruction = computed(() => {
   const index = activeInstructionIndex.value
   if (index === null || index === undefined) return null
-  return programControl.parsed.value.program[index] ?? null
+  const instruction = programControl.parsed.value.program[index] ?? null
+  return instruction && isRapidMotionInstruction(instruction) ? instruction : null
 })
 
 /**
@@ -241,6 +243,7 @@ const statusLabel = computed(() => {
           :insertion-points="programControl.parsed.value.motionInsertionPoints"
           :pose="toolPose"
           :apply-edit="programControl.applyEdit"
+          :runtime-values="programSnapshot.variables"
           @run="programControl.run()"
           @step="programControl.step()"
           @stop="programControl.stop()"

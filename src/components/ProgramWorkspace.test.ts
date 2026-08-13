@@ -24,6 +24,7 @@ const snapshot: ProgramControllerSnapshot = {
   motionPointer: null,
   stopReason: null,
   error: null,
+  variables: new Map(),
   diagnostics: [],
   needsPPtoMain: false,
   offPath: false,
