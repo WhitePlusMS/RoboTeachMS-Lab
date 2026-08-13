@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
 import type { JointAngles, Pose } from '../robotics/types.ts'
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'
 import { defaultTool0, defaultWobj0, type RobTarget, type ToolData, type WobjData } from './rapid-types.ts'
@@ -95,9 +95,14 @@ ENDMODULE
 `
     const result = parseRapidProgram(source)
     expect(result.canExecute).toBe(true)
-    const offs = result.program[0]?.target
-    const rel = result.program[1]?.target
-    expect(offs?.trans).toEqual([110, 200, 300]) // Offs：沿 Object 轴 +X。
+    const offsInstruction = result.program[0]
+    const relInstruction = result.program[1]
+    expect(offsInstruction && isRapidMotionInstruction(offsInstruction)).toBe(true)
+    expect(relInstruction && isRapidMotionInstruction(relInstruction)).toBe(true)
+    if (!offsInstruction || !relInstruction || !isRapidMotionInstruction(offsInstruction) || !isRapidMotionInstruction(relInstruction)) return
+    const offs = offsInstruction.target
+    const rel = relInstruction.target
+    expect(offs.trans).toEqual([110, 200, 300]) // Offs：沿 Object 轴 +X。
     expect(rel).toBeDefined()
     if (rel) {
       expect(rel.trans[2]).toBeCloseTo(290, 1) // RelTool：沿工具轴 +X → 世界 -Z。
@@ -153,12 +158,17 @@ ENDMODULE
     ENDPROC
 ENDMODULE
 `)
-    expect(fine.program[0]?.zone.finep).toBe(true)
+    const fineInstruction = fine.program[0]
+    const flybyInstruction = flyby.program[0]
+    expect(fineInstruction && isRapidMotionInstruction(fineInstruction)).toBe(true)
+    expect(flybyInstruction && isRapidMotionInstruction(flybyInstruction)).toBe(true)
     expect(flyby.canExecute).toBe(true)
-    const zone = flyby.program[0]?.zone
+    if (!fineInstruction || !flybyInstruction || !isRapidMotionInstruction(fineInstruction) || !isRapidMotionInstruction(flybyInstruction)) return
+    expect(fineInstruction.zone.finep).toBe(true)
+    const zone = flybyInstruction.zone
     expect(zone?.finep).toBe(false)
     expect(zone?.pzoneTcp).toBe(50)
-    if (zone) expect(zone).not.toEqual(fine.program[0]?.zone)
+    if (zone) expect(zone).not.toEqual(fineInstruction.zone)
   })
 
   it('语法/数据/规划 error 都阻止部分执行，合法 MoveJ/MoveL 继续通过现有执行链', () => {

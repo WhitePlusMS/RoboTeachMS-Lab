@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import { isDefaultTool0, isDefaultWobj0 } from './rapid-types.ts'
 
 /**
@@ -101,6 +101,61 @@ describe('Ticket 01 — 五类 ABB record 解析为领域类型', () => {
   })
 })
 
+describe('Ticket 01 — 模块级 VAR 标量 Program Data', () => {
+  it('解析大小写不敏感的 num/bool 初值，并保留声明元数据', () => {
+    const src = program([
+      '    VAR num cycleCount := -1.25e2;',
+      '    VAR bool Ready := tRuE;',
+      '    CONST robtarget p1 := ' + RT + ';',
+    ].join('\n'), '        MoveJ p1,v100,fine,tool0;\n')
+    const result = parseRapidProgram(src)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.canExecute).toBe(true)
+    expect(result.program).toHaveLength(1)
+
+    const count = result.data.find((entry) => entry.name === 'cycleCount')
+    expect(count).toMatchObject({ kind: 'num', storage: 'var', system: false, value: -125 })
+    expect(count && src.slice(count.valueRange.start.offset, count.valueRange.end.offset)).toBe('-1.25e2')
+
+    const ready = result.data.find((entry) => entry.name === 'Ready')
+    expect(ready).toMatchObject({ kind: 'bool', storage: 'var', system: false, value: true })
+  })
+
+  it('缺少初值、初值类型错误和非有限数值均阻止执行且不生成半合法条目', () => {
+    const missing = parseRapidProgram(program('    VAR num count;'))
+    expect(missing.canExecute).toBe(false)
+    expect(
+      missing.diagnostics.some((diagnostic) => diagnostic.message.includes(':=')),
+    ).toBe(true)
+    expect(missing.data.some((entry) => entry.name === 'count')).toBe(false)
+
+    const wrongType = parseRapidProgram(program('    VAR bool ready := 1;'))
+    expect(wrongType.diagnostics.some((diagnostic) => diagnostic.code === 'invalid-data')).toBe(true)
+    expect(wrongType.data.some((entry) => entry.name === 'ready')).toBe(false)
+
+    const nonFinite = parseRapidProgram(program('    VAR num count := 1e999;'))
+    expect(nonFinite.diagnostics.some((diagnostic) => diagnostic.message.includes('非有限'))).toBe(true)
+    expect(nonFinite.data.some((entry) => entry.name === 'count')).toBe(false)
+  })
+
+  it('标量只能使用 VAR，且与六类运动数据共享大小写不敏感的符号空间', () => {
+    const unsupportedStorage = parseRapidProgram(program('    CONST num count := 1;'))
+    expect(unsupportedStorage.diagnostics.some((diagnostic) => diagnostic.code === 'unsupported-option')).toBe(true)
+
+    const duplicate = parseRapidProgram(program([
+      '    CONST robtarget p1 := ' + RT + ';',
+      '    VAR bool P1 := FALSE;',
+    ].join('\n')))
+    expect(duplicate.diagnostics.some((diagnostic) => diagnostic.code === 'duplicate-symbol')).toBe(true)
+    expect(duplicate.diagnostics.find((diagnostic) => diagnostic.code === 'duplicate-symbol')?.range.start.line).toBe(3)
+
+    const local = parseRapidProgram(`MODULE T\n    PROC main()\n        VAR num localCount := 1;\n    ENDPROC\nENDMODULE\n`)
+    expect(local.diagnostics.some((diagnostic) => diagnostic.code === 'unsupported-syntax')).toBe(true)
+    expect(local.data.some((entry) => entry.name === 'localCount')).toBe(false)
+  })
+})
+
 describe('Ticket 01 — 系统预定义符号', () => {
   it('tool0/wobj0/load0 与官方 speed/zone 名称进入只读 Program Data', () => {
     const result = parseRapidProgram(program(''))
@@ -184,10 +239,11 @@ describe('Ticket 01 — 只读浏览与回归', () => {
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
     expect(result.program).toHaveLength(1)
-    if (result.program[0]) {
-      expect(isDefaultTool0(result.program[0].tool)).toBe(true)
-      expect(isDefaultWobj0(result.program[0].wobj)).toBe(true)
-      expect(result.program[0].wobj.ufprog).toBe(true)
+    const instruction = result.program[0]
+    if (instruction && isRapidMotionInstruction(instruction)) {
+      expect(isDefaultTool0(instruction.tool)).toBe(true)
+      expect(isDefaultWobj0(instruction.wobj)).toBe(true)
+      expect(instruction.wobj.ufprog).toBe(true)
     }
   })
 })

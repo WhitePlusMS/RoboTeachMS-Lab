@@ -1,6 +1,7 @@
 import type {
   LoadData,
   RapidPose,
+  RapidScalarKind,
   RobTarget,
   SpeedData,
   StructuredMotionInstruction,
@@ -48,8 +49,8 @@ export interface RapidDiagnostic {
   range: RapidSourceRange
 }
 
-/** 解析后交给 ProgramExecutor 的指令；源码范围用于回溯运行时规划错误，操作数名保留原始拼写。 */
-export type RapidExecutableInstruction = StructuredMotionInstruction & {
+/** 解析后交给 ProgramExecutor 的运动语句；源码范围用于回溯运行时规划错误，操作数名保留原始拼写。 */
+export type RapidMotionInstruction = StructuredMotionInstruction & {
   sourceRange: RapidSourceRange
   sourceText: string
   /** 运动操作数标识符（原始拼写），供结构化指令摘要展示，组件不另行解析 RAPID 字符串。 */
@@ -68,6 +69,67 @@ export type RapidExecutableInstruction = StructuredMotionInstruction & {
     tool: RapidSourceRange
     wobj: RapidSourceRange | null
   }
+  /** 分支体末条语句跳过剩余 ELSEIF/ELSE 的内部目标；普通语句不设置。 */
+  nextPointer?: number
+}
+
+/** 首期标量表达式的运算符；不扩展到字符串、数组或复合数据。 */
+export type RapidScalarUnaryOperator = '+' | '-' | 'NOT'
+export type RapidScalarBinaryOperator = '+' | '-' | '*' | '/' | '=' | '<>' | '<' | '<=' | '>' | '>=' | 'AND' | 'OR'
+
+/** 赋值语句共用的最小表达式树；节点范围用于编辑器定位和运行时错误回溯。 */
+export type RapidScalarExpression =
+  | { kind: 'num-literal'; value: number; range: RapidSourceRange }
+  | { kind: 'bool-literal'; value: boolean; range: RapidSourceRange }
+  | { kind: 'variable'; name: string; range: RapidSourceRange }
+  | { kind: 'group'; expression: RapidScalarExpression; range: RapidSourceRange }
+  | { kind: 'unary'; operator: RapidScalarUnaryOperator; operand: RapidScalarExpression; range: RapidSourceRange }
+  | {
+      kind: 'binary'
+      operator: RapidScalarBinaryOperator
+      left: RapidScalarExpression
+      right: RapidScalarExpression
+      range: RapidSourceRange
+    }
+
+/** ProgramExecutor 的可执行赋值语句；valueKind 已由 parser 静态检查。 */
+export interface RapidAssignmentInstruction {
+  kind: 'assign'
+  target: {
+    name: string
+    valueKind: RapidScalarKind
+    range: RapidSourceRange
+  }
+  expression: RapidScalarExpression
+  sourceRange: RapidSourceRange
+  sourceText: string
+  /** 分支体末条语句跳过剩余 ELSEIF/ELSE 的内部目标；普通赋值不设置。 */
+  nextPointer?: number
+}
+
+/** parser 输出的唯一可执行计划：条件、运动与标量赋值按源码顺序共存。 */
+export interface RapidConditionalInstruction {
+  kind: 'if'
+  /** 当前条件来自 IF 还是 ELSEIF，供教学摘要区分语义。 */
+  conditionKind: 'if' | 'elseif'
+  condition: RapidScalarExpression
+  /** 条件为真/假时跳到的下一条可见语句；parser 保证目标落在计划边界内。 */
+  trueTarget: number
+  falseTarget: number
+  sourceRange: RapidSourceRange
+  sourceText: string
+}
+
+/** parser 输出的唯一可执行计划：条件、运动与标量赋值按源码顺序共存。 */
+export type RapidExecutableInstruction =
+  | RapidMotionInstruction
+  | RapidAssignmentInstruction
+  | RapidConditionalInstruction
+
+export function isRapidMotionInstruction(
+  instruction: RapidExecutableInstruction,
+): instruction is RapidMotionInstruction {
+  return instruction.kind === 'movej' || instruction.kind === 'movel'
 }
 
 /** main 内可插入一条新运动的合法锚点；index 表示插入到第几条现有运动之前。 */
@@ -82,7 +144,7 @@ export interface RapidParseResult {
   program: readonly RapidExecutableInstruction[]
   diagnostics: readonly RapidDiagnostic[]
   canExecute: boolean
-  /** 模块级命名数据的派生 Program Data 视图：robtarget/tooldata/wobjdata/loaddata/speeddata/zonedata；来自同一次解析，无第二份状态。 */
+  /** 模块级命名数据的派生 Program Data 视图：六类运动数据与 num/bool 标量；来自同一次解析，无第二份状态。 */
   data: readonly RapidProgramData[]
   /** 新模块级声明的插入偏移（位于 main PROC 之前）。 */
   dataInsertOffset: number
@@ -90,7 +152,7 @@ export interface RapidParseResult {
   motionInsertionPoints: readonly RapidMotionInsertionPoint[]
 }
 
-/** Program Data 数据种类：六类已支持的 ABB 模块级运动数据记录。 */
+/** Program Data 数据种类：六类 ABB 运动数据记录与首期 num/bool 标量。 */
 export type RapidDataKind =
   | 'robtarget'
   | 'tooldata'
@@ -98,6 +160,7 @@ export type RapidDataKind =
   | 'loaddata'
   | 'speeddata'
   | 'zonedata'
+  | RapidScalarKind
 
 /** Program Data 条目通用元数据，携带源码范围与声明类别。 */
 interface RapidProgramDataBase {
@@ -116,7 +179,7 @@ interface RapidProgramDataBase {
 }
 
 /**
- * Program Data 条目：按 kind 区分六类数据，携带各自结构化值。系统预定义项（system=true）
+ * Program Data 条目：按 kind 区分运动数据与标量，携带各自结构化值。系统预定义项（system=true）
  * 的 nameRange/valueRange/declarationRange 为源码中的空范围（不存在于源码中）。
  */
 export type RapidProgramData =
@@ -126,6 +189,8 @@ export type RapidProgramData =
   | (RapidProgramDataBase & { kind: 'loaddata'; value: LoadData })
   | (RapidProgramDataBase & { kind: 'speeddata'; value: SpeedData })
   | (RapidProgramDataBase & { kind: 'zonedata'; value: ZoneData })
+  | (RapidProgramDataBase & { kind: 'num'; value: number })
+  | (RapidProgramDataBase & { kind: 'bool'; value: boolean })
 
 /** robtarget 类型的 Program Data 条目（供点位示教/插件依赖的最小稳定视图）。 */
 export type RapidProgramDataTarget = Extract<RapidProgramData, { kind: 'robtarget' }>
@@ -177,6 +242,31 @@ interface PendingMotion {
   sourceText: string
 }
 
+interface PendingAssignment {
+  targetToken: Token
+  expression: RapidScalarExpression
+  range: RapidSourceRange
+  sourceText: string
+}
+
+interface PendingConditionalBranch {
+  conditionKind: 'if' | 'elseif'
+  condition: RapidScalarExpression | null
+  range: RapidSourceRange
+  sourceText: string
+  statements: PendingStatement[]
+}
+
+interface PendingConditional {
+  branches: PendingConditionalBranch[]
+  elseStatements: PendingStatement[] | null
+}
+
+type PendingStatement =
+  | { kind: 'motion'; motion: PendingMotion }
+  | { kind: 'assign'; assignment: PendingAssignment }
+  | { kind: 'conditional'; conditional: PendingConditional }
+
 interface OperandSlotResult {
   token: Token | null
   separatorConsumed: boolean
@@ -195,6 +285,8 @@ interface SymbolEntry {
     | { kind: 'loaddata'; value: LoadData }
     | { kind: 'speeddata'; value: SpeedData }
     | { kind: 'zonedata'; value: ZoneData }
+    | { kind: 'num'; value: number }
+    | { kind: 'bool'; value: boolean }
   /** 声明的名称范围。 */
   range: RapidSourceRange
   /** 完整声明语句范围（自存储关键字到分号）。 */
@@ -206,17 +298,16 @@ interface SymbolEntry {
   references: RapidSourceRange[]
 }
 
-const NUMBER_PATTERN = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?/
+/** 数字 token 不吞掉前置正负号；这样 `a-1` 与 `a - 1` 具有相同的表达式结构。 */
+const NUMBER_PATTERN = /^(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?/
 const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*/
 
 /**
  * 真实 RAPID 数据类型中本项目尚未支持的类型名。用于区分“漏写数据类型”
- * （后面跟的是名称）与“使用了已知但不支持的类型”（num/bool 等）。
- * 六类已支持的运动数据类型（robtarget/tooldata/wobjdata/loaddata/speeddata/zonedata）不在此列。
+ * （后面跟的是名称）与“使用了已知但不支持的类型”。
+ * 六类已支持的运动数据类型与首期 num/bool 标量不在此列。
  */
 const KNOWN_UNSUPPORTED_TYPES = new Set([
-  'num',
-  'bool',
   'string',
   'int',
   'intnum',
@@ -242,6 +333,8 @@ const SUPPORTED_DATA_KINDS: Record<string, RapidDataKind> = {
   loaddata: 'loaddata',
   speeddata: 'speeddata',
   zonedata: 'zonedata',
+  num: 'num',
+  bool: 'bool',
 }
 
 /** 系统预定义只读名称集合（tool0/wobj0/load0/官方 speed/zone）；源码不能重定义这些名称。 */
@@ -355,7 +448,14 @@ function lex(source: string, lineStarts: readonly number[]): {
       continue
     }
 
-    if ('[](),;\\'.includes(character)) {
+    const comparison = ['<>', '<=', '>='].find((operator) => rest.startsWith(operator))
+    if (comparison) {
+      tokens.push({ kind: 'symbol', text: comparison, start: index, end: index + comparison.length })
+      index += comparison.length
+      continue
+    }
+
+    if ('[](),;+-*/=<>\\'.includes(character)) {
       tokens.push({ kind: 'symbol', text: character, start: index, end: index + 1 })
       index += 1
       continue
@@ -400,7 +500,10 @@ export function parseRapidProgram(source: string): RapidParseResult {
   const tokens = lexed.tokens
   const diagnostics = [...lexed.diagnostics]
   const symbols = new Map<string, SymbolEntry>()
-  const pendingMotions: PendingMotion[] = []
+  // main 内的赋值与运动按源码顺序暂存，最终形成唯一可执行 program 数组。
+  const pendingStatements: PendingStatement[] = []
+  // 解析条件体时临时切换到分支自己的语句容器；最终仍会展平为同一 program 数组。
+  let statementSink = pendingStatements
   const pendingReferences: Array<{ kind: OperandKind; token: Token }> = []
   // 系统预定义名称（tool0/wobj0/load0/速度/zone）在各运动操作数中的引用范围，供 Program Data 只读展示。
   const systemReferences = new Map<string, RapidSourceRange[]>()
@@ -413,9 +516,14 @@ export function parseRapidProgram(source: string): RapidParseResult {
   // 受控编辑插入点：新模块级声明的插入位置（main PROC 之前）、main 内运动指令插入位置（ENDPROC 之前）。
   let dataInsertOffset = 0
   const motionInsertionPoints: RapidMotionInsertionPoint[] = []
+  let mainEndOffset = 0
 
   function current(): Token {
     return tokens[cursor] ?? tokens[tokens.length - 1]
+  }
+
+  function peek(offset = 1): Token {
+    return tokens[cursor + offset] ?? tokens[tokens.length - 1]
   }
 
   function advance(): Token {
@@ -458,7 +566,9 @@ export function parseRapidProgram(source: string): RapidParseResult {
       text === 'endmodule' ||
       text === 'endif' ||
       text === 'endwhile' ||
-      text === 'endfor'
+      text === 'endfor' ||
+      text === 'elseif' ||
+      text === 'else'
     )
   }
 
@@ -493,17 +603,12 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const values: number[] = []
     let malformed = false
     while (current().kind !== 'eof' && !isSymbol(current(), ']')) {
-      if (current().kind !== 'number') {
-        addDiagnostic('invalid-data', `${fieldName} 必须只包含数字`, current())
+      const value = parseFiniteNumber(fieldName)
+      if (value === null) {
         malformed = true
-        advance()
+        // parseFiniteNumber 对缺失值不消费当前 token；恢复必须主动前进，避免死循环。
+        if (!isSymbol(current(), ',') && !isSymbol(current(), ']') && current().kind !== 'eof') advance()
       } else {
-        const token = advance()
-        const value = Number(token.text)
-        if (!Number.isFinite(value)) {
-          addDiagnostic('invalid-data', `${fieldName} 包含非有限数字`, token)
-          malformed = true
-        }
         values.push(value)
       }
 
@@ -567,14 +672,16 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
   }
 
-  /** 读取一个有限数值 token，非有限或缺失返回 null。 */
+  /** 读取一个有限数值（可带独立正负号）token，非有限或缺失返回 null。 */
   function parseFiniteNumber(fieldName: string): number | null {
+    let sign = ''
+    if (isSymbol(current(), '+') || isSymbol(current(), '-')) sign = advance().text
     if (current().kind !== 'number') {
       addMissingDiagnostic('invalid-data', `${fieldName} 必须是数字`, current())
       return null
     }
     const token = advance()
-    const value = Number(token.text)
+    const value = Number(`${sign}${token.text}`)
     if (!Number.isFinite(value)) {
       addDiagnostic('invalid-data', `${fieldName} 包含非有限数字`, token)
       return null
@@ -758,13 +865,267 @@ export function parseRapidProgram(source: string): RapidParseResult {
         if (!value) return null
         return { kind: 'zonedata', value }
       }
+      case 'num': {
+        const value = parseFiniteNumber('num 初值')
+        return value === null ? null : { kind: 'num', value }
+      }
+      case 'bool': {
+        const value = parseBool('bool 初值')
+        return value === null ? null : { kind: 'bool', value }
+      }
       default:
         return null
     }
   }
 
-  /** 存储类别是否符合 ABB 规则；tooldata/loaddata/wobjdata 必须 PERS，speeddata/zonedata 允许 CONST/VAR/PERS，robtarget 允许 CONST/PERS。 */
+  function parseScalarPrimary(): RapidScalarExpression | null {
+    const token = current()
+    if (token.kind === 'number') {
+      advance()
+      const value = Number(token.text)
+      if (!Number.isFinite(value)) {
+        addDiagnostic('invalid-data', '表达式包含非有限数字', token)
+        return null
+      }
+      return { kind: 'num-literal', value, range: rangeFromToken(token, lineStarts) }
+    }
+    if (isKeyword(token, 'TRUE') || isKeyword(token, 'FALSE')) {
+      advance()
+      return {
+        kind: 'bool-literal',
+        value: isKeyword(token, 'TRUE'),
+        range: rangeFromToken(token, lineStarts),
+      }
+    }
+    if (token.kind === 'identifier') {
+      advance()
+      return { kind: 'variable', name: token.text, range: rangeFromToken(token, lineStarts) }
+    }
+    if (isSymbol(token, '(')) {
+      const open = advance()
+      const expression = parseScalarOr()
+      const close = expectSymbol(')')
+      if (!expression) return null
+      return {
+        kind: 'group',
+        expression,
+        range: rangeFromOffsets(open.start, close?.end ?? expression.range.end.offset, lineStarts),
+      }
+    }
+    addMissingDiagnostic('syntax-error', '期望标量表达式', token)
+    return null
+  }
+
+  function parseScalarUnary(): RapidScalarExpression | null {
+    const token = current()
+    if (isSymbol(token, '+') || isSymbol(token, '-')) {
+      const operator = advance().text as '+' | '-'
+      const operand = parseScalarUnary()
+      if (!operand) return null
+      return {
+        kind: 'unary',
+        operator,
+        operand,
+        range: rangeFromOffsets(token.start, operand.range.end.offset, lineStarts),
+      }
+    }
+    if (isKeyword(token, 'NOT')) {
+      advance()
+      const operand = parseScalarUnary()
+      if (!operand) return null
+      return {
+        kind: 'unary',
+        operator: 'NOT',
+        operand,
+        range: rangeFromOffsets(token.start, operand.range.end.offset, lineStarts),
+      }
+    }
+    return parseScalarPrimary()
+  }
+
+  function parseScalarBinary(
+    parseOperand: () => RapidScalarExpression | null,
+    operators: readonly string[],
+  ): RapidScalarExpression | null {
+    let left = parseOperand()
+    while (
+      left &&
+      operators.some((operator) =>
+        operator.length > 1 ? normalizeName(current().text) === normalizeName(operator) : current().text === operator,
+      )
+    ) {
+      const operatorToken = advance()
+      const operator = operatorToken.text.length > 1 ? normalizeName(operatorToken.text).toUpperCase() : operatorToken.text
+      const right = parseOperand()
+      if (!right) return null
+      left = {
+        kind: 'binary',
+        operator: operator as RapidScalarBinaryOperator,
+        left,
+        right,
+        range: rangeFromOffsets(left.range.start.offset, right.range.end.offset, lineStarts),
+      }
+    }
+    return left
+  }
+
+  /** ABB 标量子集的优先级：NOT/正负号 > 乘除 > 加减 > 比较 > AND > OR。 */
+  function parseScalarMultiplicative(): RapidScalarExpression | null {
+    return parseScalarBinary(parseScalarUnary, ['*', '/'])
+  }
+
+  function parseScalarAdditive(): RapidScalarExpression | null {
+    return parseScalarBinary(parseScalarMultiplicative, ['+', '-'])
+  }
+
+  function parseScalarComparison(): RapidScalarExpression | null {
+    return parseScalarBinary(parseScalarAdditive, ['=', '<>', '<', '<=', '>', '>='])
+  }
+
+  function parseScalarAnd(): RapidScalarExpression | null {
+    return parseScalarBinary(parseScalarComparison, ['AND'])
+  }
+
+  function parseScalarOr(): RapidScalarExpression | null {
+    return parseScalarBinary(parseScalarAnd, ['OR'])
+  }
+
+  function parseAssignment(): void {
+    const target = expectIdentifier('赋值目标变量')
+    const assign = expectSymbol(':=')
+    const expression = parseScalarOr()
+    const semicolon = expectSymbol(';')
+    if (!target || !assign || !expression || !semicolon) return
+    statementSink.push({
+      kind: 'assign',
+      assignment: {
+        targetToken: target,
+        expression,
+        range: rangeFromOffsets(target.start, semicolon.end, lineStarts),
+        sourceText: source.slice(target.start, semicolon.end),
+      },
+    })
+  }
+
+  function scalarExpressionType(expression: RapidScalarExpression): RapidScalarKind | null {
+    switch (expression.kind) {
+      case 'num-literal':
+        return 'num'
+      case 'bool-literal':
+        return 'bool'
+      case 'group':
+        return scalarExpressionType(expression.expression)
+      case 'variable': {
+        const symbol = symbols.get(normalizeName(expression.name))
+        if (!symbol) {
+          addDiagnostic('undefined-symbol', `未定义变量 ${expression.name}`, {
+            kind: 'identifier',
+            text: expression.name,
+            start: expression.range.start.offset,
+            end: expression.range.end.offset,
+          })
+          return null
+        }
+        if (symbol.kind !== 'num' && symbol.kind !== 'bool') {
+          addDiagnostic('unsupported-option', `表达式只支持 num/bool 变量，${expression.name} 是 ${symbol.kind}`)
+          return null
+        }
+        return symbol.kind
+      }
+      case 'unary': {
+        const operandType = scalarExpressionType(expression.operand)
+        const expected = expression.operator === 'NOT' ? 'bool' : 'num'
+        if (operandType && operandType !== expected) {
+          addDiagnostic('invalid-data', `${expression.operator} 运算要求 ${expected}，实际为 ${operandType}`, {
+            kind: 'symbol',
+            text: expression.operator,
+            start: expression.range.start.offset,
+            end: expression.range.start.offset + expression.operator.length,
+          })
+          return null
+        }
+        return operandType ? expected : null
+      }
+      case 'binary': {
+        const leftType = scalarExpressionType(expression.left)
+        const rightType = scalarExpressionType(expression.right)
+        const operator = expression.operator
+        if (operator === '+' || operator === '-' || operator === '*' || operator === '/') {
+          if (leftType && leftType !== 'num' || rightType && rightType !== 'num') {
+            addDiagnostic('invalid-data', `${operator} 运算要求两侧都是 num`)
+            return null
+          }
+          return leftType && rightType ? 'num' : null
+        }
+        if (operator === 'AND' || operator === 'OR') {
+          if (leftType && leftType !== 'bool' || rightType && rightType !== 'bool') {
+            addDiagnostic('invalid-data', `${operator} 运算要求两侧都是 bool`)
+            return null
+          }
+          return leftType && rightType ? 'bool' : null
+        }
+        if (operator === '<' || operator === '<=' || operator === '>' || operator === '>=') {
+          if (leftType && leftType !== 'num' || rightType && rightType !== 'num') {
+            addDiagnostic('invalid-data', `${operator} 比较要求两侧都是 num`)
+            return null
+          }
+          return leftType && rightType ? 'bool' : null
+        }
+        if (leftType && rightType && leftType !== rightType) {
+          addDiagnostic('invalid-data', `${operator} 比较要求两侧类型一致`)
+          return null
+        }
+        return leftType && rightType ? 'bool' : null
+      }
+    }
+  }
+
+  function resolveAssignment(pending: PendingAssignment): RapidAssignmentInstruction | null {
+    const symbol = symbols.get(normalizeName(pending.targetToken.text))
+    let targetKind: RapidScalarKind | null = null
+    if (!symbol) {
+      addDiagnostic('undefined-symbol', `未定义变量 ${pending.targetToken.text}`, pending.targetToken)
+    } else if (
+      (symbol.kind !== 'num' && symbol.kind !== 'bool') ||
+      symbol.storage !== 'var'
+    ) {
+      addDiagnostic('unsupported-option', `赋值目标 ${pending.targetToken.text} 只能是 VAR num/bool`, pending.targetToken)
+    } else {
+      targetKind = symbol.kind
+    }
+
+    const expressionKind = scalarExpressionType(pending.expression)
+    if (targetKind && expressionKind && targetKind !== expressionKind) {
+      addDiagnostic(
+        'invalid-data',
+        `变量 ${pending.targetToken.text} 的赋值类型必须是 ${targetKind}，实际为 ${expressionKind}`,
+        pending.targetToken,
+      )
+      return null
+    }
+    if (!targetKind || !expressionKind || targetKind !== expressionKind) return null
+    return {
+      kind: 'assign',
+      target: {
+        name: pending.targetToken.text,
+        valueKind: targetKind,
+        range: rangeFromToken(pending.targetToken, lineStarts),
+      },
+      expression: pending.expression,
+      sourceRange: pending.range,
+      sourceText: pending.sourceText,
+    }
+  }
+
+  /** 存储类别是否符合当前支持范围；标量只接受模块级 VAR，运动数据遵循各自已有规则。 */
   function validateStorage(kind: RapidDataKind, storageKind: 'const' | 'pers' | 'var', typeName: string): boolean {
+    if (kind === 'num' || kind === 'bool') {
+      if (storageKind !== 'var') {
+        addDiagnostic('unsupported-option', `${typeName} 当前只支持模块级 VAR 声明`)
+        return false
+      }
+      return true
+    }
     if ((kind === 'tooldata' || kind === 'loaddata' || kind === 'wobjdata') && storageKind !== 'pers') {
       addDiagnostic('invalid-data', `${typeName} 声明必须使用 PERS（模块级 ${typeName}）`)
       return false
@@ -809,7 +1170,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       }
       addMissingDiagnostic(
         'syntax-error',
-        `缺少数据类型（期望 robtarget/tooldata/wobjdata/loaddata/speeddata/zonedata）`,
+        `缺少数据类型（期望 robtarget/tooldata/wobjdata/loaddata/speeddata/zonedata/num/bool）`,
         type,
       )
       skipToStatementEnd()
@@ -1049,13 +1410,13 @@ export function parseRapidProgram(source: string): RapidParseResult {
       const params: number[] = []
       while (isSymbol(current(), ',')) {
         advance() // ','
-        if (current().kind !== 'number') {
-          addDiagnostic('invalid-data', `${first.text} 的参数必须是数字`, current())
+        const value = parseFiniteNumber(`${first.text} 的参数`)
+        if (value === null) {
           recoverMotionTail()
           onAbort()
           return { target: null, separatorConsumed: false }
         }
-        params.push(Number(advance().text))
+        params.push(value)
       }
       if (!isSymbol(current(), ')')) {
         addMissingDiagnostic('syntax-error', `缺少 ${first.text} 的右括号 ")"`, current())
@@ -1110,7 +1471,6 @@ export function parseRapidProgram(source: string): RapidParseResult {
   function parseMotion(): void {
     const start = advance()
     const kind = normalizeName(start.text) as PendingMotion['kind']
-    motionInsertionPoints.push({ index: pendingMotions.length, offset: start.start, line: positionAt(start.start, lineStarts).line })
     let abandoned = false
     const abort = (): void => {
       abandoned = true
@@ -1208,19 +1568,22 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const semicolon = expectSymbol(';')
     const end = semicolon ?? current()
     if (!target || !speed || !zone || !tool) return
-    pendingMotions.push({
-      kind,
-      target: target as PendingTarget,
-      speedName: speed.text,
-      speedToken: speed,
-      zoneName: zone.text,
-      zoneToken: zone,
-      toolName: tool.text,
-      toolToken: tool,
-      wobjName,
-      wobjToken,
-      range: rangeFromOffsets(start.start, end.end, lineStarts),
-      sourceText: source.slice(start.start, end.end),
+    statementSink.push({
+      kind: 'motion',
+      motion: {
+        kind,
+        target: target as PendingTarget,
+        speedName: speed.text,
+        speedToken: speed,
+        zoneName: zone.text,
+        zoneToken: zone,
+        toolName: tool.text,
+        toolToken: tool,
+        wobjName,
+        wobjToken,
+        range: rangeFromOffsets(start.start, end.end, lineStarts),
+        sourceText: source.slice(start.start, end.end),
+      },
     })
   }
 
@@ -1235,36 +1598,123 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
   }
 
-  function parseMainBody(): void {
+  /** 跳过不支持的嵌套 IF，保留外层 IF 的 ELSE/ENDIF 恢复边界。 */
+  function skipNestedConditional(): void {
+    const start = advance()
+    addDiagnostic('unsupported-syntax', '首期不支持嵌套 IF', start)
+    let depth = 1
     while (
       current().kind !== 'eof' &&
       !isKeyword(current(), 'ENDPROC') &&
-      !isKeyword(current(), 'ENDMODULE')
+      !isKeyword(current(), 'ENDMODULE') &&
+      depth > 0
+    ) {
+      if (isKeyword(current(), 'IF')) depth += 1
+      if (isKeyword(current(), 'ENDIF')) depth -= 1
+      advance()
+    }
+  }
+
+  function parseStatementList(inConditionalBody: boolean): void {
+    while (
+      current().kind !== 'eof' &&
+      !isKeyword(current(), 'ENDPROC') &&
+      !isKeyword(current(), 'ENDMODULE') &&
+      (!inConditionalBody ||
+        (!isKeyword(current(), 'ELSEIF') && !isKeyword(current(), 'ELSE') && !isKeyword(current(), 'ENDIF')))
     ) {
       if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL')) {
         parseMotion()
+      } else if (current().kind === 'identifier' && isSymbol(peek(), ':=')) {
+        parseAssignment()
+      } else if (isKeyword(current(), 'IF')) {
+        if (inConditionalBody) skipNestedConditional()
+        else parseConditional()
       } else if (
-        isKeyword(current(), 'IF') ||
         isKeyword(current(), 'WHILE') ||
         isKeyword(current(), 'FOR') ||
         isKeyword(current(), 'MOVEABSJ') ||
         isKeyword(current(), 'MOVEC')
       ) {
         skipUnsupportedControl()
-      } else if (isKeyword(current(), 'ENDIF') || isKeyword(current(), 'ENDWHILE') || isKeyword(current(), 'ENDFOR')) {
-        addDiagnostic('unsupported-syntax', `首期不支持 ${current().text} 控制流结束标记`)
+      } else if (
+        isKeyword(current(), 'ELSEIF') ||
+        isKeyword(current(), 'ELSE') ||
+        isKeyword(current(), 'ENDIF') ||
+        isKeyword(current(), 'ENDWHILE') ||
+        isKeyword(current(), 'ENDFOR')
+      ) {
+        addDiagnostic('syntax-error', `${current().text} 没有对应的 IF/WHILE/FOR 控制流结束结构`)
         advance()
       } else {
         addDiagnostic('unsupported-syntax', `首期不支持 ${current().text || '空语句'}`)
         skipToStatementEnd()
       }
     }
-    // 在 main 末尾追加运动指令。
-    motionInsertionPoints.push({
-      index: pendingMotions.length,
-      offset: current().start,
-      line: positionAt(current().start, lineStarts).line,
-    })
+  }
+
+  function parseConditionalBranch(
+    conditionKind: PendingConditionalBranch['conditionKind'],
+    start: Token,
+  ): PendingConditionalBranch {
+    const condition = parseScalarOr()
+    const thenToken = expectKeyword('THEN')
+    const statements: PendingStatement[] = []
+    const previousSink = statementSink
+    statementSink = statements
+    parseStatementList(true)
+    statementSink = previousSink
+    const headerEnd = thenToken?.end ?? condition?.range.end.offset ?? start.end
+    return {
+      conditionKind,
+      condition,
+      range: rangeFromOffsets(start.start, headerEnd, lineStarts),
+      sourceText: source.slice(start.start, headerEnd),
+      statements,
+    }
+  }
+
+  function skipConditionalTail(): void {
+    while (
+      current().kind !== 'eof' &&
+      !isKeyword(current(), 'ENDIF') &&
+      !isKeyword(current(), 'ENDPROC') &&
+      !isKeyword(current(), 'ENDMODULE')
+    ) {
+      advance()
+    }
+  }
+
+  function parseConditional(): void {
+    const ifToken = advance()
+    const branches: PendingConditionalBranch[] = [parseConditionalBranch('if', ifToken)]
+    while (isKeyword(current(), 'ELSEIF')) {
+      const elseifToken = advance()
+      branches.push(parseConditionalBranch('elseif', elseifToken))
+    }
+
+    let elseStatements: PendingStatement[] | null = null
+    if (isKeyword(current(), 'ELSE')) {
+      advance()
+      elseStatements = []
+      const previousSink = statementSink
+      statementSink = elseStatements
+      parseStatementList(true)
+      statementSink = previousSink
+      if (isKeyword(current(), 'ELSE') || isKeyword(current(), 'ELSEIF')) {
+        addDiagnostic('syntax-error', 'ELSEIF/ELSE 不能出现在 ELSE 分支之后', current())
+        skipConditionalTail()
+      }
+    }
+
+    const end = expectKeyword('ENDIF')
+    if (!end) return
+    statementSink.push({ kind: 'conditional', conditional: { branches, elseStatements } })
+  }
+
+  function parseMainBody(): void {
+    parseStatementList(false)
+    mainEndOffset = current().start
     expectKeyword('ENDPROC')
   }
 
@@ -1348,7 +1798,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
   resolveReferences()
 
   const program: RapidExecutableInstruction[] = []
-  for (const pending of pendingMotions) {
+  function resolveMotion(pending: PendingMotion): RapidMotionInstruction | null {
     let valid = true
 
     // 目标：普通名称或 Offs/RelTool 表达式；基准必须是用户声明的 robtarget（未定义诊断已由 resolveReferences 发出）。
@@ -1377,9 +1827,9 @@ export function parseRapidProgram(source: string): RapidParseResult {
       valid = false
     }
 
-    if (!valid || !resolvedTarget || !speed || !zone || !tool || !wobj) continue
+    if (!valid || !resolvedTarget || !speed || !zone || !tool || !wobj) return null
 
-    program.push({
+    return {
       kind: pending.kind,
       target: cloneTarget(resolvedTarget),
       speed: cloneSpeed(speed),
@@ -1402,6 +1852,114 @@ export function parseRapidProgram(source: string): RapidParseResult {
         tool: rangeFromToken(pending.toolToken, lineStarts),
         wobj: pending.wobjToken ? rangeFromToken(pending.wobjToken, lineStarts) : null,
       },
+    }
+  }
+
+  function resolveLeaf(statement: PendingStatement): RapidExecutableInstruction | null {
+    if (statement.kind === 'assign') return resolveAssignment(statement.assignment)
+    if (statement.kind === 'motion') return resolveMotion(statement.motion)
+    return null
+  }
+
+  function setBranchExit(instruction: RapidExecutableInstruction, target: number): void {
+    if (instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'assign') {
+      instruction.nextPointer = target
+    }
+  }
+
+  function appendConditional(conditional: PendingConditional, output: RapidExecutableInstruction[]): void {
+    if (conditional.branches.some((branch) => branch.condition === null)) return
+    for (const branch of conditional.branches) {
+      const condition = branch.condition
+      if (!condition) return
+      const expressionKind = scalarExpressionType(condition)
+      if (expressionKind && expressionKind !== 'bool') {
+        diagnostics.push({
+          code: 'invalid-data',
+          severity: 'error',
+          message: 'IF/ELSEIF 条件必须是 bool',
+          range: condition.range,
+        })
+      }
+    }
+
+    const conditionIndices: number[] = []
+    const branchBodies: Array<{ start: number; end: number }> = []
+    for (const branch of conditional.branches) {
+      const condition = branch.condition
+      if (!condition) return
+      const conditionIndex = output.length
+      conditionIndices.push(conditionIndex)
+      output.push({
+        kind: 'if',
+        conditionKind: branch.conditionKind,
+        condition,
+        trueTarget: 0,
+        falseTarget: 0,
+        sourceRange: branch.range,
+        sourceText: branch.sourceText,
+      })
+      const bodyStart = output.length
+      for (const statement of branch.statements) {
+        const resolved = resolveLeaf(statement)
+        if (resolved) output.push(resolved)
+      }
+      branchBodies.push({ start: bodyStart, end: output.length })
+    }
+
+    const elseBody = conditional.elseStatements
+      ? { start: output.length, end: output.length }
+      : null
+    if (conditional.elseStatements) {
+      for (const statement of conditional.elseStatements) {
+        const resolved = resolveLeaf(statement)
+        if (resolved) output.push(resolved)
+      }
+      if (elseBody) elseBody.end = output.length
+    }
+
+    const afterConditional = output.length
+    for (let index = 0; index < branchBodies.length; index += 1) {
+      const body = branchBodies[index]
+      const condition = output[conditionIndices[index]]
+      if (!condition || condition.kind !== 'if') continue
+      const nextCondition = conditionIndices[index + 1]
+      const falseTarget = nextCondition ?? elseBody?.start ?? afterConditional
+      condition.trueTarget = body.start < body.end ? body.start : afterConditional
+      condition.falseTarget = falseTarget
+      if (body.end > body.start) setBranchExit(output[body.end - 1], afterConditional)
+    }
+    if (elseBody && elseBody.end > elseBody.start) {
+      setBranchExit(output[elseBody.end - 1], afterConditional)
+    }
+  }
+
+  function appendStatement(statement: PendingStatement): void {
+    if (statement.kind === 'conditional') {
+      appendConditional(statement.conditional, program)
+      return
+    }
+    const resolved = resolveLeaf(statement)
+    if (resolved) program.push(resolved)
+  }
+
+  for (const statement of pendingStatements) appendStatement(statement)
+
+  // 受控插入仍以最终可执行计划的 program 下标为准；条件/赋值占用的下标自然被保留。
+  motionInsertionPoints.length = 0
+  for (const [index, instruction] of program.entries()) {
+    if (!isRapidMotionInstruction(instruction)) continue
+    motionInsertionPoints.push({
+      index,
+      offset: instruction.sourceRange.start.offset,
+      line: instruction.sourceRange.start.line,
+    })
+  }
+  if (mainEndOffset > 0) {
+    motionInsertionPoints.push({
+      index: program.length,
+      offset: mainEndOffset,
+      line: positionAt(mainEndOffset, lineStarts).line,
     })
   }
 
@@ -1506,6 +2064,12 @@ export function parseRapidProgram(source: string): RapidParseResult {
         break
       case 'zonedata':
         data.push({ ...base, kind: 'zonedata', value: { ...entry.value.value } })
+        break
+      case 'num':
+        data.push({ ...base, kind: 'num', value: entry.value.value })
+        break
+      case 'bool':
+        data.push({ ...base, kind: 'bool', value: entry.value.value })
         break
     }
   }

@@ -3,7 +3,7 @@ import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.t
 import type { JointAngles } from '../robotics/types.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { planMoveL } from './movel-planner.ts'
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import {
   defaultTool0,
   defaultWobj0,
@@ -74,7 +74,7 @@ describe('Ticket 04 — fine 与 fly-by zone 的正确识别', () => {
       expect(result.diagnostics.some((d) => d.code === 'undefined-symbol')).toBe(false)
       const inst = result.program[0]
       expect(inst).toBeDefined()
-      if (inst) {
+      if (inst && isRapidMotionInstruction(inst)) {
         expect(inst.zone.finep).toBe(false) // 非 fine，不是 fine 别名。
         expect(inst.zone).not.toBe(defaultZoneFine())
       }
@@ -84,8 +84,8 @@ describe('Ticket 04 — fine 与 fly-by zone 的正确识别', () => {
   it('fine 保持精确停点语义（finep=true、其余 zone 数值为零）', () => {
     const result = parseRapidProgram(`MODULE T\n    CONST robtarget p := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n    PROC main()\n        MoveJ p,v100,fine,tool0;\n    ENDPROC\nENDMODULE\n`)
     const inst = result.program[0]
-    expect(inst?.zone.finep).toBe(true)
-    if (inst) {
+    expect(inst && isRapidMotionInstruction(inst) ? inst.zone.finep : undefined).toBe(true)
+    if (inst && isRapidMotionInstruction(inst)) {
       expect(inst.zone.pzoneTcp).toBe(0)
       expect(inst.zone.zoneOri).toBe(0)
     }

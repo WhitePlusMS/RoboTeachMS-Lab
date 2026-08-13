@@ -1,5 +1,16 @@
 import type { MotionPlanError, MotionPlanErrorKind } from './plan-shared.ts'
-import type { StructuredMotionInstruction } from './rapid-types.ts'
+import type { RapidScalarValue, RapidScalarVariable, StructuredMotionInstruction } from './rapid-types.ts'
+
+/** ProgramExecutor 只要求计划项具备 kind；具体 RAPID 语句由上层 execution seam 解释。 */
+export interface ProgramInstruction {
+  kind: string
+}
+
+/** 运行时执行上下文：变量存储仍由 ProgramExecutor 持有，seam 只读写当前语句需要的值。 */
+export interface ProgramExecutionContext {
+  readVariable: (name: string) => RapidScalarVariable | null
+  writeVariable: (name: string, value: RapidScalarValue) => boolean
+}
 
 /**
  * 程序状态；只有 ProgramExecutor 内部维护这些值，调用方通过 getSnapshot 读取。
@@ -10,7 +21,7 @@ export type ProgramState = 'idle' | 'running' | 'stopped' | 'completed' | 'error
 /** 规划错误快照：指令索引 + 稳定错误码（复用规划错误 kind，不接受任意 string）+ 可读消息。 */
 export interface ProgramError {
   index: number
-  code: MotionPlanErrorKind
+  code: MotionPlanErrorKind | 'runtime-error'
   message: string
 }
 
@@ -24,21 +35,23 @@ export interface ProgramSnapshot {
   /** stopped 的来源；用于区分用户停止与单步完成后的等待状态。 */
   stopReason: 'user-stop' | 'step-completed' | null
   error: ProgramError | null
+  /** 当前标量变量值；key 按 RAPID 大小写不敏感规则归一化。 */
+  variables: ReadonlyMap<string, RapidScalarVariable>
 }
 
 /** 单条结构化指令的执行结果：completed/stopped 或规划错误。 */
 export type InstructionOutcome =
-  | { ok: true; result: 'completed' | 'stopped' }
-  | { ok: false; error: MotionPlanError }
+  | { ok: true; result: 'completed' | 'stopped'; nextPointer?: number }
+  | { ok: false; error: MotionPlanError | { kind: 'runtime-error'; message: string } }
 
 /**
- * 程序运动执行 seam：ProgramExecutor 只按顺序 await execute，并委托 stop
+ * 程序执行 seam：ProgramExecutor 只按顺序 await execute，并委托 stop
  * 给当前底层运动（在 UI/集成 seam 中即 MotionRunner）。ProgramExecutor 本身不含
  * FK/IK/路径采样/关节插值/RAF/通用队列/UI 文案。MotionRunner 可保留内部暂停能力，
  * 但程序产品界面不提供独立“暂停/继续”。
  */
-export interface ProgramExecutionSeam {
-  execute: (instruction: StructuredMotionInstruction) => Promise<InstructionOutcome>
+export interface ProgramExecutionSeam<TInstruction extends ProgramInstruction = StructuredMotionInstruction> {
+  execute: (instruction: TInstruction, context: ProgramExecutionContext) => Promise<InstructionOutcome>
   stop: () => void
 }
 
@@ -49,7 +62,7 @@ export interface ProgramExecutor {
    */
   run: () => Promise<ProgramState>
   /**
-   * 单步只执行 PP 对应的一条完整运动指令。成功后 MP 清空、PP 推进，若还有指令则
+   * 单步只执行 PP 对应的一条完整可见语句。成功后 MP 清空、PP 推进，若还有指令则
    * 保持 stopped（等待下一步），否则 completed。仅当未运行时才开始，否则幂等。
    */
   step: () => Promise<ProgramState>
@@ -61,22 +74,41 @@ export interface ProgramExecutor {
 }
 
 /**
- * 串行执行只含结构化 MoveJ/MoveL 的内存程序，提供 ABB 风格的运行、单步、停止与 PP to Main。
+ * 串行执行结构化运动/赋值语句的内存程序，提供 ABB 风格的运行、单步、停止与 PP to Main。
  *
- * 指针语义：只有当前运动返回 completed 才推进 PP；stopped 不推进、后续指令不执行，
+ * 指针语义：当前语句返回 completed 才推进 PP；stopped 不推进、后续指令不执行，
  * 停止后再次运行/单步从当前执行位置继续。规划错误进入 error 且保存准确指令索引。
  * initialPointer 允许在源码编辑后按原 PP 重建执行器。
  */
 export function createProgramExecutor(
   instructions: readonly StructuredMotionInstruction[],
-  seam: ProgramExecutionSeam,
+  seam: ProgramExecutionSeam<StructuredMotionInstruction>,
+  initialPointer?: number,
+  initialVariables?: ReadonlyMap<string, RapidScalarVariable>,
+): ProgramExecutor
+
+export function createProgramExecutor<TInstruction extends ProgramInstruction>(
+  instructions: readonly TInstruction[],
+  seam: ProgramExecutionSeam<TInstruction>,
+  initialPointer?: number,
+  initialVariables?: ReadonlyMap<string, RapidScalarVariable>,
+): ProgramExecutor
+
+export function createProgramExecutor<TInstruction extends ProgramInstruction>(
+  instructions: readonly TInstruction[],
+  seam: ProgramExecutionSeam<TInstruction>,
   initialPointer = 0,
+  initialVariables: ReadonlyMap<string, RapidScalarVariable> = new Map(),
 ): ProgramExecutor {
   let state: ProgramState = 'idle'
   let programPointer = initialPointer
   let motionPointer: number | null = null
   let stopReason: ProgramSnapshot['stopReason'] = null
   let error: ProgramError | null = null
+  const variables = new Map<string, RapidScalarVariable>()
+  for (const [name, variable] of initialVariables) {
+    variables.set(normalizeVariableName(name), { ...variable })
+  }
   // 最小停止请求状态：保证一次运动中连续多次 stop 只委托一次 seam.stop()。
   let stopRequested = false
 
@@ -87,7 +119,32 @@ export function createProgramExecutor(
       motionPointer,
       stopReason,
       error: error ? { ...error } : null,
+      variables: new Map([...variables].map(([name, variable]) => [name, { ...variable }])),
     }
+  }
+
+  const context: ProgramExecutionContext = {
+    readVariable: (name) => {
+      const variable = variables.get(normalizeVariableName(name))
+      return variable ? { ...variable } : null
+    },
+    writeVariable: (name, value) => {
+      const key = normalizeVariableName(name)
+      const variable = variables.get(key)
+      if (!variable) return false
+      if (variable.kind === 'num') {
+        if (typeof value !== 'number') return false
+        variables.set(key, { kind: 'num', value })
+      } else {
+        if (typeof value !== 'boolean') return false
+        variables.set(key, { kind: 'bool', value })
+      }
+      return true
+    },
+  }
+
+  function isMotionInstruction(instruction: TInstruction): boolean {
+    return instruction.kind === 'movej' || instruction.kind === 'movel'
   }
 
   /** 只有未运行时才可启动新的执行（idle/stopped）；运行中返回 false 防止第二条链。 */
@@ -113,8 +170,17 @@ export function createProgramExecutor(
       state = 'stopped'
       return 'stopped'
     }
-    // completed 推进 PP，继续执行下一条。
-    programPointer += 1
+    // completed 默认推进下一条；条件指令/分支末条语句可提供内部跳转目标。
+    const nextPointer = outcome.nextPointer ?? index + 1
+    if (!Number.isInteger(nextPointer) || nextPointer < 0 || nextPointer > instructions.length) {
+      error = { index, code: 'runtime-error', message: `无效的程序跳转目标 ${String(nextPointer)}` }
+      motionPointer = null
+      stopRequested = false
+      stopReason = null
+      state = 'error'
+      return 'error'
+    }
+    programPointer = nextPointer
     motionPointer = null
     return 'continue'
   }
@@ -126,8 +192,8 @@ export function createProgramExecutor(
     stopRequested = false
     while (programPointer < instructions.length) {
       const index = programPointer
-      motionPointer = index
-      const outcome = await seam.execute(instructions[index])
+      motionPointer = isMotionInstruction(instructions[index]) ? index : null
+      const outcome = await seam.execute(instructions[index], context)
       const decision = settleOutcome(index, outcome)
       if (decision === 'continue') {
         if (programPointer >= instructions.length) break
@@ -154,8 +220,8 @@ export function createProgramExecutor(
     stopRequested = false
     stopReason = null
     const index = programPointer
-    motionPointer = index
-    return seam.execute(instructions[index]).then((outcome) => {
+    motionPointer = isMotionInstruction(instructions[index]) ? index : null
+    return seam.execute(instructions[index], context).then((outcome) => {
       const decision = settleOutcome(index, outcome)
       if (decision !== 'continue') return state
       // 单步完成一条指令：PP 已推进；还有指令则等待下一步，否则已完成。
@@ -186,4 +252,8 @@ export function createProgramExecutor(
   }
 
   return { run, step, stop, ppToMain, getSnapshot: currentSnapshot }
+}
+
+function normalizeVariableName(name: string): string {
+  return name.toLocaleLowerCase('en-US')
 }

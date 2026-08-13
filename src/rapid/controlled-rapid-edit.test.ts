@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyRapidEdit, formatRobTarget } from './controlled-rapid-edit.ts'
-import { isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
+import { isRapidMotionInstruction, isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
 
 const BASE = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -134,9 +134,11 @@ describe('插入运动指令', () => {
     const next = parse(result.result.source)
     expect(next.canExecute).toBe(true)
     expect(next.program).toHaveLength(2)
-    expect(next.program[1].kind).toBe('movej')
-    expect(next.program[1].sourceText).toContain('pRest')
-    expect(next.program[1].speed.v_tcp).toBe(100)
+    const inserted = next.program[1]
+    if (!inserted || !isRapidMotionInstruction(inserted)) throw new Error('插入结果应为运动指令')
+    expect(inserted.kind).toBe('movej')
+    expect(inserted.sourceText).toContain('pRest')
+    expect(inserted.speed.v_tcp).toBe(100)
   })
 
   it('插入 MoveL 且缺失目标返回 undefined-target', () => {

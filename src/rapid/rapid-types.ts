@@ -94,6 +94,17 @@ export interface WobjData {
   oframe: RapidPose
 }
 
+/** 首期标量 RAPID 数据类型；用于模块级 VAR 声明、表达式和 Program Data 展示。 */
+export type RapidScalarKind = 'num' | 'bool'
+
+/** 标量声明的结构化初值；表达式树与执行期变量快照由 RAPID parser/executor 负责。 */
+export type RapidScalarValue = number | boolean
+
+/** ProgramExecutor 持有的一个标量变量快照；名称在调用方按 RAPID 规则归一化。 */
+export type RapidScalarVariable =
+  | { kind: 'num'; value: number }
+  | { kind: 'bool'; value: boolean }
+
 /**
  * 结构化运动指令；MoveJ 与 MoveL 直接携带已解析的目标、速度、zone、工具和工件值。
  * 执行器不查询 UI 状态。

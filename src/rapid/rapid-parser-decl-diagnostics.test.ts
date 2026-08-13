@@ -37,7 +37,7 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
     expect(dup.diagnostics.some((d) => d.code === 'duplicate-symbol')).toBe(true)
   })
 
-  it('其他过程、VAR、IF 得到 unsupported 诊断而非 lexical error', () => {
+  it('其他过程得到 unsupported 诊断，而模块级 VAR num 已进入支持范围', () => {
     const other = parseRapidProgram(
       'MODULE A\n    PROC helper()\n    ENDPROC\n    PROC main()\n    ENDPROC\nENDMODULE\n',
     )
@@ -46,10 +46,12 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
     const varDecl = parseRapidProgram(
       'MODULE A\n    VAR num x := 5;\n    PROC main()\n    ENDPROC\nENDMODULE\n',
     )
-    // VAR 声明已进入声明分发：不支持的 num 类型报 unsupported-option（仍属 unsupported 分类，非 lexical）。
-    expect(varDecl.diagnostics.some((d) => d.code === 'unsupported-option')).toBe(true)
+    expect(varDecl.diagnostics).toEqual([])
+    expect(varDecl.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'x', kind: 'num', storage: 'var', value: 5 }),
+    ]))
 
-    // 不存在 lexical-error：以上真实 RAPID 结构必须按 unsupported 分类，不误判为词法错误。
+    // 不存在 lexical-error：真实 RAPID 结构必须按结构/能力分类，不误判为词法错误。
     expect([other, varDecl].every((r) => r.diagnostics.every((d) => d.code !== 'lexical-error'))).toBe(true)
   })
 })

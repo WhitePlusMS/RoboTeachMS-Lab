@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRapidProgram } from './rapid-parser.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import { offsRobTarget, relToolRobTarget } from './target-expression.ts'
 import { robTargetToWorldPose } from './coordinate-transform.ts'
 import { defaultWobj0, type RobTarget, type WobjData } from './rapid-types.ts'
@@ -37,14 +37,18 @@ describe('Ticket 03 — Offs 沿 Object 坐标系平移', () => {
     const result = parseMain('        MoveJ Offs(pBase,10,0,0),v100,fine,tool0;\n')
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
-    expect(result.program[0]?.target.trans).toEqual([110, 200, 300])
+    const instruction = result.program[0]
+    if (!instruction || !isRapidMotionInstruction(instruction)) throw new Error('Offs MoveJ 结构异常')
+    expect(instruction.target.trans).toEqual([110, 200, 300])
   })
 
   it('MoveL Offs(pBase,0,0,-50) 执行（对象轴偏移也可执行）', () => {
     const result = parseMain('        MoveL Offs(pBase,0,0,-50),v100,fine,tool0;\n')
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
-    expect(result.program[0]?.target.trans).toEqual([100, 200, 250])
+    const instruction = result.program[0]
+    if (!instruction || !isRapidMotionInstruction(instruction)) throw new Error('Offs MoveL 结构异常')
+    expect(instruction.target.trans).toEqual([100, 200, 250])
   })
 })
 
@@ -71,11 +75,12 @@ describe('Ticket 03 — RelTool 沿工具坐标系平移与旋转', () => {
     )
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
-    const target = result.program[0]?.target
-    expect(target).toBeDefined()
-    if (target) {
-      expect(target.trans[0]).toBeCloseTo(100, 6)
-      expect(target.trans[2]).toBeCloseTo(290, 6)
+    const instruction = result.program[0]
+    if (!instruction || !isRapidMotionInstruction(instruction)) throw new Error('RelTool MoveL 结构异常')
+    expect(instruction.target).toBeDefined()
+    if (instruction.target) {
+      expect(instruction.target.trans[0]).toBeCloseTo(100, 6)
+      expect(instruction.target.trans[2]).toBeCloseTo(290, 6)
     }
   })
 

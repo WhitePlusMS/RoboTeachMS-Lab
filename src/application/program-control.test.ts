@@ -5,6 +5,7 @@ import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.t
 import { createMotionRunner, type MotionResult, type MotionRunner } from '../robotics/motion-runner.ts'
 import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
 import type { JointAngles } from '../robotics/types.ts'
+import { isRapidMotionInstruction } from '../rapid/rapid-parser.ts'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { useProgramController, type ProgramControllerMotion } from './program-control.ts'
 import type { RobTarget } from '../rapid/rapid-types.ts'
@@ -24,9 +25,12 @@ function taughtTarget(trans: [number, number, number]): RobTarget {
 /** 可控程序运动 fake：暴露 resolvers 以在测试末尾结算程序并清理轮询；stop 结算当前活动运动。 */
 function makeMotion() {
   let resolveEased: ((r: MotionResult) => void) | null = null
-  const calls = { stop: 0 }
+  const calls = { stop: 0, eased: 0 }
   const motion: ProgramControllerMotion = {
-    startEasedAnimation: () => new Promise<MotionResult>((resolve) => { resolveEased = resolve }),
+    startEasedAnimation: () => {
+      calls.eased += 1
+      return new Promise<MotionResult>((resolve) => { resolveEased = resolve })
+    },
     startCartesianTrajectory: () => new Promise<MotionResult>(() => {}),
     stopAnimation: () => {
       calls.stop += 1
@@ -354,7 +358,9 @@ describe('停止后源码编辑的 PP 映射', () => {
     await flush()
     expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
     expect(h.ctrl.snapshot.value.programPointer).toBe(2)
-    expect(h.ctrl.parsed.value.program[2].operands.target).toBe('p2')
+    const inserted = h.ctrl.parsed.value.program[2]
+    if (!inserted || !isRapidMotionInstruction(inserted)) throw new Error('插入结果应为运动指令')
+    expect(inserted.operands.target).toBe('p2')
   })
 })
 
@@ -470,5 +476,201 @@ describe('off-path Clear 全程单一 MotionRunner 集成', () => {
     await drive(60000)
     expect(ctrl.snapshot.value.state).toBe('completed')
     expect(clock.pendingFrameCount()).toBe(0)
+  })
+})
+
+const SCALAR_SOURCE = `MODULE ScalarDemo
+    VAR num count := 1;
+    VAR bool ready := FALSE;
+    PROC main()
+        count := (count + 2) * 2;
+        ready := count >= 6 AND NOT FALSE;
+    ENDPROC
+ENDMODULE`
+
+function setupScalarController(sourceText = SCALAR_SOURCE) {
+  const { motion } = makeMotion()
+  const source = ref(sourceText)
+  const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+  const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+  return { source, ctrl }
+}
+
+describe('ProgramController 标量赋值执行', () => {
+  it('运行赋值程序更新运行变量，Program Data 的当前值来源于同一份快照', async () => {
+    const { ctrl } = setupScalarController()
+
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    expect(ctrl.snapshot.value.programPointer).toBe(2)
+    expect(ctrl.snapshot.value.variables.get('count')).toEqual({ kind: 'num', value: 6 })
+    expect(ctrl.snapshot.value.variables.get('ready')).toEqual({ kind: 'bool', value: true })
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+  })
+
+  it('单步按赋值指令推进，PP to Main 只复位指针并保留变量运行值', async () => {
+    const { ctrl } = setupScalarController()
+
+    ctrl.step()
+    await flush()
+    expect(ctrl.snapshot.value.state).toBe('stopped')
+    expect(ctrl.snapshot.value.programPointer).toBe(1)
+    expect(ctrl.snapshot.value.motionPointer).toBeNull()
+    expect(ctrl.snapshot.value.variables.get('count')).toEqual({ kind: 'num', value: 6 })
+
+    ctrl.ppToMain()
+    expect(ctrl.snapshot.value.state).toBe('idle')
+    expect(ctrl.snapshot.value.programPointer).toBe(0)
+    expect(ctrl.snapshot.value.variables.get('count')).toEqual({ kind: 'num', value: 6 })
+    expect(ctrl.snapshot.value.variables.get('ready')).toEqual({ kind: 'bool', value: false })
+  })
+
+  it('除零等静态无法判断的表达式在运行时进入 runtime-error，错误赋值不写回变量', async () => {
+    const { ctrl } = setupScalarController(`MODULE ScalarDemo
+    VAR num count := 1;
+    PROC main()
+        count := count / 0;
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('error')
+    expect(ctrl.snapshot.value.programPointer).toBe(0)
+    expect(ctrl.snapshot.value.error).toMatchObject({ index: 0, code: 'runtime-error' })
+    expect(ctrl.snapshot.value.variables.get('count')).toEqual({ kind: 'num', value: 1 })
+  })
+})
+
+function branchSource(choice: number): string {
+  return `MODULE BranchDemo
+    VAR num choice := ${choice};
+    VAR num marker := 0;
+    CONST robtarget pIf := [[500,100,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pElseIf := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pElse := [[451,0,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        IF choice = 1 THEN
+            marker := 10;
+            MoveJ pIf,v100,fine,tool0;
+        ELSEIF choice = 2 THEN
+            marker := 20;
+            MoveJ pElseIf,v100,fine,tool0;
+        ELSE
+            marker := 30;
+            MoveJ pElse,v100,fine,tool0;
+        ENDIF
+    ENDPROC
+ENDMODULE`
+}
+
+function setupBranchController(choice: number) {
+  const { motion, calls, settle } = makeMotion()
+  const source = ref(branchSource(choice))
+  const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+  const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+  return { ctrl, calls, settle, source }
+}
+
+describe('ProgramController 非嵌套条件分支', () => {
+  it.each([
+    { choice: 1, marker: 10, branch: 'IF' },
+    { choice: 2, marker: 20, branch: 'ELSEIF' },
+    { choice: 3, marker: 30, branch: 'ELSE' },
+  ])('$branch 只执行命中分支的一条运动', async ({ choice, marker }) => {
+    const h = setupBranchController(choice)
+
+    h.ctrl.run()
+    await flush()
+    expect(h.calls.eased).toBe(1)
+
+    h.settle('completed')
+    await flush()
+    expect(h.ctrl.snapshot.value.state).toBe('completed')
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: marker })
+    expect(h.calls.eased).toBe(1)
+  })
+
+  it('多个条件同时为真时只选择第一个，条件单步不移动机器人', async () => {
+    const source = ref(branchSource(1).replace('choice = 2 THEN', 'choice = 1 THEN'))
+    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const { motion, calls, settle } = makeMotion()
+    const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+
+    ctrl.step()
+    await flush()
+    expect(ctrl.snapshot.value.state).toBe('stopped')
+    expect(ctrl.snapshot.value.programPointer).toBe(1)
+    expect(ctrl.snapshot.value.motionPointer).toBeNull()
+    expect(calls.eased).toBe(0)
+
+    ctrl.step()
+    await flush()
+    expect(ctrl.snapshot.value.programPointer).toBe(2)
+    expect(ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 10 })
+    expect(calls.eased).toBe(0)
+
+    ctrl.step()
+    await flush()
+    expect(calls.eased).toBe(1)
+    settle('completed')
+    await flush()
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    expect(ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 10 })
+  })
+
+  it('分支内运动停止后从当前运动继续，已完成的赋值不回滚', async () => {
+    const h = setupBranchController(2)
+
+    h.ctrl.run()
+    await flush()
+    expect(h.calls.eased).toBe(1)
+
+    h.settle('stopped')
+    await flush()
+    expect(h.ctrl.snapshot.value.state).toBe('stopped')
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 20 })
+
+    h.ctrl.run()
+    await flush()
+    expect(h.calls.eased).toBe(2)
+    h.settle('completed')
+    await flush()
+    expect(h.ctrl.snapshot.value.state).toBe('completed')
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 20 })
+  })
+
+  it('修改赋值逻辑后要求 PP to Main，并从新声明初值重建变量上下文；点位编辑规则不受影响', async () => {
+    const h = setupBranchController(1)
+
+    h.ctrl.run()
+    await flush()
+    h.settle('stopped')
+    await flush()
+    expect(h.ctrl.snapshot.value.state).toBe('stopped')
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 10 })
+
+    h.source.value = h.source.value.replace('marker := 10', 'marker := 11')
+    await flush()
+    expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(true)
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 10 })
+
+    h.ctrl.run()
+    expect(h.ctrl.snapshot.value.state).toBe('stopped')
+    h.ctrl.ppToMain()
+    expect(h.ctrl.snapshot.value.state).toBe('idle')
+    expect(h.ctrl.snapshot.value.programPointer).toBe(0)
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 0 })
+
+    h.ctrl.run()
+    await flush()
+    h.settle('completed')
+    await flush()
+    expect(h.ctrl.snapshot.value.state).toBe('completed')
+    expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 11 })
   })
 })

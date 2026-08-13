@@ -8,7 +8,7 @@ import { robTargetToPose } from '../rapid/plan-shared.ts'
 import { orientationError } from '../robotics/math/rotation3d.ts'
 import { DEFAULT_IK_CONFIG } from '../robotics/ik-solver.ts'
 import type { JointAngles } from '../robotics/types.ts'
-import { parseRapidProgram } from '../rapid/rapid-parser.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from '../rapid/rapid-parser.ts'
 
 /** 相邻 waypoint 构型跳变上限（度），与 cartesian-path-planner 的 MAX_JOINT_STEP_DEG 一致。 */
 const MAX_WAYPOINT_JOINT_STEP_DEG = 5
@@ -35,6 +35,7 @@ describe('页面默认 RAPID 源程序', () => {
     expect(program).toHaveLength(3)
     expect(program.map((inst) => inst.kind)).toEqual(['movej', 'movel', 'movej'])
     for (const inst of program) {
+      if (!isRapidMotionInstruction(inst)) throw new Error('内置程序不应包含赋值语句')
       expect(inst.zone.finep).toBe(true)
       expect(isDefaultTool0(inst.tool)).toBe(true)
       expect(isDefaultWobj0(inst.wobj)).toBe(true)
@@ -45,6 +46,7 @@ describe('页面默认 RAPID 源程序', () => {
     const program = parseRapidProgram(createBuiltinRapidSource()).program
     expect(program).toHaveLength(3)
     for (const inst of program) {
+      if (!isRapidMotionInstruction(inst)) throw new Error('内置程序不应包含赋值语句')
       expect(inst.target.trans[0]).toBeCloseTo(451)
       // 姿态四元数为 ABB [1,0,0,0]。
       expect(inst.target.rot).toEqual([1, 0, 0, 0])

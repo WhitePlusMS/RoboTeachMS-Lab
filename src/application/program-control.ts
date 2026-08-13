@@ -4,12 +4,15 @@ import type { RobotProfile } from '../robotics/robot-profile.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import { executeMoveJ } from '../rapid/movej-planner.ts'
 import { executeMoveL } from '../rapid/movel-planner.ts'
-import type { StructuredMotionInstruction } from '../rapid/rapid-types.ts'
+import type { RapidScalarValue, RapidScalarVariable } from '../rapid/rapid-types.ts'
 import {
   parseRapidProgram,
+  type RapidAssignmentInstruction,
   type RapidDiagnostic,
   type RapidExecutableInstruction,
+  type RapidMotionInstruction,
   type RapidParseResult,
+  type RapidScalarExpression,
   type RapidSourceRange,
 } from '../rapid/rapid-parser.ts'
 import {
@@ -21,6 +24,7 @@ import {
 import {
   createProgramExecutor,
   type InstructionOutcome,
+  type ProgramExecutionContext,
   type ProgramError,
   type ProgramExecutionSeam,
   type ProgramExecutor,
@@ -63,7 +67,7 @@ export interface ProgramController {
   /** 由源程序实时派生的同一次解析结果；源码、Program Data 列表与诊断共用它，无平行 parser。 */
   parsed: Ref<RapidParseResult>
   run: () => void
-  /** 单步只执行 PP 对应的一条完整运动指令，成功后停在等待下一步或完成。 */
+  /** 单步只执行 PP 对应的一条完整可见语句，成功后停在等待下一步或完成。 */
   step: () => void
   stop: () => void
   /** PP to Main：在非运行状态把 PP 移到 main，不让机器人回零、不清空轨迹。 */
@@ -80,36 +84,215 @@ export interface ProgramController {
   pendingClear: Ref<'run' | 'step' | null>
 }
 
+type ScalarEvaluationResult =
+  | { ok: true; value: RapidScalarValue }
+  | { ok: false; message: string }
+
+function runtimeError(message: string): ScalarEvaluationResult {
+  return { ok: false, message }
+}
+
+/** 求值只负责当前赋值表达式，不持有变量；变量状态统一由 ProgramExecutor 的 context 管理。 */
+function evaluateScalarExpression(
+  expression: RapidScalarExpression,
+  context: ProgramExecutionContext,
+): ScalarEvaluationResult {
+  switch (expression.kind) {
+    case 'num-literal':
+      return { ok: true, value: expression.value }
+    case 'bool-literal':
+      return { ok: true, value: expression.value }
+    case 'variable': {
+      const variable = context.readVariable(expression.name)
+      return variable ? { ok: true, value: variable.value } : runtimeError(`运行时不存在变量 ${expression.name}`)
+    }
+    case 'group':
+      return evaluateScalarExpression(expression.expression, context)
+    case 'unary': {
+      const operand = evaluateScalarExpression(expression.operand, context)
+      if (!operand.ok) return operand
+      if (expression.operator === 'NOT') {
+        if (typeof operand.value !== 'boolean') return runtimeError('NOT 运算的操作数必须是 bool')
+        return { ok: true, value: !operand.value }
+      }
+      if (typeof operand.value !== 'number') return runtimeError(`${expression.operator} 运算的操作数必须是 num`)
+      const value = expression.operator === '-' ? -operand.value : operand.value
+      return Number.isFinite(value) ? { ok: true, value } : runtimeError('表达式结果不是有限数值')
+    }
+    case 'binary': {
+      const left = evaluateScalarExpression(expression.left, context)
+      if (!left.ok) return left
+      const right = evaluateScalarExpression(expression.right, context)
+      if (!right.ok) return right
+      const operator = expression.operator
+      if (operator === 'AND' || operator === 'OR') {
+        if (typeof left.value !== 'boolean' || typeof right.value !== 'boolean') {
+          return runtimeError(`${operator} 运算的两侧必须是 bool`)
+        }
+        return { ok: true, value: operator === 'AND' ? left.value && right.value : left.value || right.value }
+      }
+      if (operator === '=' || operator === '<>') {
+        if (typeof left.value !== typeof right.value) return runtimeError('比较运算的两侧类型不一致')
+        const equal = left.value === right.value
+        return { ok: true, value: operator === '=' ? equal : !equal }
+      }
+      if (
+        operator === '<' ||
+        operator === '<=' ||
+        operator === '>' ||
+        operator === '>='
+      ) {
+        if (typeof left.value !== 'number' || typeof right.value !== 'number') {
+          return runtimeError(`${operator} 比较的两侧必须是 num`)
+        }
+        if (operator === '<') return { ok: true, value: left.value < right.value }
+        if (operator === '<=') return { ok: true, value: left.value <= right.value }
+        if (operator === '>') return { ok: true, value: left.value > right.value }
+        return { ok: true, value: left.value >= right.value }
+      }
+      if (typeof left.value !== 'number' || typeof right.value !== 'number') {
+        return runtimeError(`${operator} 运算的两侧必须是 num`)
+      }
+      if (operator === '/' && right.value === 0) return runtimeError('表达式除数不能为 0')
+      let value: number
+      switch (operator) {
+        case '+': value = left.value + right.value; break
+        case '-': value = left.value - right.value; break
+        case '*': value = left.value * right.value; break
+        case '/': value = left.value / right.value; break
+      }
+      return Number.isFinite(value) ? { ok: true, value } : runtimeError('表达式结果不是有限数值')
+    }
+  }
+}
+
+function normalizeVariableName(name: string): string {
+  return name.toLocaleLowerCase('en-US')
+}
+
+/** 从当前解析结果生成 executor 初始值；已有同名同类型运行值优先保留。 */
+function runtimeVariablesForParsed(
+  parsed: RapidParseResult,
+  previous: ReadonlyMap<string, RapidScalarVariable> = new Map(),
+): Map<string, RapidScalarVariable> {
+  const variables = new Map<string, RapidScalarVariable>()
+  for (const entry of parsed.data) {
+    if ((entry.kind !== 'num' && entry.kind !== 'bool') || entry.storage !== 'var') continue
+    const key = normalizeVariableName(entry.name)
+    const old = previous.get(key)
+    if (old && old.kind === entry.kind) {
+      variables.set(key, { ...old })
+    } else if (entry.kind === 'num') {
+      variables.set(key, { kind: 'num', value: entry.value })
+    } else {
+      variables.set(key, { kind: 'bool', value: entry.value })
+    }
+  }
+  return variables
+}
+
+/**
+ * 停止态源码映射只需要识别会改变逻辑上下文的最小事实：标量声明初值、赋值语句和条件头。
+ * robtarget 字面量/名称、speed/zone/tool/wobj 值不纳入签名，继续沿用既有点位编辑 PP 保留语义。
+ */
+function rapidLogicSignature(parsed: RapidParseResult): string {
+  const scalarDeclarations = parsed.data
+    .filter((entry) => !entry.system && (entry.kind === 'num' || entry.kind === 'bool'))
+    .map((entry) => {
+      const value = entry.kind === 'num' || entry.kind === 'bool' ? entry.value : ''
+      return `${entry.kind}|${normalizeVariableName(entry.name)}|${entry.storage}|${String(value)}`
+    })
+  const statements = parsed.program.map((instruction) => {
+    if (instruction.kind === 'assign') return `assign|${instruction.sourceText}`
+    if (instruction.kind === 'if') return `if|${instruction.conditionKind}|${instruction.sourceText}`
+    return `motion|${instruction.kind}`
+  })
+  return `${scalarDeclarations.join('\n')}\n---\n${statements.join('\n')}`
+}
+
+function executeAssignment(
+  instruction: RapidAssignmentInstruction,
+  context: ProgramExecutionContext,
+): InstructionOutcome {
+  const result = evaluateScalarExpression(instruction.expression, context)
+  if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
+  if (!context.writeVariable(instruction.target.name, result.value)) {
+    return { ok: false, error: { kind: 'runtime-error', message: `无法写入变量 ${instruction.target.name}` } }
+  }
+  return {
+    ok: true,
+    result: 'completed',
+    ...(instruction.nextPointer === undefined ? {} : { nextPointer: instruction.nextPointer }),
+  }
+}
+
+/** 运动 planner 不认识控制流元数据；在现有 seam 返回后补回分支末条的跳转目标。 */
+function attachBranchNextPointer(
+  instruction: RapidMotionInstruction | RapidAssignmentInstruction,
+  outcome: InstructionOutcome,
+): InstructionOutcome {
+  if (
+    !outcome.ok ||
+    outcome.result !== 'completed' ||
+    instruction.nextPointer === undefined
+  ) {
+    return outcome
+  }
+  return { ...outcome, nextPointer: instruction.nextPointer }
+}
+
 /**
  * 页面端程序控制器：把 Vue 无关的 ProgramExecutor 接到现有 MotionRunner、ABB 模型
  * 与共享 joints 状态上。负责构造程序、PP 映射、off-path 标记与发出控制命令。
  * 不新增动画循环、IK、路径规划或通用 store。
  */
 export function useProgramController(options: ProgramControllerOptions): ProgramController {
-  async function execute(instruction: StructuredMotionInstruction): Promise<InstructionOutcome> {
+  async function execute(
+    instruction: RapidExecutableInstruction,
+    context: ProgramExecutionContext,
+  ): Promise<InstructionOutcome> {
+    if (instruction.kind === 'if') {
+      const result = evaluateScalarExpression(instruction.condition, context)
+      if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
+      if (typeof result.value !== 'boolean') {
+        return { ok: false, error: { kind: 'runtime-error', message: 'IF 条件必须是 bool' } }
+      }
+      return {
+        ok: true,
+        result: 'completed',
+        nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget,
+      }
+    }
     if (instruction.kind === 'movej') {
-      return executeMoveJ(instruction, {
+      const outcome = await executeMoveJ(instruction, {
         model: options.profile.model,
         currentJoints: () => [...options.joints.value],
         jointRanges: options.profile.jointRanges,
         runEased: (target, durationMs) => options.motion.startEasedAnimation(target, durationMs),
       })
+      return attachBranchNextPointer(instruction, outcome)
     }
-    return executeMoveL(instruction, {
-      model: options.profile.model,
-      currentJoints: () => [...options.joints.value],
-      jointRanges: options.profile.jointRanges,
-      runTrajectory: (waypoints, durationMs) =>
-        options.motion.startCartesianTrajectory(waypoints, durationMs),
-    })
+    if (instruction.kind === 'movel') {
+      const outcome = await executeMoveL(instruction, {
+        model: options.profile.model,
+        currentJoints: () => [...options.joints.value],
+        jointRanges: options.profile.jointRanges,
+        runTrajectory: (waypoints, durationMs) =>
+          options.motion.startCartesianTrajectory(waypoints, durationMs),
+      })
+      return attachBranchNextPointer(instruction, outcome)
+    }
+    return executeAssignment(instruction, context)
   }
 
-  const seam: ProgramExecutionSeam = {
+  const seam: ProgramExecutionSeam<RapidExecutableInstruction> = {
     execute,
     stop: () => options.motion.stopAnimation(),
   }
-  let executor = createProgramExecutor([], seam)
+  let executor = createProgramExecutor<RapidExecutableInstruction>([], seam)
   let loadedProgram: readonly RapidExecutableInstruction[] = []
+  let loadedLogicSignature: string | null = null
+  let logicContextDirty = false
   let offPath = false
   let needsPPtoMain = false
   // 紧邻一次受控编辑的标记；结构化编辑不会改变运动指令顺序，因此只需一次性消费。
@@ -163,12 +346,21 @@ export function useProgramController(options: ProgramControllerOptions): Program
       const result = parsed.value
       if (!result.canExecute) {
         loadedProgram = []
+        loadedLogicSignature = null
+        logicContextDirty = false
         snapshot.value = { ...createSnapshot(), state: 'error', error: null }
         console.warn('[ABB-PROGRAM] RAPID 源程序诊断阻止执行', result.diagnostics.length)
         return
       }
       loadedProgram = result.program
-      executor = createProgramExecutor(loadedProgram, seam)
+      loadedLogicSignature = rapidLogicSignature(result)
+      logicContextDirty = false
+      executor = createProgramExecutor(
+        loadedProgram,
+        seam,
+        0,
+        runtimeVariablesForParsed(result),
+      )
     }
     const promise = start(executor)
     sync()
@@ -276,9 +468,21 @@ export function useProgramController(options: ProgramControllerOptions): Program
     needsPPtoMain = false
     pendingEdit = null
     // 用最新源码重建执行器并复位到 main；不清零机器人、不伪装已回到原路径。
-    if (parsed.value.canExecute) loadedProgram = parsed.value.program
-    executor = createProgramExecutor(loadedProgram, seam)
+    const runtimeValues = logicContextDirty ? new Map() : executor.getSnapshot().variables
+    if (parsed.value.canExecute) {
+      loadedProgram = parsed.value.program
+      loadedLogicSignature = rapidLogicSignature(parsed.value)
+    } else {
+      loadedLogicSignature = null
+    }
+    executor = createProgramExecutor(
+      loadedProgram,
+      seam,
+      0,
+      runtimeVariablesForParsed(parsed.value, runtimeValues),
+    )
     executor.ppToMain()
+    logicContextDirty = false
     sync()
     stopPolling()
     console.info('[ABB-PROGRAM] PP to Main')
@@ -312,10 +516,22 @@ export function useProgramController(options: ProgramControllerOptions): Program
     if (oldProgram.length === 0) return
     const next = parsed.value
     if (pendingEdit && options.source.value !== pendingEdit.source) pendingEdit = null
+    if (needsPPtoMain) {
+      sync()
+      return
+    }
+    const isStructuredEdit = pendingEdit !== null
+    if (!isStructuredEdit && loadedLogicSignature !== null && rapidLogicSignature(next) !== loadedLogicSignature) {
+      needsPPtoMain = true
+      logicContextDirty = true
+      pendingEdit = null
+      console.info('[ABB-PROGRAM] 逻辑源码已变化，需 PP to Main 重建变量上下文')
+      sync()
+      return
+    }
     // 结构化编辑保留指令集合与顺序：PP 按同一下标映射；否则保守校验下标处指令是否仍一致。
     let mapTo: number | null = null
     if (next.canExecute && next.program.length > 0) {
-      const isStructuredEdit = pendingEdit !== null
       if (isStructuredEdit) {
         const edit = pendingEdit as NonNullable<typeof pendingEdit>
         const shift = edit.programIndexShift
@@ -340,7 +556,13 @@ export function useProgramController(options: ProgramControllerOptions): Program
     } else {
       // 重建执行器并在原 PP 继续。
       loadedProgram = next.program
-      executor = createProgramExecutor(next.program, seam, mapTo)
+      loadedLogicSignature = rapidLogicSignature(next)
+      executor = createProgramExecutor(
+        next.program,
+        seam,
+        mapTo,
+        runtimeVariablesForParsed(next, base.variables),
+      )
     }
     sync()
   }

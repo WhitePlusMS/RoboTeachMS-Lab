@@ -6,7 +6,15 @@ import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
 import type { JointAngles } from '../robotics/types.ts'
 import { executeMoveJ } from './movej-planner.ts'
 import { executeMoveL } from './movel-planner.ts'
-import { createProgramExecutor, type InstructionOutcome, type ProgramError, type ProgramExecutionSeam } from './program-executor.ts'
+import {
+  createProgramExecutor,
+  type InstructionOutcome,
+  type ProgramError,
+  type ProgramExecutionContext,
+  type ProgramExecutionSeam,
+  type ProgramInstruction,
+} from './program-executor.ts'
+import type { RapidScalarValue, RapidScalarVariable } from './rapid-types.ts'
 import {
   defaultTool0,
   defaultWobj0,
@@ -93,6 +101,7 @@ describe('ProgramExecutor 运行与指针语义', () => {
       motionPointer: null,
       stopReason: null,
       error: null,
+      variables: new Map(),
     })
     expect(seam.calls).toEqual([])
   })
@@ -374,6 +383,107 @@ describe('ProgramExecutor PP to Main', () => {
     await Promise.resolve()
     seam.resolveNext({ ok: true, result: 'completed' })
     await runPromise
+  })
+})
+
+interface AssignmentInstruction extends ProgramInstruction {
+  kind: 'assign'
+  name: string
+  value: RapidScalarValue
+  nextPointer?: number
+}
+
+/** 只验证 executor 变量 seam 的 fake，不引入 parser 或页面控制器。 */
+class VariableSeam implements ProgramExecutionSeam<AssignmentInstruction> {
+  execute(instruction: AssignmentInstruction, context: ProgramExecutionContext): Promise<InstructionOutcome> {
+    if (!context.readVariable(instruction.name)) {
+      return Promise.resolve({ ok: false, error: { kind: 'runtime-error', message: '变量不存在' } })
+    }
+    if (!context.writeVariable(instruction.name, instruction.value)) {
+      return Promise.resolve({ ok: false, error: { kind: 'runtime-error', message: '变量类型不匹配' } })
+    }
+    return Promise.resolve({
+      ok: true,
+      result: 'completed',
+      ...(instruction.nextPointer === undefined ? {} : { nextPointer: instruction.nextPointer }),
+    })
+  }
+
+  stop(): void {}
+}
+
+describe('ProgramExecutor 标量变量 seam', () => {
+  it('赋值按普通程序指令推进 PP，MP 保持为空，并在 PP to Main 后保留运行值', async () => {
+    const seam = new VariableSeam()
+    const initial = new Map<string, RapidScalarVariable>([
+      ['count', { kind: 'num', value: 1 }],
+      ['ready', { kind: 'bool', value: false }],
+    ])
+    const instructions: AssignmentInstruction[] = [
+      { kind: 'assign', name: 'count', value: 3 },
+      { kind: 'assign', name: 'ready', value: true },
+    ]
+    const executor = createProgramExecutor(instructions, seam, 0, initial)
+
+    const first = executor.step()
+    expect(executor.getSnapshot().motionPointer).toBeNull()
+    expect(await first).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(1)
+    expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 3 })
+
+    expect(await executor.run()).toBe('completed')
+    expect(executor.getSnapshot().programPointer).toBe(2)
+    expect(executor.getSnapshot().variables.get('ready')).toEqual({ kind: 'bool', value: true })
+
+    const snapshot = executor.getSnapshot()
+    const leaked = snapshot.variables as Map<string, RapidScalarVariable>
+    leaked.set('count', { kind: 'num', value: 99 })
+    expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 3 })
+
+    executor.ppToMain()
+    expect(executor.getSnapshot().state).toBe('idle')
+    expect(executor.getSnapshot().programPointer).toBe(0)
+    expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 3 })
+    expect(executor.getSnapshot().variables.get('ready')).toEqual({ kind: 'bool', value: true })
+  })
+
+  it('变量写入遵守声明类型，类型不匹配进入 runtime-error 且 PP 停在错误赋值', async () => {
+    const seam = new VariableSeam()
+    const executor = createProgramExecutor<AssignmentInstruction>(
+      [{ kind: 'assign', name: 'ready', value: 1 }],
+      seam,
+      0,
+      new Map([['ready', { kind: 'bool', value: false }]]),
+    )
+
+    expect(await executor.run()).toBe('error')
+    expect(executor.getSnapshot()).toMatchObject({
+      state: 'error',
+      programPointer: 0,
+      motionPointer: null,
+      error: { index: 0, code: 'runtime-error' },
+    })
+    expect(executor.getSnapshot().variables.get('ready')).toEqual({ kind: 'bool', value: false })
+  })
+
+  it('完成结果携带内部跳转时，单步直接停在目标语句，不把跳转本身算作一步', async () => {
+    const seam = new VariableSeam()
+    const executor = createProgramExecutor<AssignmentInstruction>(
+      [
+        { kind: 'assign', name: 'count', value: 1, nextPointer: 2 },
+        { kind: 'assign', name: 'count', value: 99 },
+        { kind: 'assign', name: 'count', value: 3 },
+      ],
+      seam,
+      0,
+      new Map([['count', { kind: 'num', value: 0 }]]),
+    )
+
+    expect(await executor.step()).toBe('stopped')
+    expect(executor.getSnapshot().programPointer).toBe(2)
+    expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 1 })
+    expect(await executor.run()).toBe('completed')
+    expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 3 })
   })
 })
 

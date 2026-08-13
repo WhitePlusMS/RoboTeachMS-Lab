@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
+import { isRapidMotionInstruction, isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
 
 /** 从解析结果取 robtarget 点位条目（Program Data 联合中的点位视图）。 */
 function robtargets(result: ReturnType<typeof parseRapidProgram>): RapidProgramDataTarget[] {
@@ -31,11 +31,16 @@ describe('RAPID 文本解析模块', () => {
       'movel',
       'movej',
     ])
-    expect(result.program[0].target.trans).toEqual([551, 613, 60])
-    expect(result.program[1].speed.v_tcp).toBe(50)
-    expect(result.program[0].zone.finep).toBe(true)
-    expect(result.program[0].tool.robhold).toBe(true)
-    expect(result.program[0].wobj.robhold).toBe(false)
+    const first = result.program[0]
+    const second = result.program[1]
+    if (!first || !second || !isRapidMotionInstruction(first) || !isRapidMotionInstruction(second)) {
+      throw new Error('最小程序结构异常')
+    }
+    expect(first.target.trans).toEqual([551, 613, 60])
+    expect(second.speed.v_tcp).toBe(50)
+    expect(first.zone.finep).toBe(true)
+    expect(first.tool.robhold).toBe(true)
+    expect(first.wobj.robhold).toBe(false)
   })
 
   it('保留每条运动的源码范围，便于运行时规划错误定位', () => {
@@ -49,6 +54,7 @@ describe('RAPID 文本解析模块', () => {
   it('为每个运动操作数保留精确范围，并暴露首条/中间/末尾插入锚点', () => {
     const result = parseRapidProgram(VALID_PROGRAM)
     const instruction = result.program[1]
+    if (!instruction || !isRapidMotionInstruction(instruction)) throw new Error('中间指令结构异常')
 
     expect(instruction.operandRanges.target.start.line).toBe(9)
     expect(instruction.operandRanges.speed.start.line).toBe(9)
@@ -72,7 +78,7 @@ ENDMODULE
     expect(diagnostic?.range.start.column).toBe(18)
   })
 
-  it('收集未定义点位和不支持指令诊断，并阻止程序执行', () => {
+  it('收集主程序与条件体内的未定义点位诊断，并阻止程序执行', () => {
     const source = `
 MODULE Broken
     PROC main()
@@ -89,7 +95,7 @@ ENDMODULE
     expect(result.canExecute).toBe(false)
     expect(result.program).toHaveLength(0)
     const codes = result.diagnostics.map((diagnostic) => diagnostic.code)
-    expect(codes).toContain('unsupported-syntax')
+    expect(codes).not.toContain('unsupported-syntax')
     expect(codes.filter((code) => code === 'undefined-symbol')).toHaveLength(2)
     expect(result.diagnostics.every((diagnostic) => diagnostic.severity === 'error')).toBe(true)
     const undefinedTargetDiagnostic = result.diagnostics.find(
