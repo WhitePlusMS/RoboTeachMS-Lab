@@ -8,6 +8,7 @@ import type { JointAngles } from '../robotics/types.ts'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { useProgramController, type ProgramControllerMotion } from './program-control.ts'
 import type { RobTarget } from '../rapid/rapid-types.ts'
+import { isRobtargetProgramData } from '../rapid/rapid-parser.ts'
 
 /** 构造一个用于 Program Data 示教操作的 robtarget（单位姿态、零 robconf、未使用外轴）。 */
 function taughtTarget(trans: [number, number, number]): RobTarget {
@@ -205,7 +206,8 @@ describe('applyEdit 单一受控编辑入口', () => {
     if (!invalid.ok) expect(invalid.error.code).toBe('invalid-name')
 
     expect(source.value).toBe(before)
-    expect(ctrl.parsed.value.data.map((d) => d.name)).toEqual(['pApproach', 'pWork', 'pRest'])
+    // 只关心 robtarget 点位；系统预定义 tool0/wobj0/speed/zone 与其它类型条目不计入。
+    expect(ctrl.parsed.value.data.filter(isRobtargetProgramData).map((d) => d.name)).toEqual(['pApproach', 'pWork', 'pRest'])
   })
 
   it('Modify Position 替换目标值后程序仍可执行', () => {
@@ -213,7 +215,8 @@ describe('applyEdit 单一受控编辑入口', () => {
     const result = ctrl.applyEdit({ type: 'modify-position', name: 'pWork', target: taughtTarget([600, 200, 400]) })
     expect(result.ok).toBe(true)
     expect(ctrl.parsed.value.canExecute).toBe(true)
-    expect(ctrl.parsed.value.data.find((d) => d.name === 'pWork')?.target.trans).toEqual([600, 200, 400])
+    const pWork = ctrl.parsed.value.data.filter(isRobtargetProgramData).find((d) => d.name === 'pWork')
+    expect(pWork?.target.trans).toEqual([600, 200, 400])
   })
 
   it('插入 MoveJ 引用现有目标后可执行且新程序多一条运动', () => {

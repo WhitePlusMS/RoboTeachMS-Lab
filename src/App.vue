@@ -10,6 +10,7 @@ import { adjustJointAngle, randomJointAngles, useJointControl } from './applicat
 import { useMotion } from './application/motion-control.ts'
 import { useProgramController } from './application/program-control.ts'
 import { createBuiltinRapidSource } from './application/builtin-program.ts'
+import { flangeToWorldTcpPose } from './rapid/coordinate-transform.ts'
 import type { AbbSceneStatus } from './scene/abb-scene.ts'
 import { useCartesianControl } from './application/cartesian-control.ts'
 
@@ -86,12 +87,45 @@ const programSnapshot = programControl.snapshot
 /** off-path Clear 确认的等待模式；作为本地 setup ref 以便模板自动解包传给面板。 */
 const pendingClearState = programControl.pendingClear
 
-/** Program Data 派生视图：来自同一次解析，实时随源码更新。 */
+/**
+ * Program Data 派生视图：来自同一次解析，实时随源码更新。
+ * 面板按数据类型浏览五类记录（robtarget/tooldata/wobjdata/speeddata/zonedata）；数据唯一来源于解析结果。
+ */
 const programData = computed(() => programControl.parsed.value.data)
 const programDataCanExecute = computed(() => programControl.parsed.value.canExecute)
+/** 当前活动（或下一条待执行）的指令下标，用于面板高亮当前使用的 Tool/WObj/Speed/Zone/目标。 */
+const activeInstructionIndex = computed(() => {
+  const snapshot = programControl.snapshot.value
+  return snapshot.motionPointer ?? snapshot.programPointer
+})
 
 /** 当前 ABB 基座 tool0 TCP（Pose：位置 + 旋转矩阵）；由 FK 派生，供点位示教使用。 */
 const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
+
+/** 当前活动指令（可能为 null）。 */
+const activeInstruction = computed(() => {
+  const index = activeInstructionIndex.value
+  if (index === null || index === undefined) return null
+  return programControl.parsed.value.program[index] ?? null
+})
+
+/**
+ * 场景坐标为米；本平台采用“域 mm → 场景 m = /1000”的近似约定（仅用于视觉效果指示，
+ * 不参与任何轨迹/坐标求值）。活动工具/工件坐标系框的位置由领域层计算，场景只负责显示。
+ */
+const activeToolFrameMm = computed<[number, number, number] | null>(() => {
+  const instruction = activeInstruction.value
+  if (!instruction || !toolPose.value) return null
+  const tcp = flangeToWorldTcpPose(toolPose.value, instruction.tool)
+  return [tcp.position[0] / 1000, tcp.position[1] / 1000, tcp.position[2] / 1000]
+})
+const activeWobjFrameMm = computed<[number, number, number] | null>(() => {
+  const instruction = activeInstruction.value
+  if (!instruction) return null
+  const trans = instruction.wobj.uframe.trans
+  return [trans[0] / 1000, trans[1] / 1000, trans[2] / 1000]
+})
+
 
 const {
   coordinateSystem,
@@ -179,6 +213,8 @@ const statusLabel = computed(() => {
             :show-dh-debug="showDhDebug"
             :show-trajectory="showTrajectory"
             :trajectory-count="trajectoryCount"
+            :active-tool-frame="activeToolFrameMm"
+            :active-wobj-frame="activeWobjFrameMm"
             @status="sceneStatus = $event"
             @grid-change="showGrid = $event"
             @coordinates-change="showCoordinateSystems = $event"
@@ -199,7 +235,8 @@ const statusLabel = computed(() => {
           :source="rapidSource"
           :program="programControl.parsed.value.program"
           :pending-clear="pendingClearState"
-          :targets="programData"
+          :data="programData"
+          :active-index="activeInstructionIndex"
           :can-execute="programDataCanExecute"
           :insertion-points="programControl.parsed.value.motionInsertionPoints"
           :pose="toolPose"

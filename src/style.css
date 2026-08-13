@@ -1580,6 +1580,68 @@ body,
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16);
 }
 
+.program-data-item.active,
+.program-data-item.active:hover {
+  border-color: rgba(250, 204, 21, 0.65);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.22);
+  background: rgba(250, 204, 21, 0.05);
+}
+
+.program-data-kind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 8px;
+}
+
+.program-data-kind-tab {
+  padding: 4px 8px;
+  border: 1px solid #2b3140;
+  border-radius: 6px;
+  color: #94a3b8;
+  background: #0d1526;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.program-data-kind-tab:hover,
+.program-data-kind-tab.active {
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #e0f2fe;
+  background: rgba(14, 116, 144, 0.4);
+}
+
+.program-data-active {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  background: rgba(14, 116, 144, 0.18);
+  color: #cbd5e1;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.program-data-active-kind {
+  font-weight: 700;
+  color: #e0f2fe;
+}
+
+.program-data-flyby-hint {
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+.program-data-system {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+
 .program-data-row {
   display: grid;
   grid-template-columns: minmax(70px, 0.7fr) auto minmax(110px, 1.5fr) auto;
@@ -1644,6 +1706,12 @@ body,
   gap: 10px;
 }
 
+.program-data-selection-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .program-data-selection-heading strong,
 .program-data-detail-heading h3 {
   display: block;
@@ -1656,6 +1724,23 @@ body,
 .program-data-references-text {
   color: #7dd3fc;
   font-size: 11px;
+}
+
+.program-data-selection-toggle {
+  padding: 3px 7px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #94a3b8;
+  background: #1e293b;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.program-data-selection-toggle:hover,
+.program-data-selection-toggle:focus-visible {
+  border-color: #38bdf8;
+  color: #e0f2fe;
+  outline: none;
 }
 
 .program-data-reference-links {
@@ -1691,6 +1776,13 @@ body,
 .program-data-detail {
   position: static;
   box-shadow: none;
+}
+
+.program-data-selection {
+  flex: 0 1 42%;
+  min-height: 0;
+  max-height: 42%;
+  overflow-y: auto;
 }
 
 .program-data-detail .program-data-fields {

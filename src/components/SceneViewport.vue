@@ -14,6 +14,10 @@ const props = defineProps<{
   showDhDebug: boolean
   showTrajectory: boolean
   trajectoryCount: number
+  /** 领域层「当前活动工具」坐标系的世界位置（场景米）；null 不显示。 */
+  activeToolFrame?: [number, number, number] | null
+  /** 领域层「当前工件坐标」坐标系的世界位置（场景米）；null 不显示。 */
+  activeWobjFrame?: [number, number, number] | null
 }>()
 
 const emit = defineEmits<{
@@ -26,19 +30,29 @@ const emit = defineEmits<{
 }>()
 
 const viewport = ref<HTMLDivElement | null>(null)
+const sceneError = ref<string | null>(null)
 let controller: AbbSceneController | null = null
 
 onMounted(() => {
   if (!viewport.value) return
-  controller = createAbbScene(viewport.value, {
-    onStatus: (status) => emit('status', status),
-    onTrajectoryCount: (count) => emit('trajectory-count', count),
-    showGrid: props.showGrid,
-    showCoordinateSystems: props.showCoordinateSystems,
-    showDhDebug: props.showDhDebug,
-    showTrajectory: props.showTrajectory,
-  })
-  controller.setJoints(props.joints)
+  try {
+    controller = createAbbScene(viewport.value, {
+      onStatus: (status) => emit('status', status),
+      onTrajectoryCount: (count) => emit('trajectory-count', count),
+      showGrid: props.showGrid,
+      showCoordinateSystems: props.showCoordinateSystems,
+      showDhDebug: props.showDhDebug,
+      showTrajectory: props.showTrajectory,
+    })
+    controller.setJoints(props.joints)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    sceneError.value = message.includes('WebGL')
+      ? '当前浏览器未提供可用 WebGL，Three.js 场景无法显示。请启用硬件加速或更换浏览器。'
+      : 'Three.js 场景初始化失败，已进入降级显示。'
+    console.error('[SceneViewport] Three.js 场景初始化失败', error)
+    emit('status', 'error')
+  }
 })
 
 watch(
@@ -61,6 +75,16 @@ watch(
   },
 )
 
+// 领域层提供的活动 Tool/WObj 坐标系显示；position 已经是场景米。
+watch(
+  () => props.activeToolFrame,
+  (position) => controller?.setActiveToolFrame(position ?? null),
+)
+watch(
+  () => props.activeWobjFrame,
+  (position) => controller?.setActiveWobjFrame(position ?? null),
+)
+
 onBeforeUnmount(() => {
   controller?.dispose()
   controller = null
@@ -70,6 +94,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="scene-viewport">
     <div ref="viewport" class="scene-canvas-host" role="img" aria-label="ABB IRB 1200-5/0.9 三维场景" />
+    <div v-if="sceneError" class="scene-webgl-fallback" role="status">
+      <strong>Three.js 场景不可用</strong>
+      <p>{{ sceneError }}</p>
+    </div>
     <div class="scene-aux-toolbar" role="toolbar" aria-label="场景辅助显示">
       <button
         type="button"
@@ -118,6 +146,32 @@ onBeforeUnmount(() => {
 .scene-canvas-host {
   position: absolute;
   inset: 0;
+}
+
+.scene-webgl-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #cbd5e1;
+  text-align: center;
+  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.94), #101827 72%);
+}
+
+.scene-webgl-fallback strong {
+  color: #fca5a5;
+  font-size: 14px;
+}
+
+.scene-webgl-fallback p {
+  max-width: 360px;
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .scene-aux-toolbar {

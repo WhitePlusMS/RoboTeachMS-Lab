@@ -7,7 +7,7 @@ import type { RapidEditCommand, RapidEditResult } from '../rapid/controlled-rapi
 import type {
   RapidExecutableInstruction,
   RapidMotionInsertionPoint,
-  RapidProgramDataTarget,
+  RapidProgramData,
   RapidSourceRange,
 } from '../rapid/rapid-parser.ts'
 import type { Pose } from '../robotics/types.ts'
@@ -17,7 +17,10 @@ interface Props {
   source: string
   program: readonly RapidExecutableInstruction[]
   pendingClear: 'run' | 'step' | null
-  targets: readonly RapidProgramDataTarget[]
+  /** 完整 Program Data 联合（五类 + 系统预定义项）。 */
+  data: readonly RapidProgramData[]
+  /** 当前活动/下一条指令下标，供 Program Data 面板高亮当前 Tool/WObj/Speed/Zone/目标。 */
+  activeIndex: number | null
   canExecute: boolean
   insertionPoints: readonly RapidMotionInsertionPoint[]
   pose: Pose | null
@@ -139,7 +142,8 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
         :hidden="activeTab !== 'data'"
       >
         <ProgramDataPanel
-          :targets="props.targets"
+          :data="props.data"
+          :active-index="props.activeIndex"
           :can-execute="props.canExecute"
           :program="props.program"
           :insertion-points="props.insertionPoints"

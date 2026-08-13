@@ -4,7 +4,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import type { JointAngles } from '../robotics/types.ts'
 import { ABB_DEFAULT_JOINTS } from '../robot-models/abb-irb1200/robot-config.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
-import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
+import { createBaseAxes, createFrameAxes, createToolAxes } from './scene-helpers.ts'
 import {
   appendTrajectoryPoint,
   DEFAULT_TRAJECTORY_DISTANCE,
@@ -55,6 +55,10 @@ export interface AbbSceneController {
   setDhDebugVisible: (visible: boolean) => void
   setTrajectoryVisible: (visible: boolean) => void
   clearTrajectory: () => void
+  /** 在场景（米）位置显示/隐藏“当前活动工具”坐标系框；null 隐藏。 */
+  setActiveToolFrame: (position: [number, number, number] | null) => void
+  /** 在场景（米）位置显示/隐藏“当前工件坐标”坐标系框；null 隐藏。 */
+  setActiveWobjFrame: (position: [number, number, number] | null) => void
   dispose: () => void
 }
 
@@ -311,10 +315,24 @@ export function createAbbScene(
   dhDebugChain.update(targetJoints)
   scene.add(dhDebugChain.group)
   let toolAxes: THREE.Group | null = null
+  let activeToolFrame: THREE.Group | null = null
+  let activeWobjFrame: THREE.Group | null = null
   let trajectoryPoints: ScenePoint[] = []
   let lastTrajectoryPoint: ScenePoint | null = null
   let lastTrajectoryTime = 0
   let disposed = false
+
+  /** 把领域层给出的（场景米）活动 Tool/WObj 坐标系框移动到该位置并显示；null 隐藏。 */
+  function setActiveFrameAt(group: THREE.Group | null, position: [number, number, number] | null): void {
+    if (!group) return
+    if (!position) {
+      group.visible = false
+      return
+    }
+    group.position.set(position[0], position[1], position[2])
+    group.quaternion.set(0, 0, 0, 1) // 领域层只给出原点位置；轴方向沿用世界朝向（示意）。
+    group.visible = showCoordinateSystems
+  }
 
   function refreshTrajectoryLine(): void {
     trajectoryPoints.forEach((point, index) => {
@@ -332,6 +350,17 @@ export function createAbbScene(
     toolAxes = createToolAxes()
     toolAxes.visible = showCoordinateSystems
     scene.add(toolAxes)
+
+    if (!activeToolFrame) {
+      activeToolFrame = createFrameAxes('ActiveToolFrameHelper')
+      activeToolFrame.visible = false
+      scene.add(activeToolFrame)
+    }
+    if (!activeWobjFrame) {
+      activeWobjFrame = createFrameAxes('ActiveWobjFrameHelper')
+      activeWobjFrame.visible = false
+      scene.add(activeWobjFrame)
+    }
   }
 
   function updateToolAxes(): void {
@@ -433,6 +462,8 @@ export function createAbbScene(
       showTrajectory = visible
       trajectoryLine.visible = visible
     },
+    setActiveToolFrame: (position) => setActiveFrameAt(activeToolFrame, position),
+    setActiveWobjFrame: (position) => setActiveFrameAt(activeWobjFrame, position),
     clearTrajectory: () => {
       trajectoryPoints = []
       lastTrajectoryPoint = null
