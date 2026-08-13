@@ -16,6 +16,12 @@ test-results
 # 本地研究/参考资料、外部克隆等非交付内容
 .scratch/
 
+# 本地项目文档与研究资料，不纳入 Git 追踪
+/docs/
+/CONTEXT.md
+/CLAUDE.md
+/UPDATE_LOG.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
