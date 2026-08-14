@@ -674,3 +674,87 @@ describe('ProgramController 非嵌套条件分支', () => {
     expect(h.ctrl.snapshot.value.variables.get('marker')).toEqual({ kind: 'num', value: 11 })
   })
 })
+
+describe('ProgramController 循环执行', () => {
+  it('WHILE 循环运行到条件为假，循环变量与累加值符合迭代次数', async () => {
+    const { ctrl } = setupScalarController(`MODULE LoopDemo
+    VAR num i := 0;
+    PROC main()
+        WHILE i < 3 DO
+            i := i + 1;
+        ENDWHILE
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    expect(ctrl.snapshot.value.variables.get('i')).toEqual({ kind: 'num', value: 3 })
+  })
+
+  it('FOR 循环按 FROM/TO/STEP 精确迭代，循环变量在退出时保留最后进入的值', async () => {
+    const { ctrl } = setupScalarController(`MODULE LoopDemo
+    VAR num i := 0;
+    VAR num s := 0;
+    PROC main()
+        FOR i FROM 1 TO 4 STEP 1 DO
+            s := s + 1;
+        ENDFOR
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    expect(ctrl.snapshot.value.variables.get('s')).toEqual({ kind: 'num', value: 4 })
+    expect(ctrl.snapshot.value.variables.get('i')).toEqual({ kind: 'num', value: 4 })
+  })
+
+  it('EXITDO 提前退出循环，跳过剩余迭代', async () => {
+    const { ctrl } = setupScalarController(`MODULE LoopDemo
+    VAR num i := 0;
+    VAR num s := 0;
+    PROC main()
+        WHILE i < 10 DO
+            i := i + 1;
+            IF i >= 3 THEN
+                EXITDO;
+            ENDIF
+            s := s + 1;
+        ENDWHILE
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    // i 首次到 3 即 EXITDO 退出，s 只在 i=1、2 时递增。
+    expect(ctrl.snapshot.value.variables.get('i')).toEqual({ kind: 'num', value: 3 })
+    expect(ctrl.snapshot.value.variables.get('s')).toEqual({ kind: 'num', value: 2 })
+  })
+
+  it('死循环（WHILE TRUE）超过 1 万次上限报 runtime-error 并自动停止', async () => {
+    const { ctrl } = setupScalarController(`MODULE LoopDemo
+    VAR num i := 0;
+    PROC main()
+        WHILE TRUE DO
+            i := i + 1;
+        ENDWHILE
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('error')
+    expect(ctrl.snapshot.value.error).toMatchObject({ code: 'runtime-error' })
+    expect(ctrl.snapshot.value.error?.message).toContain('循环迭代次数超过安全上限')
+  })
+})

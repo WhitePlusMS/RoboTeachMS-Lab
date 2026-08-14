@@ -120,11 +120,51 @@ export interface RapidConditionalInstruction {
   sourceText: string
 }
 
-/** parser 输出的唯一可执行计划：条件、运动与标量赋值按源码顺序共存。 */
+/** WHILE 循环头指令：条件为真进循环体，为假退出；循环体末条 nextPointer 回跳本头。 */
+export interface RapidWhileInstruction {
+  kind: 'while'
+  condition: RapidScalarExpression
+  /** 条件为真时进入的循环体首条；为假时的退出点。 */
+  trueTarget: number
+  falseTarget: number
+  sourceRange: RapidSourceRange
+  sourceText: string
+}
+
+/** FOR 循环头指令：FROM a TO b STEP s，循环变量须已声明 VAR num。 */
+export interface RapidForInstruction {
+  kind: 'for'
+  loopVar: {
+    name: string
+    range: RapidSourceRange
+  }
+  fromExpr: RapidScalarExpression
+  toExpr: RapidScalarExpression
+  /** 可选 STEP 步长；省略时为 null（按 1 处理）。 */
+  stepExpr: RapidScalarExpression | null
+  /** 进入循环体首条；条件终结时的退出点。 */
+  trueTarget: number
+  falseTarget: number
+  sourceRange: RapidSourceRange
+  sourceText: string
+}
+
+/** EXITDO：循环体内提前退出当前循环，跳到循环头设定的退出点。 */
+export interface RapidExitInstruction {
+  kind: 'exitdo'
+  target: number
+  sourceRange: RapidSourceRange
+  sourceText: string
+}
+
+/** parser 输出的唯一可执行计划：条件、循环、运动与标量赋值按源码顺序共存。 */
 export type RapidExecutableInstruction =
   | RapidMotionInstruction
   | RapidAssignmentInstruction
   | RapidConditionalInstruction
+  | RapidWhileInstruction
+  | RapidForInstruction
+  | RapidExitInstruction
 
 export function isRapidMotionInstruction(
   instruction: RapidExecutableInstruction,
@@ -271,10 +311,38 @@ interface PendingConditional {
   elseStatements: PendingStatement[] | null
 }
 
+interface PendingWhile {
+  condition: RapidScalarExpression | null
+  conditionToken: Token
+  sourceText: string
+  range: RapidSourceRange
+  statements: PendingStatement[]
+}
+
+interface PendingFor {
+  loopVarToken: Token
+  fromExpr: RapidScalarExpression | null
+  toExpr: RapidScalarExpression | null
+  stepExpr: RapidScalarExpression | null
+  sourceText: string
+  range: RapidSourceRange
+  statements: PendingStatement[]
+}
+
+/** 循环内每个 EXITDO 在 parse 阶段按出现顺序暂存，resolve 时填充循环退出目标。 */
+interface PendingExit {
+  token: Token
+  sourceText: string
+  range: RapidSourceRange
+}
+
 type PendingStatement =
   | { kind: 'motion'; motion: PendingMotion }
   | { kind: 'assign'; assignment: PendingAssignment }
   | { kind: 'conditional'; conditional: PendingConditional }
+  | { kind: 'while'; whileLoop: PendingWhile }
+  | { kind: 'for'; forLoop: PendingFor }
+  | { kind: 'exitdo'; exit: PendingExit }
 
 interface OperandSlotResult {
   token: Token | null
@@ -513,8 +581,10 @@ export function parseRapidProgram(source: string): RapidParseResult {
   const symbols = new Map<string, SymbolEntry>()
   // main 内的赋值与运动按源码顺序暂存，最终形成唯一可执行 program 数组。
   const pendingStatements: PendingStatement[] = []
-  // 解析条件体时临时切换到分支自己的语句容器；最终仍会展平为同一 program 数组。
+  // 解析条件体/循环体时临时切换到区块自己的语句容器；最终仍会展平为同一 program 数组。
   let statementSink = pendingStatements
+  // 当前处于几层循环体内：EXITDO 只在 loopDepth>0 时合法。
+  let loopDepth = 0
   const pendingReferences: PendingReference[] = []
   // 系统预定义名称（tool0/wobj0/load0/速度/zone）在各运动操作数中的引用范围，供 Program Data 只读展示。
   const systemReferences = new Map<string, RapidSourceRange[]>()
@@ -1678,49 +1748,30 @@ export function parseRapidProgram(source: string): RapidParseResult {
   function skipUnsupportedControl(): void {
     const token = advance()
     addDiagnostic('unsupported-syntax', `首期不支持 ${token.text} 控制流`, token)
-    if (isKeyword(token, 'IF') || isKeyword(token, 'WHILE') || isKeyword(token, 'FOR')) {
-      while (current().kind !== 'eof' && !isKeyword(current(), 'THEN') && !isSymbol(current(), ';')) {
-        advance()
-      }
-      if (isKeyword(current(), 'THEN')) advance()
-    }
+    while (current().kind !== 'eof' && !isSymbol(current(), ';')) advance()
+    if (isSymbol(current(), ';')) advance()
   }
 
-  /** 跳过不支持的嵌套 IF，保留外层 IF 的 ELSE/ENDIF 恢复边界。 */
-  function skipNestedConditional(): void {
-    const start = advance()
-    addDiagnostic('unsupported-syntax', '首期不支持嵌套 IF', start)
-    let depth = 1
+  function parseStatementList(terminators: ReadonlySet<string>): void {
     while (
       current().kind !== 'eof' &&
       !isKeyword(current(), 'ENDPROC') &&
       !isKeyword(current(), 'ENDMODULE') &&
-      depth > 0
-    ) {
-      if (isKeyword(current(), 'IF')) depth += 1
-      if (isKeyword(current(), 'ENDIF')) depth -= 1
-      advance()
-    }
-  }
-
-  function parseStatementList(inConditionalBody: boolean): void {
-    while (
-      current().kind !== 'eof' &&
-      !isKeyword(current(), 'ENDPROC') &&
-      !isKeyword(current(), 'ENDMODULE') &&
-      (!inConditionalBody ||
-        (!isKeyword(current(), 'ELSEIF') && !isKeyword(current(), 'ELSE') && !isKeyword(current(), 'ENDIF')))
+      !terminators.has(current().text)
     ) {
       if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL')) {
         parseMotion()
       } else if (current().kind === 'identifier' && isSymbol(peek(), ':=')) {
         parseAssignment()
       } else if (isKeyword(current(), 'IF')) {
-        if (inConditionalBody) skipNestedConditional()
-        else parseConditional()
+        parseConditional()
+      } else if (isKeyword(current(), 'WHILE')) {
+        parseWhile()
+      } else if (isKeyword(current(), 'FOR')) {
+        parseFor()
+      } else if (isKeyword(current(), 'EXITDO')) {
+        parseExitDo()
       } else if (
-        isKeyword(current(), 'WHILE') ||
-        isKeyword(current(), 'FOR') ||
         isKeyword(current(), 'MOVEABSJ') ||
         isKeyword(current(), 'MOVEC')
       ) {
@@ -1741,6 +1792,92 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
   }
 
+  /** 解析 WHILE 条件循环；循环体内支持嵌套 IF/循环/赋值/运动。 */
+  function parseWhile(): void {
+    const start = advance()
+    const condition = parseScalarOr()
+    const doToken = expectKeyword('DO')
+    const statements: PendingStatement[] = []
+    loopDepth += 1
+    const previousSink = statementSink
+    statementSink = statements
+    parseStatementList(new Set(['ENDWHILE']))
+    statementSink = previousSink
+    loopDepth -= 1
+    const end = expectKeyword('ENDWHILE')
+    if (!end) return
+    const headerEnd = doToken?.end ?? condition?.range.end.offset ?? start.end
+    statementSink.push({
+      kind: 'while',
+      whileLoop: {
+        condition,
+        conditionToken: start,
+        range: rangeFromOffsets(start.start, headerEnd, lineStarts),
+        sourceText: source.slice(start.start, headerEnd),
+        statements,
+      },
+    })
+  }
+
+  /** 解析 FOR 计数循环：FOR i FROM a TO b STEP s DO ... ENDFOR。 */
+  function parseFor(): void {
+    const start = advance()
+    const loopVarToken = expectIdentifier('FOR 循环变量')
+    if (!loopVarToken) return
+    expectKeyword('FROM')
+    const fromExpr = parseScalarOr()
+    expectKeyword('TO')
+    const toExpr = parseScalarOr()
+    let stepExpr: RapidScalarExpression | null = null
+    if (isKeyword(current(), 'STEP')) {
+      advance()
+      stepExpr = parseScalarOr()
+    }
+    const doToken = expectKeyword('DO')
+    const statements: PendingStatement[] = []
+    loopDepth += 1
+    const previousSink = statementSink
+    statementSink = statements
+    parseStatementList(new Set(['ENDFOR']))
+    statementSink = previousSink
+    loopDepth -= 1
+    const end = expectKeyword('ENDFOR')
+    if (!end) return
+    const headerEnd = doToken?.end ?? toExpr?.range.end.offset ?? start.end
+    statementSink.push({
+      kind: 'for',
+      forLoop: {
+        loopVarToken,
+        fromExpr,
+        toExpr,
+        stepExpr,
+        range: rangeFromOffsets(start.start, headerEnd, lineStarts),
+        sourceText: source.slice(start.start, headerEnd),
+        statements,
+      },
+    })
+  }
+
+  /** EXITDO 只能出现在循环体内；循环外给出诊断并阻止该语句。 */
+  function parseExitDo(): void {
+    const start = advance()
+    if (loopDepth === 0) {
+      addDiagnostic('syntax-error', 'EXITDO 只能出现在循环体内', start)
+      skipToStatementEnd()
+      return
+    }
+    const semicolon = expectSymbol(';')
+    if (!semicolon) return
+    statementSink.push({
+      kind: 'exitdo',
+      exit: {
+        token: start,
+        range: rangeFromOffsets(start.start, semicolon.end, lineStarts),
+        sourceText: source.slice(start.start, semicolon.end),
+      },
+    })
+  }
+
   function parseConditionalBranch(
     conditionKind: PendingConditionalBranch['conditionKind'],
     start: Token,
@@ -1750,7 +1887,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const statements: PendingStatement[] = []
     const previousSink = statementSink
     statementSink = statements
-    parseStatementList(true)
+    parseStatementList(new Set(['ELSEIF', 'ELSE', 'ENDIF']))
     statementSink = previousSink
     const headerEnd = thenToken?.end ?? condition?.range.end.offset ?? start.end
     return {
@@ -1787,7 +1924,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       elseStatements = []
       const previousSink = statementSink
       statementSink = elseStatements
-      parseStatementList(true)
+      parseStatementList(new Set(['ELSEIF', 'ELSE', 'ENDIF']))
       statementSink = previousSink
       if (isKeyword(current(), 'ELSE') || isKeyword(current(), 'ELSEIF')) {
         addDiagnostic('syntax-error', 'ELSEIF/ELSE 不能出现在 ELSE 分支之后', current())
@@ -1801,7 +1938,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
   }
 
   function parseMainBody(): void {
-    parseStatementList(false)
+    parseStatementList(new Set())
     mainEndOffset = current().start
     expectKeyword('ENDPROC')
   }
@@ -2006,10 +2143,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
         sourceText: branch.sourceText,
       })
       const bodyStart = output.length
-      for (const statement of branch.statements) {
-        const resolved = resolveLeaf(statement)
-        if (resolved) output.push(resolved)
-      }
+      appendBody(branch.statements, output)
       branchBodies.push({ start: bodyStart, end: output.length })
     }
 
@@ -2017,10 +2151,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       ? { start: output.length, end: output.length }
       : null
     if (conditional.elseStatements) {
-      for (const statement of conditional.elseStatements) {
-        const resolved = resolveLeaf(statement)
-        if (resolved) output.push(resolved)
-      }
+      appendBody(conditional.elseStatements, output)
       if (elseBody) elseBody.end = output.length
     }
 
@@ -2040,16 +2171,119 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
   }
 
-  function appendStatement(statement: PendingStatement): void {
+  function appendStatement(statement: PendingStatement, output: RapidExecutableInstruction[]): void {
     if (statement.kind === 'conditional') {
-      appendConditional(statement.conditional, program)
+      appendConditional(statement.conditional, output)
+      return
+    }
+    if (statement.kind === 'while') {
+      appendWhile(statement.whileLoop, output)
+      return
+    }
+    if (statement.kind === 'for') {
+      appendFor(statement.forLoop, output)
+      return
+    }
+    if (statement.kind === 'exitdo') {
+      output.push({ kind: 'exitdo', target: 0, ...pendingExit(statement.exit) })
       return
     }
     const resolved = resolveLeaf(statement)
-    if (resolved) program.push(resolved)
+    if (resolved) output.push(resolved)
   }
 
-  for (const statement of pendingStatements) appendStatement(statement)
+  function pendingExit(exit: PendingExit): Pick<RapidExitInstruction, 'sourceRange' | 'sourceText'> {
+    return { sourceRange: exit.range, sourceText: exit.sourceText }
+  }
+
+  /** 把分支/循环体内的语句展平进 output；支持条件/循环的递归嵌套。 */
+  function appendBody(statements: PendingStatement[], output: RapidExecutableInstruction[]): void {
+    for (const statement of statements) appendStatement(statement, output)
+  }
+
+  /** 收集 output[start,end) 范围内尚未绑定退出目标的 EXITDO 指令。
+   *  内层循环先于外层展平并已把其 EXITDO 的目标设为非 0 的 afterLoop，
+   *  因此这里只取 target 仍为 0（直属本层循环体）的 EXITDO，避免覆盖内层循环的退出点。 */
+  function collectExitdos(
+    output: RapidExecutableInstruction[],
+    start: number,
+    end: number,
+  ): RapidExitInstruction[] {
+    const exits: RapidExitInstruction[] = []
+    for (let index = start; index < end; index += 1) {
+      const instruction = output[index]
+      if (instruction && instruction.kind === 'exitdo' && instruction.target === 0) {
+        exits.push(instruction)
+      }
+    }
+    return exits
+  }
+
+  /** 展平一个 WHILE 循环：循环头指令 + 循环体语句，循环体末条回跳循环头。 */
+  function appendWhile(loop: PendingWhile, output: RapidExecutableInstruction[]): void {
+    if (loop.condition === null) return
+    const expressionKind = scalarExpressionType(loop.condition)
+    if (expressionKind && expressionKind !== 'bool') {
+      diagnostics.push({
+        code: 'invalid-data',
+        severity: 'error',
+        message: 'WHILE 条件必须是 bool',
+        range: loop.condition.range,
+      })
+    }
+
+    const headIndex = output.length
+    output.push({
+      kind: 'while',
+      condition: loop.condition,
+      trueTarget: 0,
+      falseTarget: 0,
+      sourceRange: loop.range,
+      sourceText: loop.sourceText,
+    })
+    const bodyStart = output.length
+    appendBody(loop.statements, output)
+    const bodyEnd = output.length
+    // 循环体末条在完成正常流动后回跳循环头；空体无需设置回跳。
+    if (bodyEnd > bodyStart) setBranchExit(output[bodyEnd - 1], headIndex)
+    const afterLoop = output.length
+    const whileHead = output[headIndex]
+    if (whileHead && whileHead.kind === 'while') {
+      whileHead.trueTarget = bodyEnd > bodyStart ? bodyStart : afterLoop
+      whileHead.falseTarget = afterLoop
+    }
+    for (const exit of collectExitdos(output, bodyStart, bodyEnd)) exit.target = afterLoop
+  }
+
+  /** 展平一个 FOR 循环：循环头指令 + 循环体语句。 */
+  function appendFor(loop: PendingFor, output: RapidExecutableInstruction[]): void {
+    if (loop.fromExpr === null || loop.toExpr === null) return
+    const headIndex = output.length
+    output.push({
+      kind: 'for',
+      loopVar: { name: loop.loopVarToken.text, range: rangeFromToken(loop.loopVarToken, lineStarts) },
+      fromExpr: loop.fromExpr,
+      toExpr: loop.toExpr,
+      stepExpr: loop.stepExpr,
+      trueTarget: 0,
+      falseTarget: 0,
+      sourceRange: loop.range,
+      sourceText: loop.sourceText,
+    })
+    const bodyStart = output.length
+    appendBody(loop.statements, output)
+    const bodyEnd = output.length
+    if (bodyEnd > bodyStart) setBranchExit(output[bodyEnd - 1], headIndex)
+    const afterLoop = output.length
+    const forHead = output[headIndex]
+    if (forHead && forHead.kind === 'for') {
+      forHead.trueTarget = bodyEnd > bodyStart ? bodyStart : afterLoop
+      forHead.falseTarget = afterLoop
+    }
+    for (const exit of collectExitdos(output, bodyStart, bodyEnd)) exit.target = afterLoop
+  }
+
+  for (const statement of pendingStatements) appendStatement(statement, program)
 
   // 受控插入仍以最终可执行计划的 program 下标为准；损坏运动用其源码位置映射到前方已解析指令数。
   motionInsertionPoints.length = 0

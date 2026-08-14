@@ -116,15 +116,6 @@ ENDMODULE`)
         ENDIF`,
       code: 'syntax-error',
     },
-    {
-      name: '嵌套 IF',
-      body: `IF ready THEN
-            IF ready THEN
-                MoveJ pIf,v100,fine,tool0;
-            ENDIF
-        ENDIF`,
-      code: 'unsupported-syntax',
-    },
   ])('$name 给出诊断并阻止部分执行', ({ body, code }) => {
     const result = parseRapidProgram(`MODULE BrokenBranch
     VAR bool ready := TRUE;

@@ -67,6 +67,18 @@ const conditionalInstruction = computed(() => {
   const instruction = props.instruction
   return instruction && instruction.kind === 'if' ? instruction : null
 })
+const whileInstruction = computed(() => {
+  const instruction = props.instruction
+  return instruction && instruction.kind === 'while' ? instruction : null
+})
+const forInstruction = computed(() => {
+  const instruction = props.instruction
+  return instruction && instruction.kind === 'for' ? instruction : null
+})
+const exitInstruction = computed(() => {
+  const instruction = props.instruction
+  return instruction && instruction.kind === 'exitdo' ? instruction : null
+})
 const kindLabel = computed(() => {
   if (motionInstruction.value) return motionInstruction.value.kind === 'movej' ? 'MoveJ' : 'MoveL'
   return assignmentInstruction.value ? '赋值' : ''
@@ -144,6 +156,19 @@ const kindLabel = computed(() => {
       <dl v-else-if="conditionalInstruction" class="instruction-summary-fields">
         <div><dt>指令</dt><dd>{{ conditionalInstruction.conditionKind === 'if' ? 'IF' : 'ELSEIF' }}</dd></div>
         <div><dt>条件</dt><dd>{{ conditionalInstruction.sourceText }}</dd></div>
+      </dl>
+      <dl v-else-if="whileInstruction" class="instruction-summary-fields">
+        <div><dt>指令</dt><dd>WHILE</dd></div>
+        <div><dt>条件</dt><dd>{{ whileInstruction.sourceText }}</dd></div>
+      </dl>
+      <dl v-else-if="forInstruction" class="instruction-summary-fields">
+        <div><dt>指令</dt><dd>FOR</dd></div>
+        <div><dt>循环头</dt><dd>{{ forInstruction.sourceText }}</dd></div>
+        <div><dt>循环变量</dt><dd>{{ forInstruction.loopVar.name }}</dd></div>
+      </dl>
+      <dl v-else-if="exitInstruction" class="instruction-summary-fields">
+        <div><dt>指令</dt><dd>EXITDO</dd></div>
+        <div><dt>说明</dt><dd>提前退出当前循环</dd></div>
       </dl>
     </div>
   </div>

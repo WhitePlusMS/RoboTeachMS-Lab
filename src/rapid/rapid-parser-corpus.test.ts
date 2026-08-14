@@ -30,31 +30,29 @@ ENDMODULE
     }
   })
 
-  it('VAR 赋值与控制流得到 unsupported-syntax，而不是崩溃或被静默忽略', () => {
-    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段2/8（可变声明、WHILE、IF/ELSE/ENDIF）。
+  it('真实关键字（TEST/局部 VAR 等）得到 unsupported-syntax，而不是崩溃或被误判成 lexical-error', () => {
+    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段（TEST/CASE 多分支与过程内局部声明仍在教学子集之外）。
     const source = `MODULE MainModule
     VAR intnum NUMLATASNOK := 0;
     PROC main()
         VAR num i := 0;
-        WHILE i < 3 DO
+        TEST i
+        CASE 1:
             i := i + 1;
-        ENDWHILE
-        IF i = 3 THEN
-            num := i;
-        ENDIF
+        DEFAULT:
+        ENDTEST
     ENDPROC
 ENDMODULE
 `
     const result = parseRapidProgram(source)
     const codes = result.diagnostics.map((d) => d.code)
-    // 识别出的真实关键字（VAR/WHILE/IF）必须归入 unsupported-syntax，不得退化为 lexical-error。
+    // 识别出的真实关键字（TEST/局部 VAR）必须归入 unsupported-syntax，不得退化为 lexical-error。
     expect(codes).toContain('unsupported-syntax')
-    // 具体到这些关键字都应产生 unsupported-syntax 分类，而不是 lexical-error。
     expect(
-      result.diagnostics.some((d) => d.code === 'unsupported-syntax' && d.message.includes('VAR')),
+      result.diagnostics.some((d) => d.code === 'unsupported-syntax' && d.message.includes('TEST')),
     ).toBe(true)
     expect(
-      result.diagnostics.some((d) => d.code === 'unsupported-syntax' && d.message.includes('WHILE')),
+      result.diagnostics.some((d) => d.code === 'unsupported-syntax' && d.message.includes('VAR')),
     ).toBe(true)
     // 表达式内的运算符（+/*/=/< 等）不在词法集合中，按 lexical-error 显式上报（非静默忽略），
     // 但真实关键字本身绝不能被误判成 lexical-error。

@@ -10,10 +10,12 @@ import {
   type RapidAssignmentInstruction,
   type RapidDiagnostic,
   type RapidExecutableInstruction,
+  type RapidForInstruction,
   type RapidMotionInstruction,
   type RapidParseResult,
   type RapidScalarExpression,
   type RapidSourceRange,
+  type RapidWhileInstruction,
 } from '../rapid/rapid-parser.ts'
 import {
   applyRapidEdit,
@@ -205,9 +207,23 @@ function rapidLogicSignature(parsed: RapidParseResult): string {
   const statements = parsed.program.map((instruction) => {
     if (instruction.kind === 'assign') return `assign|${instruction.sourceText}`
     if (instruction.kind === 'if') return `if|${instruction.conditionKind}|${instruction.sourceText}`
+    if (instruction.kind === 'while') return `while|${instruction.sourceText}`
+    if (instruction.kind === 'for') return `for|${instruction.sourceText}`
+    if (instruction.kind === 'exitdo') return `exitdo|${instruction.sourceText}`
     return `motion|${instruction.kind}`
   })
   return `${scalarDeclarations.join('\n')}\n---\n${statements.join('\n')}`
+}
+
+/** 教学防死循环：整个程序运行期间所有循环步进（执行到循环头）的全局累计上限。 */
+const MAX_LOOP_STEPS = 10000
+
+/** FOR 计数循环的运行游标：每次执行到循环头时保持"是否已初始化"与当前值。 */
+interface ForCursor {
+  initialized: boolean
+  current: number
+  end: number
+  step: number
 }
 
 function executeAssignment(
@@ -263,6 +279,15 @@ export function useProgramController(options: ProgramControllerOptions): Program
         nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget,
       }
     }
+    if (instruction.kind === 'while') {
+      return executeWhile(instruction, context)
+    }
+    if (instruction.kind === 'for') {
+      return executeFor(instruction, context)
+    }
+    if (instruction.kind === 'exitdo') {
+      return { ok: true, result: 'completed', nextPointer: instruction.target }
+    }
     if (instruction.kind === 'movej') {
       const outcome = await executeMoveJ(instruction, {
         model: options.profile.model,
@@ -283,6 +308,105 @@ export function useProgramController(options: ProgramControllerOptions): Program
       return attachBranchNextPointer(instruction, outcome)
     }
     return executeAssignment(instruction, context)
+  }
+
+  // 教学防死循环：run/step 复用同一 seam，步数在全程序运行期内全局累计。
+  let loopSteps = 0
+  // FOR 计数循环运行游标：按指令引用追踪"是否已初始化 + 当前计数值"。
+  const forCursors = new Map<RapidForInstruction, ForCursor>()
+
+  /** 每次执行到循环头先递增全局步数，超限即报运行时错误并自动停止。 */
+  function consumeLoopStep(): InstructionOutcome | null {
+    loopSteps += 1
+    if (loopSteps > MAX_LOOP_STEPS) {
+      return { ok: false, error: { kind: 'runtime-error', message: `循环迭代次数超过安全上限 ${MAX_LOOP_STEPS}` } }
+    }
+    return null
+  }
+
+  function executeWhile(
+    instruction: RapidWhileInstruction,
+    context: ProgramExecutionContext,
+  ): InstructionOutcome {
+    const over = consumeLoopStep()
+    if (over) return over
+    const result = evaluateScalarExpression(instruction.condition, context)
+    if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
+    if (typeof result.value !== 'boolean') {
+      return { ok: false, error: { kind: 'runtime-error', message: 'WHILE 条件必须是 bool' } }
+    }
+    return {
+      ok: true,
+      result: 'completed',
+      nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget,
+    }
+  }
+
+  /** 求值一个必须为 num 的表达式；非 num 返回运行时错误结果。判别联合避免对象/数字的 typeof 判别。 */
+  function evaluateNumExpr(
+    expression: RapidScalarExpression,
+    context: ProgramExecutionContext,
+    what: string,
+  ): { ok: true; value: number } | { ok: false; outcome: InstructionOutcome } {
+    const result = evaluateScalarExpression(expression, context)
+    if (!result.ok) return { ok: false, outcome: { ok: false, error: { kind: 'runtime-error', message: result.message } } }
+    if (typeof result.value !== 'number' || !Number.isFinite(result.value)) {
+      return { ok: false, outcome: { ok: false, error: { kind: 'runtime-error', message: `${what} 必须是有限数值` } } }
+    }
+    return { ok: true, value: result.value }
+  }
+
+  function readForBound(
+    expression: RapidScalarExpression | null,
+    fallback: number,
+    context: ProgramExecutionContext,
+    what: string,
+  ): number | InstructionOutcome {
+    if (expression === null) return fallback
+    const evaluated = evaluateNumExpr(expression, context, what)
+    if (!evaluated.ok) return evaluated.outcome
+    return evaluated.value
+  }
+
+  function executeFor(
+    instruction: RapidForInstruction,
+    context: ProgramExecutionContext,
+  ): InstructionOutcome {
+    const over = consumeLoopStep()
+    if (over) return over
+    let cursor = forCursors.get(instruction)
+    if (!cursor) {
+      cursor = { initialized: false, current: 0, end: 0, step: 1 }
+      forCursors.set(instruction, cursor)
+    }
+    if (!cursor.initialized) {
+      const from = readForBound(instruction.fromExpr, NaN, context, 'FOR 起始值')
+      if (typeof from !== 'number') return from
+      const to = readForBound(instruction.toExpr, NaN, context, 'FOR 终止值')
+      if (typeof to !== 'number') return to
+      const step = readForBound(instruction.stepExpr, 1, context, 'FOR 步长')
+      if (typeof step !== 'number') return step
+      // 步长为 0 无法推进，直接判定空循环。
+      if (step === 0) {
+        forCursors.delete(instruction)
+        return { ok: true, result: 'completed', nextPointer: instruction.falseTarget }
+      }
+      cursor.initialized = true
+      cursor.current = from
+      cursor.end = to
+      cursor.step = step
+    } else {
+      cursor.current += cursor.step
+    }
+    const finished = cursor.step > 0 ? cursor.current > cursor.end : cursor.current < cursor.end
+    if (finished) {
+      forCursors.delete(instruction)
+      return { ok: true, result: 'completed', nextPointer: instruction.falseTarget }
+    }
+    if (!context.writeVariable(instruction.loopVar.name, cursor.current)) {
+      return { ok: false, error: { kind: 'runtime-error', message: `无法写入循环变量 ${instruction.loopVar.name}` } }
+    }
+    return { ok: true, result: 'completed', nextPointer: instruction.trueTarget }
   }
 
   const seam: ProgramExecutionSeam<RapidExecutableInstruction> = {
@@ -467,6 +591,9 @@ export function useProgramController(options: ProgramControllerOptions): Program
     if (executor.getSnapshot().state === 'running') return
     needsPPtoMain = false
     pendingEdit = null
+    // 复位教学防死循环计数器与 FOR 游标，开始全新的执行会话。
+    loopSteps = 0
+    forCursors.clear()
     // 用最新源码重建执行器并复位到 main；不清零机器人、不伪装已回到原路径。
     const runtimeValues = logicContextDirty ? new Map() : executor.getSnapshot().variables
     if (parsed.value.canExecute) {
