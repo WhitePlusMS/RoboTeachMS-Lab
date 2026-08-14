@@ -84,6 +84,18 @@ describe('Ticket 03 — RelTool 沿工具坐标系平移与旋转', () => {
     }
   })
 
+  it('解析 RelTool 的命名旋转开关，允许省略未使用的旋转轴', () => {
+    const result = parseRapidProgram(
+      `MODULE T\n    CONST robtarget pBase := [[100,200,300],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n    PROC main()\n        MoveJ RelTool(pBase,10,0,0 \\Rx:=15 \\Rz:=22.5),v100,fine,tool0;\n    ENDPROC\nENDMODULE\n`,
+    )
+    expect(result.diagnostics).toEqual([])
+    expect(result.canExecute).toBe(true)
+    const instruction = result.program[0]
+    if (!instruction || !isRapidMotionInstruction(instruction)) throw new Error('RelTool 旋转开关结构异常')
+    expect(instruction.target.trans).toEqual([110, 200, 300])
+    expect(instruction.target.rot).not.toEqual(BASE.rot)
+  })
+
   it('RelTool 可选旋转参数改变目标姿态', () => {
     const rel = relToolRobTarget(BASE, 0, 0, 0, 90, 0, 0)
     expect(rel.rot).not.toEqual(BASE.rot)

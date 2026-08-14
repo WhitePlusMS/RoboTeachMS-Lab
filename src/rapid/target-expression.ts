@@ -48,7 +48,7 @@ export function offsRobTarget(target: RobTarget, x: number, y: number, z: number
   }
 }
 
-/** RelTool：沿工具坐标系的 Dx/Dy/Dz 平移，并可选绕工具轴旋转（仅当三个旋转参数都给定时）。 */
+/** RelTool：沿工具坐标系的 Dx/Dy/Dz 平移，并按已提供的旋转轴绕工具轴旋转；省略轴按 0 度处理。 */
 export function relToolRobTarget(
   target: RobTarget,
   dx: number,
@@ -63,11 +63,11 @@ export function relToolRobTarget(
   const trans = Matrix4x4.mat3Vec3Mul(r0, [dx, dy, dz])
   const position = [target.trans[0] + trans[0], target.trans[1] + trans[1], target.trans[2] + trans[2]] as RobTarget['trans']
 
-  if (rx === undefined || ry === undefined || rz === undefined) {
+  if (rx === undefined && ry === undefined && rz === undefined) {
     return { ...target, trans: position }
   }
   // 先绕 x、再新 y、最后新 z：R = r0 · Rx·Ry·Rz。
-  const rotation = mat3Mul(r0, toolEulerRotation(rx, ry, rz))
+  const rotation = mat3Mul(r0, toolEulerRotation(rx ?? 0, ry ?? 0, rz ?? 0))
   const quat = rotationMatrixToQuaternion(rotation)
   return { ...target, trans: position, rot: internalQuatToRapid(quat) }
 }

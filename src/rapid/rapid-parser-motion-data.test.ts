@@ -82,6 +82,18 @@ describe('Ticket 01 — 五类 ABB record 解析为领域类型', () => {
     expect(result.data.some((d) => d.name === 't')).toBe(false)
   })
 
+  it('speeddata/zonedata 中间字段错误只保留一个 invalid-data 根因', () => {
+    const speed = parseRapidProgram(program('    CONST speeddata fast := [100,broken,100,100];'))
+    expect(speed.diagnostics).toHaveLength(1)
+    expect(speed.diagnostics[0]?.code).toBe('invalid-data')
+    expect(speed.data.some((entry) => entry.name === 'fast')).toBe(false)
+
+    const zone = parseRapidProgram(program('    CONST zonedata brokenZone := [FALSE,5,8,broken,0.8,8,0.8];'))
+    expect(zone.diagnostics).toHaveLength(1)
+    expect(zone.diagnostics[0]?.code).toBe('invalid-data')
+    expect(zone.data.some((entry) => entry.name === 'brokenZone')).toBe(false)
+  })
+
   it('非归一化四元数（robtarget.rot / 框架 rot / aom）给出 invalid-data 精确诊断', () => {
     // robtarget.rot 长度 2 而非 1：应被诊断并且不进入 Program Data（票据 01 验收）。
     const rt = program('    CONST robtarget p := [[0,0,0],[2,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];')

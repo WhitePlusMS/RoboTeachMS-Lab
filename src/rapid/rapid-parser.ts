@@ -227,6 +227,15 @@ interface PendingTarget {
   sourceText: string
 }
 
+type PendingTargetExpressionKind = Exclude<PendingTarget['kind'], 'name'>
+
+interface PendingReference {
+  kind: OperandKind
+  token: Token
+  /** 位置函数基准的语义类型；用于把已声明但类型错误的名称诊断为 invalid-data。 */
+  targetExpression?: PendingTargetExpressionKind
+}
+
 interface PendingMotion {
   kind: 'movej' | 'movel'
   target: PendingTarget
@@ -308,6 +317,8 @@ const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*/
  * 六类已支持的运动数据类型与首期 num/bool 标量不在此列。
  */
 const KNOWN_UNSUPPORTED_TYPES = new Set([
+  'pos',
+  'shapedata',
   'string',
   'int',
   'intnum',
@@ -504,7 +515,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
   const pendingStatements: PendingStatement[] = []
   // 解析条件体时临时切换到分支自己的语句容器；最终仍会展平为同一 program 数组。
   let statementSink = pendingStatements
-  const pendingReferences: Array<{ kind: OperandKind; token: Token }> = []
+  const pendingReferences: PendingReference[] = []
   // 系统预定义名称（tool0/wobj0/load0/速度/zone）在各运动操作数中的引用范围，供 Program Data 只读展示。
   const systemReferences = new Map<string, RapidSourceRange[]>()
   let cursor = 0
@@ -516,6 +527,8 @@ export function parseRapidProgram(source: string): RapidParseResult {
   // 受控编辑插入点：新模块级声明的插入位置（main PROC 之前）、main 内运动指令插入位置（ENDPROC 之前）。
   let dataInsertOffset = 0
   const motionInsertionPoints: RapidMotionInsertionPoint[] = []
+  /** 源码中识别到的运动起点，包含语句损坏但仍可作为受控插入锚点的位置。 */
+  const motionAnchors: Array<{ offset: number; line: number }> = []
   let mainEndOffset = 0
 
   function current(): Token {
@@ -606,7 +619,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       const value = parseFiniteNumber(fieldName)
       if (value === null) {
         malformed = true
-        // parseFiniteNumber 对缺失值不消费当前 token；恢复必须主动前进，避免死循环。
+        // parseFiniteNumber 对逗号、右括号等边界不消费当前 token；恢复必须主动前进，避免死循环。
         if (!isSymbol(current(), ',') && !isSymbol(current(), ']') && current().kind !== 'eof') advance()
       } else {
         values.push(value)
@@ -678,6 +691,16 @@ export function parseRapidProgram(source: string): RapidParseResult {
     if (isSymbol(current(), '+') || isSymbol(current(), '-')) sign = advance().text
     if (current().kind !== 'number') {
       addMissingDiagnostic('invalid-data', `${fieldName} 必须是数字`, current())
+      // 非分隔符的非法值属于当前字段，主动消费它；否则后续字段会在同一 token 上重复报错。
+      if (
+        current().kind !== 'eof' &&
+        !isSymbol(current(), ',') &&
+        !isSymbol(current(), ']') &&
+        !isSymbol(current(), ')') &&
+        !isSymbol(current(), ';')
+      ) {
+        advance()
+      }
       return null
     }
     const token = advance()
@@ -1216,8 +1239,12 @@ export function parseRapidProgram(source: string): RapidParseResult {
   }
 
   /** 暂存操作数名；即使所在运动断裂也必须保留引用信息。 */
-  function queueReference(kind: OperandKind, nameToken: Token): void {
-    pendingReferences.push({ kind, token: nameToken })
+  function queueReference(
+    kind: OperandKind,
+    nameToken: Token,
+    targetExpression?: PendingTargetExpressionKind,
+  ): void {
+    pendingReferences.push({ kind, token: nameToken, targetExpression })
   }
 
   /** 在完整模块解析后结算引用，支持声明位于 main 之后的合法前向引用。 */
@@ -1229,9 +1256,16 @@ export function parseRapidProgram(source: string): RapidParseResult {
       const symbol = symbols.get(key)
       const range = rangeFromToken(ref.token, lineStarts)
       if (symbol) {
-        // 同名符号必须与被引用操作数角色匹配（例如 robtarget 不能用作 speed）。类型不符按未定义报。
+        // 同名符号必须与被引用操作数角色匹配（例如 robtarget 不能用作 speed）；
+        // Offs/RelTool 基准的类型错误由位置函数语义单独报 invalid-data。
         if (symbol.kind === expectedKind) {
           symbol.references.push(range)
+        } else if (ref.kind === 'target' && ref.targetExpression) {
+          addDiagnostic(
+            'invalid-data',
+            `${ref.targetExpression === 'offs' ? 'Offs' : 'RelTool'} 的基准 ${ref.token.text} 必须是 robtarget，实际是 ${symbol.kind}`,
+            ref.token,
+          )
         } else {
           addDiagnostic(
             'undefined-symbol',
@@ -1388,8 +1422,9 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
   /**
    * 读取目标操作数：先取首 token（普通 robtarget 名称，或 Offs/RelTool 位置函数关键字）。
-   * Offs(p,[x,y,z]) / RelTool(p,[dx,dy,dz[,rx,ry,rz]]) 参数为数值字面量；缺失基准、参数数量错误、
-   * 非数值参数或缺失括号均给出精确诊断并中止整条运动。
+   * Offs(p,[x,y,z]) / RelTool(p,[dx,dy,dz[,rx,ry,rz]]) 参数为数值字面量；RelTool 还接受
+   * `\\Rx:=`、`\\Ry:=`、`\\Rz:=` 命名旋转开关。缺失基准、参数数量错误、非数值参数或缺失括号
+   * 均给出精确诊断并中止整条运动。
    */
   function parseTargetOperand(onAbort: () => void): { target: PendingTarget | null; separatorConsumed: boolean } {
     const slot = expectOperandSlot('目标点名称', onAbort)
@@ -1418,6 +1453,48 @@ export function parseRapidProgram(source: string): RapidParseResult {
         }
         params.push(value)
       }
+
+      let namedRotationCount = 0
+      let namedRx: number | undefined
+      let namedRy: number | undefined
+      let namedRz: number | undefined
+      const namedRotationNames = new Set<string>()
+      if (keyword === 'reltool') {
+        while (isSymbol(current(), '\\')) {
+          advance()
+          const option = expectIdentifier('RelTool 可选参数名称')
+          if (!option) {
+            recoverMotionTail()
+            onAbort()
+            return { target: null, separatorConsumed: false }
+          }
+          const optionName = normalizeName(option.text)
+          if (optionName !== 'rx' && optionName !== 'ry' && optionName !== 'rz') {
+            addDiagnostic('unsupported-option', `不支持 RelTool 可选参数 ${option.text}`, option)
+            recoverMotionTail()
+            onAbort()
+            return { target: null, separatorConsumed: false }
+          }
+          if (namedRotationNames.has(optionName)) {
+            addDiagnostic('unsupported-option', `重复的 RelTool 可选参数 ${option.text}`, option)
+            recoverMotionTail()
+            onAbort()
+            return { target: null, separatorConsumed: false }
+          }
+          namedRotationNames.add(optionName)
+          namedRotationCount += 1
+          const assign = expectSymbol(':=')
+          const value = parseFiniteNumber(`RelTool ${option.text} 的参数`)
+          if (!assign || value === null) {
+            recoverMotionTail()
+            onAbort()
+            return { target: null, separatorConsumed: false }
+          }
+          if (optionName === 'rx') namedRx = value
+          if (optionName === 'ry') namedRy = value
+          if (optionName === 'rz') namedRz = value
+        }
+      }
       if (!isSymbol(current(), ')')) {
         addMissingDiagnostic('syntax-error', `缺少 ${first.text} 的右括号 ")"`, current())
         recoverMotionTail()
@@ -1431,7 +1508,11 @@ export function parseRapidProgram(source: string): RapidParseResult {
         addDiagnostic('invalid-data', `Offs 需要 3 个平移参数，实际 ${paramCount} 个`, first)
         return { target: null, separatorConsumed: false }
       }
-      if (keyword === 'reltool' && paramCount !== 3 && paramCount !== 6) {
+      if (keyword === 'reltool' && namedRotationCount > 0 && paramCount !== 3) {
+        addDiagnostic('invalid-data', `RelTool 使用命名旋转开关时必须有 3 个平移参数，实际 ${paramCount} 个`, first)
+        return { target: null, separatorConsumed: false }
+      }
+      if (keyword === 'reltool' && namedRotationCount === 0 && paramCount !== 3 && paramCount !== 6) {
         addDiagnostic('invalid-data', `RelTool 需要 3 或 6 个参数，实际 ${paramCount} 个`, first)
         return { target: null, separatorConsumed: false }
       }
@@ -1445,9 +1526,9 @@ export function parseRapidProgram(source: string): RapidParseResult {
           dx,
           dy,
           dz,
-          rx: paramCount === 6 ? rx : undefined,
-          ry: paramCount === 6 ? ry : undefined,
-          rz: paramCount === 6 ? rz : undefined,
+          rx: namedRotationCount > 0 ? namedRx : paramCount === 6 ? rx : undefined,
+          ry: namedRotationCount > 0 ? namedRy : paramCount === 6 ? ry : undefined,
+          rz: namedRotationCount > 0 ? namedRz : paramCount === 6 ? rz : undefined,
           range: rangeFromOffsets(exprStart, end, lineStarts),
           sourceText: source.slice(exprStart, end),
         },
@@ -1471,6 +1552,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
   function parseMotion(): void {
     const start = advance()
     const kind = normalizeName(start.text) as PendingMotion['kind']
+    motionAnchors.push({ offset: start.start, line: positionAt(start.start, lineStarts).line })
     let abandoned = false
     const abort = (): void => {
       abandoned = true
@@ -1479,7 +1561,13 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const targetResult = parseTargetOperand(abort)
     const target = targetResult.target
     let separatorConsumed = targetResult.separatorConsumed
-    if (target) queueReference('target', target.baseToken)
+    if (target) {
+      queueReference(
+        'target',
+        target.baseToken,
+        target.kind === 'name' ? undefined : target.kind,
+      )
+    }
     if (abandoned) return
 
     // 期望 "," 分隔后解析下一个操作数；缺逗号时只报一次根因并中止，避免连锁缺参错误。
@@ -1719,7 +1807,25 @@ export function parseRapidProgram(source: string): RapidParseResult {
   }
 
   function skipProcedureBody(): void {
-    while (current().kind !== 'eof' && !isKeyword(current(), 'ENDPROC')) advance()
+    // 非 main 过程不进入可执行计划，但仍扫描最小能力边界，避免把局部越界声明和 vmax 静默吞掉。
+    while (current().kind !== 'eof' && !isKeyword(current(), 'ENDPROC')) {
+      const token = current()
+      if (isKeyword(token, 'VMAX')) {
+        addDiagnostic('unsupported-option', 'vmax 依赖当前机器人型号的最大速度，暂无运行期解析', token)
+      } else if (
+        isKeyword(token, 'CONST') ||
+        isKeyword(token, 'PERS') ||
+        isKeyword(token, 'TASK') ||
+        isKeyword(token, 'VAR')
+      ) {
+        const type = peek()
+        const typeName = normalizeName(type.text)
+        if (type.kind === 'identifier' && (typeName === 'num' || typeName === 'bool' || KNOWN_UNSUPPORTED_TYPES.has(typeName))) {
+          addDiagnostic('unsupported-option', `非 main 过程暂不支持 ${type.text} 声明`, type)
+        }
+      }
+      advance()
+    }
     expectKeyword('ENDPROC')
   }
 
@@ -1945,14 +2051,13 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
   for (const statement of pendingStatements) appendStatement(statement)
 
-  // 受控插入仍以最终可执行计划的 program 下标为准；条件/赋值占用的下标自然被保留。
+  // 受控插入仍以最终可执行计划的 program 下标为准；损坏运动用其源码位置映射到前方已解析指令数。
   motionInsertionPoints.length = 0
-  for (const [index, instruction] of program.entries()) {
-    if (!isRapidMotionInstruction(instruction)) continue
+  for (const anchor of motionAnchors) {
     motionInsertionPoints.push({
-      index,
-      offset: instruction.sourceRange.start.offset,
-      line: instruction.sourceRange.start.line,
+      index: program.filter((instruction) => instruction.sourceRange.start.offset < anchor.offset).length,
+      offset: anchor.offset,
+      line: anchor.line,
     })
   }
   if (mainEndOffset > 0) {

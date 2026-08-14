@@ -64,6 +64,27 @@ describe('RAPID 文本解析模块', () => {
     expect(result.motionInsertionPoints.map((point) => point.index)).toEqual([0, 1, 2, 3])
   })
 
+  it('损坏运动保留源码插入锚点，并不吞掉后续合法运动', () => {
+    const source = `MODULE StrictRecovery
+    CONST robtarget P := [[1,2,3],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ P, v100, fine, tool0;
+        MoveL P v100, fine, tool0;
+        MoveJ P, v50, z10, tool0;
+    ENDPROC
+ENDMODULE`
+    const result = parseRapidProgram(source)
+
+    expect(result.diagnostics).toHaveLength(1)
+    expect(result.diagnostics[0]?.code).toBe('syntax-error')
+    expect(result.motionInsertionPoints).toEqual([
+      { index: 0, offset: 128, line: 4 },
+      { index: 1, offset: 164, line: 5 },
+      { index: 1, offset: 199, line: 6 },
+      { index: 2, offset: 229, line: 7 },
+    ])
+  })
+
   it('非法速度诊断定位到速度操作数而不是重复出现的目标文本', () => {
     const source = `
 MODULE DuplicateText

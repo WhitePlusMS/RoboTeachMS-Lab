@@ -54,6 +54,21 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
     // 不存在 lexical-error：真实 RAPID 结构必须按结构/能力分类，不误判为词法错误。
     expect([other, varDecl].every((r) => r.diagnostics.every((d) => d.code !== 'lexical-error'))).toBe(true)
   })
+
+  it('跳过非 main 过程执行体时仍报告越界声明与 vmax 选项', () => {
+    const result = parseRapidProgram(`MODULE A
+    PROC helper()
+        VAR num localCount := 0;
+        MoveJ p1,vmax,fine,tool0;
+    ENDPROC
+    PROC main()
+    ENDPROC
+ENDMODULE
+`)
+
+    expect(result.canExecute).toBe(false)
+    expect(result.diagnostics.some((item) => item.code === 'unsupported-option')).toBe(true)
+  })
 })
 
 describe('Ticket 02 — robtarget 声明诊断', () => {
@@ -65,7 +80,7 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
   })
 
   it('已知但不支持的类型明确报 unsupported-option', () => {
-    for (const typeName of ['num', 'jointtarget', 'int']) {
+    for (const typeName of ['num', 'jointtarget', 'int', 'pos', 'shapedata']) {
       const result = parseRapidProgram(`MODULE A\n    CONST ${typeName} x := 5;\n` + MAIN_MODULE_SUFFIX)
       const diagnostic = result.diagnostics.find(
         (item) => item.code === 'unsupported-option' && item.message.includes(typeName),
