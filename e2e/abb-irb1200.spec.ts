@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import { extractPose } from '../src/robotics/kinematics'
-import type { JointAngles } from '../src/robotics/types'
+import { extractPose } from '@/robotics/kinematics'
+import type { JointAngles } from '@/robotics/types'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,
-} from '../src/robot-models/abb-irb1200/abb-kinematics'
+} from '@/robot-models/abb-irb1200/abb-kinematics'
 import {
   ABB_ACTIVE_JOINT_NODE_NAMES,
   ABB_JOINT_AXES,
@@ -16,9 +16,12 @@ import {
   applyAbbJointAngles,
   findNode,
   prepareAbbModel,
-} from '../src/scene/abb-scene.ts'
-import { abbBaseFrameToSceneFrame, ABB_FLANGE_TO_FBX_TOOL } from '../src/scene/abb-scene-transform.ts'
-import { extractAbbFbxCalibration } from '../src/scene/abb-fbx-calibration.ts'
+} from '@/scene/abb-scene.ts'
+import {
+  abbBaseFrameToSceneFrame,
+  ABB_FLANGE_TO_FBX_TOOL,
+} from '@/scene/abb-scene-transform.ts'
+import { extractAbbFbxCalibration } from '@/scene/abb-fbx-calibration.ts'
 
 async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Promise<{
   position: [number, number, number]
@@ -59,10 +62,22 @@ function readVisualToolPose(tool: THREE.Object3D): {
 
 function rotationQuaternion(rotation: number[][]): THREE.Quaternion {
   const matrix = new THREE.Matrix4().set(
-    rotation[0][0], rotation[0][1], rotation[0][2], 0,
-    rotation[1][0], rotation[1][1], rotation[1][2], 0,
-    rotation[2][0], rotation[2][1], rotation[2][2], 0,
-    0, 0, 0, 1,
+    rotation[0][0],
+    rotation[0][1],
+    rotation[0][2],
+    0,
+    rotation[1][0],
+    rotation[1][1],
+    rotation[1][2],
+    0,
+    rotation[2][0],
+    rotation[2][1],
+    rotation[2][2],
+    0,
+    0,
+    0,
+    0,
+    1,
   )
   return new THREE.Quaternion().setFromRotationMatrix(matrix)
 }
@@ -90,10 +105,7 @@ function vectorLength(vector: [number, number, number]): number {
   return Math.hypot(...vector)
 }
 
-function vectorDot(
-  left: [number, number, number],
-  right: [number, number, number],
-): number {
+function vectorDot(left: [number, number, number], right: [number, number, number]): number {
   const leftLength = vectorLength(left)
   const rightLength = vectorLength(right)
   if (leftLength === 0 || rightLength === 0) return 0
@@ -106,7 +118,8 @@ function distanceToLineMm(
   lineEnd: [number, number, number],
 ): number {
   const direction = new THREE.Vector3(...lineEnd).sub(new THREE.Vector3(...lineStart))
-  if (direction.lengthSq() === 0) return new THREE.Vector3(...point).distanceTo(new THREE.Vector3(...lineStart))
+  if (direction.lengthSq() === 0)
+    return new THREE.Vector3(...point).distanceTo(new THREE.Vector3(...lineStart))
   const relative = new THREE.Vector3(...point).sub(new THREE.Vector3(...lineStart))
   return relative.cross(direction).length() / direction.length()
 }
@@ -159,11 +172,14 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     const base = findNode(prepared, 'dizuo')
     const baseBounds = new THREE.Box3().setFromObject(base ?? prepared)
     const baseHeightMm = (baseBounds.max.y - baseBounds.min.y) * 1000
-    console.info('[ABB-FBX-BASE-BOUNDS]', JSON.stringify({
-      minMm: [baseBounds.min.x * 1000, baseBounds.min.y * 1000, baseBounds.min.z * 1000],
-      maxMm: [baseBounds.max.x * 1000, baseBounds.max.y * 1000, baseBounds.max.z * 1000],
-      heightMm: (baseBounds.max.y - baseBounds.min.y) * 1000,
-    }))
+    console.info(
+      '[ABB-FBX-BASE-BOUNDS]',
+      JSON.stringify({
+        minMm: [baseBounds.min.x * 1000, baseBounds.min.y * 1000, baseBounds.min.z * 1000],
+        maxMm: [baseBounds.max.x * 1000, baseBounds.max.y * 1000, baseBounds.max.z * 1000],
+        heightMm: (baseBounds.max.y - baseBounds.min.y) * 1000,
+      }),
+    )
     console.info('[ABB-FBX-CALIBRATION]', JSON.stringify(calibration))
     await testInfo.attach('fbx-joint-calibration.json', {
       body: JSON.stringify(calibration, null, 2),
@@ -186,8 +202,9 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
       const actual = readVisualToolPose(tool)
       // 核心 DH 给出 ABB 基座法兰 frame：先经唯一场景显示转换映射到 Three.js，再组合
       // flange→FBX joint7 视觉工具变换；FBX 世界坐标还包含 dizuo 支架，因此对位置 Y 叠加 baseHeightMm。
-      const expectedMatrix = abbBaseFrameToSceneFrame(forwardAbbKinematicsDegrees(joints))
-        .multiply(ABB_FLANGE_TO_FBX_TOOL)
+      const expectedMatrix = abbBaseFrameToSceneFrame(forwardAbbKinematicsDegrees(joints)).multiply(
+        ABB_FLANGE_TO_FBX_TOOL,
+      )
       const expectedPose = extractPose(expectedMatrix)
       const expectedScenePosition: [number, number, number] = [
         expectedPose.position[0],
@@ -218,8 +235,12 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
       contentType: 'application/json',
     })
 
-    const maxPositionError = Math.max(...measurements.map((measurement) => measurement.positionError))
-    const maxOrientationError = Math.max(...measurements.map((measurement) => measurement.orientationError))
+    const maxPositionError = Math.max(
+      ...measurements.map((measurement) => measurement.positionError),
+    )
+    const maxOrientationError = Math.max(
+      ...measurements.map((measurement) => measurement.orientationError),
+    )
     // ROS-Industrial 候选 DH 与 FBX 骨骼轴线存在约 10 mm 的建模偏差，但运动方向和姿态必须闭环。
     expect(maxPositionError, JSON.stringify(measurements, null, 2)).toBeLessThan(15)
     expect(maxOrientationError, JSON.stringify(measurements, null, 2)).toBeLessThan(0.5)
@@ -257,13 +278,20 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
       prepared.updateMatrixWorld(true)
       const movedPositions = nodes.map((node) => readNodePosition(node as THREE.Object3D))
 
-      const actualLinkAtZero = subtractVector(zeroPositions[nextNodeIndex], zeroPositions[jointIndex])
-      const actualLinkAtMoved = subtractVector(movedPositions[nextNodeIndex], movedPositions[jointIndex])
+      const actualLinkAtZero = subtractVector(
+        zeroPositions[nextNodeIndex],
+        zeroPositions[jointIndex],
+      )
+      const actualLinkAtMoved = subtractVector(
+        movedPositions[nextNodeIndex],
+        movedPositions[jointIndex],
+      )
       const dhZeroLink = subtractVector(
         zeroDhFrames[nextNodeIndex].getPosition(),
         zeroDhFrames[jointIndex].getPosition(),
       )
-      const movedDhFrames = forwardAbbKinematicsFramesDegrees(movedJoints).map(abbBaseFrameToSceneFrame)
+      const movedDhFrames =
+        forwardAbbKinematicsFramesDegrees(movedJoints).map(abbBaseFrameToSceneFrame)
       const dhMovedLink = subtractVector(
         movedDhFrames[nextNodeIndex].getPosition(),
         movedDhFrames[jointIndex].getPosition(),
@@ -295,8 +323,16 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
         dhLinkLengthMm: vectorLength(dhZeroLink),
         linkDirectionDotAtZero: vectorDot(actualLinkAtZero, dhZeroLink),
         linkDirectionDotAtMoved: vectorDot(actualLinkAtMoved, dhMovedLink),
-        actualSignedAroundFbxAxis: signedAngleAroundAxis(actualLinkAtZero, actualLinkAtMoved, fbxAxis),
-        actualSignedAroundDhAxis: signedAngleAroundAxis(actualLinkAtZero, actualLinkAtMoved, dhAxis),
+        actualSignedAroundFbxAxis: signedAngleAroundAxis(
+          actualLinkAtZero,
+          actualLinkAtMoved,
+          fbxAxis,
+        ),
+        actualSignedAroundDhAxis: signedAngleAroundAxis(
+          actualLinkAtZero,
+          actualLinkAtMoved,
+          dhAxis,
+        ),
         dhSignedAroundDhAxis: signedAngleAroundAxis(dhZeroLink, dhMovedLink, dhAxis),
       }
     })
@@ -322,7 +358,9 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
 
     const bodyText = await page.locator('body').innerText()
     expect(bodyText).not.toContain('KUKA')
-    expect(consoleMessages.some((message) => message.includes('[AbbScene] ABB FBX 加载完成'))).toBe(true)
+    expect(consoleMessages.some((message) => message.includes('[AbbScene] ABB FBX 加载完成'))).toBe(
+      true,
+    )
     expect(consoleMessages.some((message) => message.includes('底座=dizuo'))).toBe(true)
     expect(pageErrors).toEqual([])
 
@@ -397,11 +435,26 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
       const actual = await readDisplayedPose(page)
       const expectedMatrix = forwardAbbKinematicsDegrees(joints)
       const expected = extractPose(expectedMatrix)
-      const positionDelta = actual.position.map((value, index) => value - expected.position[index]) as [number, number, number]
+      const positionDelta = actual.position.map(
+        (value, index) => value - expected.position[index],
+      ) as [number, number, number]
       const positionError = Math.hypot(...positionDelta)
-      const expectedOrientation = expected.eulerZYX.map((value) => (value * 180) / Math.PI) as [number, number, number]
-      const orientationDelta = actual.orientation.map((value, index) => value - expectedOrientation[index]) as [number, number, number]
-      measurements.push({ joints, actual, expected: { position: expected.position, orientation: expectedOrientation }, positionDelta, orientationDelta, positionError })
+      const expectedOrientation = expected.eulerZYX.map((value) => (value * 180) / Math.PI) as [
+        number,
+        number,
+        number,
+      ]
+      const orientationDelta = actual.orientation.map(
+        (value, index) => value - expectedOrientation[index],
+      ) as [number, number, number]
+      measurements.push({
+        joints,
+        actual,
+        expected: { position: expected.position, orientation: expectedOrientation },
+        positionDelta,
+        orientationDelta,
+        positionError,
+      })
     }
 
     const zeroPose = measurements[0].actual
@@ -425,7 +478,9 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
       body: JSON.stringify({ measurements, singleAxisDeltas }, null, 2),
       contentType: 'application/json',
     })
-    const maxPositionError = Math.max(...measurements.map((measurement) => measurement.positionError))
+    const maxPositionError = Math.max(
+      ...measurements.map((measurement) => measurement.positionError),
+    )
     expect(maxPositionError, JSON.stringify(measurements, null, 2)).toBeLessThan(1)
   })
 
@@ -439,22 +494,24 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     const xInput = page.getByRole('spinbutton', { name: 'X 数值输入', exact: true })
     await xInput.fill(String(worldStart[0] + 5))
     await xInput.press('Tab')
-    const worldSamples = [worldStart, ...await sampleDisplayedPositions(page, 900)]
+    const worldSamples = [worldStart, ...(await sampleDisplayedPositions(page, 900))]
     const worldTarget: [number, number, number] = [worldStart[0] + 5, worldStart[1], worldStart[2]]
     const worldMaxDeviation = Math.max(
       ...worldSamples.map((point) => distanceToLineMm(point, worldStart, worldTarget)),
     )
     expect(worldMaxDeviation).toBeLessThan(0.6)
-    expect(vectorLength(subtractVector(worldSamples.at(-1) ?? worldStart, worldTarget))).toBeLessThan(0.4)
+    expect(
+      vectorLength(subtractVector(worldSamples.at(-1) ?? worldStart, worldTarget)),
+    ).toBeLessThan(0.4)
 
     await page.getByRole('button', { name: 'Tool' }).click()
     await page.getByRole('button', { name: '1 mm', exact: true }).click()
     const toolStart = (await readDisplayedPose(page)).position
     const increaseX = page.getByRole('button', { name: 'X 增加', exact: true })
     await increaseX.dispatchEvent('pointerdown')
-    const toolSamples = [toolStart, ...await sampleDisplayedPositions(page, 750)]
+    const toolSamples = [toolStart, ...(await sampleDisplayedPositions(page, 750))]
     await increaseX.dispatchEvent('pointerup')
-    toolSamples.push(...await sampleDisplayedPositions(page, 220))
+    toolSamples.push(...(await sampleDisplayedPositions(page, 220)))
     const toolEnd = toolSamples.at(-1) ?? toolStart
     const toolMaxDeviation = Math.max(
       ...toolSamples.map((point) => distanceToLineMm(point, toolStart, toolEnd)),

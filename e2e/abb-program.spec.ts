@@ -14,9 +14,7 @@ function statusLabel(page: Parameters<typeof test>[0]['page']) {
 }
 
 /** 读取 CoordinateInfoPanel 显示的正解位置（毫米）。 */
-async function readDisplayedPosition(
-  page: Parameters<typeof test>[0]['page'],
-): Promise<number[]> {
+async function readDisplayedPosition(page: Parameters<typeof test>[0]['page']): Promise<number[]> {
   const values = await page.locator('[aria-label="正解结果"] .pose-grid strong').allTextContents()
   return values.slice(0, 3).map(Number)
 }
@@ -207,7 +205,9 @@ ENDMODULE`)
     await dataTab.click()
     await page.getByRole('tab', { name: 'bool' }).click()
     await stepButton.click()
-    await expect(page.locator('[aria-label="选择 bool enabled"]')).toContainText('初值 FALSE · 当前 TRUE')
+    await expect(page.locator('[aria-label="选择 bool enabled"]')).toContainText(
+      '初值 FALSE · 当前 TRUE',
+    )
     await dataTab.click()
     await stepButton.click()
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('3')
@@ -220,7 +220,10 @@ ENDMODULE`)
     await expect(statusLabel(page)).toHaveText('已完成', { timeout: 30_000 })
 
     // 修改赋值表达式属于逻辑编辑：停止/完成上下文不能静默迁移，必须 PP to Main。
-    const changedSource = (await editor.inputValue()).replace('count := count + 1', 'count := count + 2')
+    const changedSource = (await editor.inputValue()).replace(
+      'count := count + 1',
+      'count := count + 2',
+    )
     await editor.fill(changedSource)
     await expect(page.getByText('请先执行 PP to Main')).toBeVisible()
     await expect(page.getByRole('button', { name: '运行' })).toBeDisabled()
