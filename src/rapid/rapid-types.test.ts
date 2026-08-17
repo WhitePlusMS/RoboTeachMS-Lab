@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { quaternionToRotationMatrix } from '../robotics/math/rotation3d.ts'
+import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
 import { rapidQuatToInternal } from './plan-shared.ts'
 import {
   defaultTool0,
@@ -49,7 +49,14 @@ describe('RAPID 数据契约', () => {
   })
 
   it('LoadData 包含质量/质心/aom 四元数与主惯量 ix/iy/iz', () => {
-    const load: LoadData = { mass: 0, cog: [0, 0, 0], aom: [...RAPID_UNIT_QUAT], ix: 0, iy: 0, iz: 0 }
+    const load: LoadData = {
+      mass: 0,
+      cog: [0, 0, 0],
+      aom: [...RAPID_UNIT_QUAT],
+      ix: 0,
+      iy: 0,
+      iz: 0,
+    }
     expect(load.aom).toHaveLength(4)
     expect(typeof load.ix).toBe('number')
     expect(typeof load.iy).toBe('number')

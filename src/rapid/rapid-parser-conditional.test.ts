@@ -63,7 +63,9 @@ describe('RAPID 非嵌套 IF/ELSEIF/ELSE 解析', () => {
     const elseifMotion = result.program[4]
     const elseMotion = result.program[5]
     expect(ifMotion && isRapidMotionInstruction(ifMotion) && ifMotion.nextPointer).toBe(6)
-    expect(elseifMotion && isRapidMotionInstruction(elseifMotion) && elseifMotion.nextPointer).toBe(6)
+    expect(elseifMotion && isRapidMotionInstruction(elseifMotion) && elseifMotion.nextPointer).toBe(
+      6,
+    )
     expect(elseMotion && isRapidMotionInstruction(elseMotion) && elseMotion.nextPointer).toBe(6)
     expect(result.motionInsertionPoints.map((point) => point.index)).toEqual([2, 4, 5, 6, 7])
   })

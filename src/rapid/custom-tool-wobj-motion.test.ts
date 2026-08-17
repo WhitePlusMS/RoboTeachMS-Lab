@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
-import type { JointAngles, Pose } from '../robotics/types.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { planMoveL } from './movel-planner.ts'
 import {
@@ -9,7 +9,7 @@ import {
   robTargetToWorldPose,
 } from './coordinate-transform.ts'
 import { internalQuatToRapid, robTargetToPose } from './plan-shared.ts'
-import { orientationError, rotationMatrixToQuaternion } from '../robotics/math/rotation3d.ts'
+import { orientationError, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import {
   defaultTool0,
   defaultWobj0,
@@ -93,7 +93,10 @@ describe('Ticket 02 — 自定义 Tool/WObj 影响 MoveJ 法兰目标与 FK', ()
 
   it('自定义 wobj 平移（uframe）偏移机械法兰目标', () => {
     const baseT = fkT(homeFk())
-    const offsetWobj: WobjData = { ...defaultWobj0(), uframe: { trans: [80, 0, 0], rot: [1, 0, 0, 0] } }
+    const offsetWobj: WobjData = {
+      ...defaultWobj0(),
+      uframe: { trans: [80, 0, 0], rot: [1, 0, 0, 0] },
+    }
     const plan = planMoveJ(makeMoveJ(baseT, defaultTool0(), offsetWobj), MODEL, HOME, JOINT_RANGES)
     expect(plan.ok).toBe(true)
     if (!plan.ok) return
@@ -149,7 +152,11 @@ describe('Ticket 02 — MoveL 保证 TCP（而非裸法兰）走直线', () => {
       const tcp = flangeToWorldTcpPose(fk, tool).position
       const flangePos = fk.position
       // TCP 到直线的侧向距离。
-      const tcpVec = [tcp[0] - tcpStartWorld.position[0], tcp[1] - tcpStartWorld.position[1], tcp[2] - tcpStartWorld.position[2]]
+      const tcpVec = [
+        tcp[0] - tcpStartWorld.position[0],
+        tcp[1] - tcpStartWorld.position[1],
+        tcp[2] - tcpStartWorld.position[2],
+      ]
       const proj = tcpVec[0] * unit[0] + tcpVec[1] * unit[1] + tcpVec[2] * unit[2]
       const lateral = Math.hypot(
         tcpVec[0] - proj * unit[0],
@@ -158,9 +165,17 @@ describe('Ticket 02 — MoveL 保证 TCP（而非裸法兰）走直线', () => {
       )
       maxTcpLateral = Math.max(maxTcpLateral, lateral)
       // 法兰相对 TCP 直线的侧向距离（工具偏移 120mm 使法兰显著偏离 TCP 直线）。
-      const fkVec = [flangePos[0] - tcpStartWorld.position[0], flangePos[1] - tcpStartWorld.position[1], flangePos[2] - tcpStartWorld.position[2]]
+      const fkVec = [
+        flangePos[0] - tcpStartWorld.position[0],
+        flangePos[1] - tcpStartWorld.position[1],
+        flangePos[2] - tcpStartWorld.position[2],
+      ]
       const fkProj = fkVec[0] * unit[0] + fkVec[1] * unit[1] + fkVec[2] * unit[2]
-      const fkLateral = Math.hypot(fkVec[0] - fkProj * unit[0], fkVec[1] - fkProj * unit[1], fkVec[2] - fkProj * unit[2])
+      const fkLateral = Math.hypot(
+        fkVec[0] - fkProj * unit[0],
+        fkVec[1] - fkProj * unit[1],
+        fkVec[2] - fkProj * unit[2],
+      )
       maxFlangeLateral = Math.max(maxFlangeLateral, fkLateral)
     }
     // TCP 直线：侧向误差应为小量（毫米级）。
@@ -185,7 +200,9 @@ describe('Ticket 02 — 自定义 Tool/WObj 旋转驱动法兰目标与 FK/IK（
     const flangeTool0 = robTargetToFlangePose(baseT, defaultWobj0(), defaultTool0())
     // 位置改变（工具非对称偏移）且姿态改变。
     expect(posErr(flangeRot.position, flangeTool0.position)).toBeGreaterThan(1)
-    expect(Math.hypot(...orientationError(flangeRot.rotation, flangeTool0.rotation))).toBeGreaterThan(0.1)
+    expect(
+      Math.hypot(...orientationError(flangeRot.rotation, flangeTool0.rotation)),
+    ).toBeGreaterThan(0.1)
 
     // 端到端 MoveJ：法兰 FK 落点 ≈ 换算后的法兰目标。
     const plan = planMoveJ(makeMoveJ(baseT, rotTool, defaultWobj0()), MODEL, HOME, JOINT_RANGES)
@@ -205,12 +222,17 @@ describe('Ticket 02 — 自定义 Tool/WObj 旋转驱动法兰目标与 FK/IK（
 
   it('旋转 wobj（uframe 绕 Y 90°）：同一 robtarget 的法兰目标相对 wobj0 平移改变（票据 02 旋转分支）', () => {
     const baseT = fkT(homeFk())
-    const rotWobj: WobjData = { ...defaultWobj0(), uframe: { trans: [0, 0, 0], rot: [Math.SQRT1_2, 0, Math.SQRT1_2, 0] } }
+    const rotWobj: WobjData = {
+      ...defaultWobj0(),
+      uframe: { trans: [0, 0, 0], rot: [Math.SQRT1_2, 0, Math.SQRT1_2, 0] },
+    }
     const flangeRot = robTargetToFlangePose(baseT, rotWobj, defaultTool0())
     const flangeTool0 = robTargetToFlangePose(baseT, defaultWobj0(), defaultTool0())
     // 旋转用户坐标系使同一 robtarget 的法兰目标移动且姿态改变（核心验收：旋转影响法兰目标）。
     expect(posErr(flangeRot.position, flangeTool0.position)).toBeGreaterThan(1)
-    expect(Math.hypot(...orientationError(flangeRot.rotation, flangeTool0.rotation))).toBeGreaterThan(0.1)
+    expect(
+      Math.hypot(...orientationError(flangeRot.rotation, flangeTool0.rotation)),
+    ).toBeGreaterThan(0.1)
 
     // 旋转可能使目标超出 HOME 可达域；可达则端到端验证 FK 落点等于换算目标。
     const plan = planMoveJ(makeMoveJ(baseT, defaultTool0(), rotWobj), MODEL, HOME, JOINT_RANGES)

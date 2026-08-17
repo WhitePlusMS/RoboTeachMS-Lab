@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseRapidProgram } from './rapid-parser.ts'
-import {
-  MAIN_MODULE_SUFFIX,
-  VALID_ROBTARGET_LITERAL,
-} from './rapid-parser-test-fixtures.ts'
+import { MAIN_MODULE_SUFFIX, VALID_ROBTARGET_LITERAL } from './rapid-parser-test-fixtures.ts'
 
 describe('Ticket 02 — MODULE 与过程诊断', () => {
   it('缺少模块名称给出零长度缺失诊断，且不再把它当模块内容误诊', () => {
@@ -14,21 +11,15 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
   })
 
   it('第二个 MODULE / 尾随源码给出明确诊断', () => {
-    const dup = parseRapidProgram(
-      'MODULE A\n    PROC main()\n    ENDPROC\nMODULE B\nENDMODULE\n',
-    )
+    const dup = parseRapidProgram('MODULE A\n    PROC main()\n    ENDPROC\nMODULE B\nENDMODULE\n')
     expect(dup.diagnostics.some((d) => d.message.includes('只能包含一个 MODULE'))).toBe(true)
 
-    const trailing = parseRapidProgram(
-      'MODULE A\n    PROC main()\n    ENDPROC\nENDMODULE\nJUNK',
-    )
+    const trailing = parseRapidProgram('MODULE A\n    PROC main()\n    ENDPROC\nENDMODULE\nJUNK')
     expect(trailing.diagnostics.some((d) => d.code === 'unsupported-syntax')).toBe(true)
   })
 
   it('main 带参数与重复 main 分别给出 unsupported-option 与 duplicate-symbol', () => {
-    const param = parseRapidProgram(
-      'MODULE A\n    PROC main(num n)\n    ENDPROC\nENDMODULE\n',
-    )
+    const param = parseRapidProgram('MODULE A\n    PROC main(num n)\n    ENDPROC\nENDMODULE\n')
     expect(param.diagnostics.some((d) => d.code === 'unsupported-option')).toBe(true)
 
     const dup = parseRapidProgram(
@@ -47,12 +38,16 @@ describe('Ticket 02 — MODULE 与过程诊断', () => {
       'MODULE A\n    VAR num x := 5;\n    PROC main()\n    ENDPROC\nENDMODULE\n',
     )
     expect(varDecl.diagnostics).toEqual([])
-    expect(varDecl.data).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'x', kind: 'num', storage: 'var', value: 5 }),
-    ]))
+    expect(varDecl.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'x', kind: 'num', storage: 'var', value: 5 }),
+      ]),
+    )
 
     // 不存在 lexical-error：真实 RAPID 结构必须按结构/能力分类，不误判为词法错误。
-    expect([other, varDecl].every((r) => r.diagnostics.every((d) => d.code !== 'lexical-error'))).toBe(true)
+    expect(
+      [other, varDecl].every((r) => r.diagnostics.every((d) => d.code !== 'lexical-error')),
+    ).toBe(true)
   })
 
   it('跳过非 main 过程执行体时仍报告越界声明与 vmax 选项', () => {
@@ -73,7 +68,9 @@ ENDMODULE
 
 describe('Ticket 02 — robtarget 声明诊断', () => {
   it('CONST/PERS/TASK PERS 后缺少数据类型：明确诊断缺少数据类型，不把名称误判为不支持的类型', () => {
-    const result = parseRapidProgram(`MODULE A\n    CONST p1 := ${VALID_ROBTARGET_LITERAL};\n` + MAIN_MODULE_SUFFIX)
+    const result = parseRapidProgram(
+      `MODULE A\n    CONST p1 := ${VALID_ROBTARGET_LITERAL};\n` + MAIN_MODULE_SUFFIX,
+    )
     expect(result.diagnostics.some((d) => d.message.includes('数据类型'))).toBe(true)
     // 不把 p1 当类型名报 “暂不支持 p1”。
     expect(result.diagnostics.some((d) => d.message.includes('暂不支持 p1'))).toBe(false)
@@ -81,7 +78,9 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
 
   it('已知但不支持的类型明确报 unsupported-option', () => {
     for (const typeName of ['num', 'jointtarget', 'int', 'pos', 'shapedata']) {
-      const result = parseRapidProgram(`MODULE A\n    CONST ${typeName} x := 5;\n` + MAIN_MODULE_SUFFIX)
+      const result = parseRapidProgram(
+        `MODULE A\n    CONST ${typeName} x := 5;\n` + MAIN_MODULE_SUFFIX,
+      )
       const diagnostic = result.diagnostics.find(
         (item) => item.code === 'unsupported-option' && item.message.includes(typeName),
       )
@@ -90,7 +89,9 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
   })
 
   it('缺少 := 时不生成半合法 Program Data 条目，也不产生四个 tuple 连锁错误', () => {
-    const result = parseRapidProgram(`MODULE A\n    CONST robtarget bad ${VALID_ROBTARGET_LITERAL};\n` + MAIN_MODULE_SUFFIX)
+    const result = parseRapidProgram(
+      `MODULE A\n    CONST robtarget bad ${VALID_ROBTARGET_LITERAL};\n` + MAIN_MODULE_SUFFIX,
+    )
     // 损坏声明不得进入 data。
     expect(result.data.some((d) => d.name === 'bad')).toBe(false)
     // 仅保留 := 缺失这一根因，不外溢四个 tuple 错误。
@@ -113,10 +114,16 @@ describe('Ticket 02 — robtarget 声明诊断', () => {
   })
 
   it('trans/rot/robconf/extax 长度错误、尾逗号与非有限数字均有 invalid-data 诊断', () => {
-    const len = parseRapidProgram(`MODULE A\n    CONST robtarget p := [[0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` + MAIN_MODULE_SUFFIX)
+    const len = parseRapidProgram(
+      `MODULE A\n    CONST robtarget p := [[0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` +
+        MAIN_MODULE_SUFFIX,
+    )
     expect(len.diagnostics.some((d) => d.code === 'invalid-data')).toBe(true)
 
-    const trail = parseRapidProgram(`MODULE A\n    CONST robtarget p := [[0,0,0,],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` + MAIN_MODULE_SUFFIX)
+    const trail = parseRapidProgram(
+      `MODULE A\n    CONST robtarget p := [[0,0,0,],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];\n` +
+        MAIN_MODULE_SUFFIX,
+    )
     expect(trail.diagnostics.some((d) => d.code === 'invalid-data')).toBe(true)
   })
 

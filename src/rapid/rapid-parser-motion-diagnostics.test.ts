@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseRapidProgram } from './rapid-parser.ts'
-import {
-  MAIN_MODULE_CLOSING,
-  MODULE_WITH_P1_MAIN_PREFIX,
-} from './rapid-parser-test-fixtures.ts'
+import { MAIN_MODULE_CLOSING, MODULE_WITH_P1_MAIN_PREFIX } from './rapid-parser-test-fixtures.ts'
 
 function parseMotionFixture(source: string) {
   return parseRapidProgram(MODULE_WITH_P1_MAIN_PREFIX + source + MAIN_MODULE_CLOSING)
@@ -61,7 +58,9 @@ describe('Ticket 03 — 必选操作数诊断', () => {
   })
 
   it('缺分号时在语句末尾给零长度范围，并恢复到下一条运动或 ENDPROC', () => {
-    const result = parseMotionFixture('        MoveJ p1,v100,fine,tool0\n        MoveL p1,v50,fine,tool0;')
+    const result = parseMotionFixture(
+      '        MoveJ p1,v100,fine,tool0\n        MoveL p1,v50,fine,tool0;',
+    )
     const semi = result.diagnostics.filter((d) => d.message.includes('期望符号 ;'))
     const stmtEnds = semi.filter((d) => d.range.start.offset === d.range.end.offset)
     expect(stmtEnds.length).toBeGreaterThanOrEqual(1)
@@ -81,7 +80,9 @@ describe('Ticket 03 — 可选参数诊断', () => {
 
   it('未知可选参数报 unsupported-option，范围覆盖参数名称', () => {
     const result = parseMotionFixture('        MoveJ p1,v100,fine,tool0\\speed:=100;\n')
-    const opt = result.diagnostics.find((d) => d.code === 'unsupported-option' && d.message.includes('speed'))
+    const opt = result.diagnostics.find(
+      (d) => d.code === 'unsupported-option' && d.message.includes('speed'),
+    )
     expect(opt).toBeDefined()
     // 范围精确覆盖 speed 名称（4 字符）。
     if (opt) expect(opt.range.end.offset - opt.range.start.offset).toBe(5)
@@ -107,8 +108,12 @@ describe('Ticket 03 — 可选参数诊断', () => {
   })
 
   it('重复 WObj 不被静默忽略或当 unsupported 边界，明确报重复可选参数', () => {
-    const result = parseMotionFixture('        MoveJ p1,v100,fine,tool0\\WObj:=wobj0\\WObj:=wobj0;\n')
-    expect(result.diagnostics.some((d) => d.message.includes('重复') && d.message.includes('WObj'))).toBe(true)
+    const result = parseMotionFixture(
+      '        MoveJ p1,v100,fine,tool0\\WObj:=wobj0\\WObj:=wobj0;\n',
+    )
+    expect(
+      result.diagnostics.some((d) => d.message.includes('重复') && d.message.includes('WObj')),
+    ).toBe(true)
     expect(hasMsg(result.diagnostics, '首期不支持 \\')).toBe(false)
     expect(result.canExecute).toBe(false)
   })
@@ -133,10 +138,14 @@ describe('Ticket 03 — 可选参数诊断', () => {
 describe('Ticket 03 — 名称与能力诊断', () => {
   it('未定义 target/speed 报 undefined-symbol，范围精确覆盖对应名称', () => {
     const result = parseMotionFixture('        MoveJ nope,v999,fine,tool0;\n')
-    const undefTarget = result.diagnostics.filter((d) => d.code === 'undefined-symbol').find((d) => d.message.includes('nope'))
+    const undefTarget = result.diagnostics
+      .filter((d) => d.code === 'undefined-symbol')
+      .find((d) => d.message.includes('nope'))
     expect(undefTarget).toBeDefined()
     if (undefTarget) expect(undefTarget.range.end.offset - undefTarget.range.start.offset).toBe(4) // "nope"
-    const undefSpeed = result.diagnostics.find((d) => d.code === 'undefined-symbol' && d.message.includes('v999'))
+    const undefSpeed = result.diagnostics.find(
+      (d) => d.code === 'undefined-symbol' && d.message.includes('v999'),
+    )
     expect(undefSpeed).toBeDefined()
     expect(result.canExecute).toBe(false)
   })
@@ -147,8 +156,16 @@ describe('Ticket 03 — 名称与能力诊断', () => {
     // z20 是官方 zone 名（票据 04 起可执行，fly-by 以安全停点近似），不再产生 "fine 提示" 拦截。
     expect(msgs.some((m) => m.includes('fine'))).toBe(false)
     // tool1/wobj1 未声明：报 undefined-symbol，而非旧的“仅 tool0/wobj0”文案。
-    expect(result.diagnostics.some((d) => d.code === 'undefined-symbol' && d.message.includes('工具 tool1'))).toBe(true)
-    expect(result.diagnostics.some((d) => d.code === 'undefined-symbol' && d.message.includes('工件坐标 wobj1'))).toBe(true)
+    expect(
+      result.diagnostics.some(
+        (d) => d.code === 'undefined-symbol' && d.message.includes('工具 tool1'),
+      ),
+    ).toBe(true)
+    expect(
+      result.diagnostics.some(
+        (d) => d.code === 'undefined-symbol' && d.message.includes('工件坐标 wobj1'),
+      ),
+    ).toBe(true)
     // v100 是合法官方速度，不产生未定义。
     expect(result.diagnostics.some((d) => d.message.includes('v100'))).toBe(false)
     // tool1/wobj1 未定义阻止执行。

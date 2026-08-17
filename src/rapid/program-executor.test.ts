@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '../robotics/motion-runner.ts'
-import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
-import type { JointAngles } from '../robotics/types.ts'
+import { createMotionRunner } from '@/robotics/motion-runner.ts'
+import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
+import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles } from '@/robotics/types.ts'
 import { executeMoveJ } from './movej-planner.ts'
 import { executeMoveL } from './movel-planner.ts'
 import {
@@ -395,12 +395,18 @@ interface AssignmentInstruction extends ProgramInstruction {
 
 /** 只验证 executor 变量 seam 的 fake，不引入 parser 或页面控制器。 */
 class VariableSeam implements ProgramExecutionSeam<AssignmentInstruction> {
-  execute(instruction: AssignmentInstruction, context: ProgramExecutionContext): Promise<InstructionOutcome> {
+  execute(
+    instruction: AssignmentInstruction,
+    context: ProgramExecutionContext,
+  ): Promise<InstructionOutcome> {
     if (!context.readVariable(instruction.name)) {
       return Promise.resolve({ ok: false, error: { kind: 'runtime-error', message: '变量不存在' } })
     }
     if (!context.writeVariable(instruction.name, instruction.value)) {
-      return Promise.resolve({ ok: false, error: { kind: 'runtime-error', message: '变量类型不匹配' } })
+      return Promise.resolve({
+        ok: false,
+        error: { kind: 'runtime-error', message: '变量类型不匹配' },
+      })
     }
     return Promise.resolve({
       ok: true,
@@ -496,7 +502,9 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
     const seam: ProgramExecutionSeam = {
       execute: (instruction) => {

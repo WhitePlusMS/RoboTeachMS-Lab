@@ -1,6 +1,9 @@
-import { quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '../robotics/math/rotation3d.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
-import type { JointAngles, Pose } from '../robotics/types.ts'
+import {
+  quaternionToRotationMatrix,
+  rotationMatrixToEulerZYX,
+} from '@/robotics/math/rotation3d.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import {
   NO_EXTERNAL_AXIS,
   type RapidQuat,
@@ -37,10 +40,7 @@ function isNoExternalAxis(extax: RobTarget['extax']): boolean {
  * MoveJ 与 MoveL 规划层共享同一套错误语义。
  */
 export type MotionPlanErrorKind =
-  | 'invalid-data'
-  | 'unsupported-option'
-  | 'unreachable'
-  | 'joint-limit'
+  'invalid-data' | 'unsupported-option' | 'unreachable' | 'joint-limit'
 
 export interface MotionPlanError {
   kind: MotionPlanErrorKind
@@ -58,7 +58,11 @@ function allFinite(...values: number[]): boolean {
  * 第一层：tuple 运行时长度校验。畸形长度（trans/rot/robconf/extax/cog/aom，
  * 以及各 frame 的 rot）在索引访问前拒绝，防止后续读取 undefined。
  */
-function validateTupleLengths(target: RobTarget, tool: ToolData, wobj: WobjData): MotionPlanError | null {
+function validateTupleLengths(
+  target: RobTarget,
+  tool: ToolData,
+  wobj: WobjData,
+): MotionPlanError | null {
   if (target.trans.length !== 3)
     return { kind: 'invalid-data', message: 'robtarget.trans 长度必须为 3' }
   if (target.rot.length !== 4)
@@ -117,13 +121,20 @@ function validateNumericData(
     ...wobj.oframe.rot,
   ]
   if (!allFinite(...numbers)) {
-    return { kind: 'invalid-data', message: 'robtarget/speeddata/zonedata/tool/wobj 包含非有限数值' }
+    return {
+      kind: 'invalid-data',
+      message: 'robtarget/speeddata/zonedata/tool/wobj 包含非有限数值',
+    }
   }
   return null
 }
 
 /** 第三层：所有四元数必须非零且可归一化（零长度在调用 IK/路径规划前拒绝）。 */
-function validateQuaternions(target: RobTarget, tool: ToolData, wobj: WobjData): MotionPlanError | null {
+function validateQuaternions(
+  target: RobTarget,
+  tool: ToolData,
+  wobj: WobjData,
+): MotionPlanError | null {
   const quats: Array<[string, number[]]> = [
     ['robtarget.rot', target.rot],
     ['tooldata.tframe.rot', tool.tframe.rot],
@@ -159,16 +170,25 @@ function checkSupportedConfiguration(
   target: RobTarget,
 ): MotionPlanError | null {
   if (tool.robhold !== true) {
-    return { kind: 'unsupported-option', message: '暂不支持机器人不持工具（tooldata.robhold=FALSE）' }
+    return {
+      kind: 'unsupported-option',
+      message: '暂不支持机器人不持工具（tooldata.robhold=FALSE）',
+    }
   }
   if (wobj.robhold !== false) {
     return { kind: 'unsupported-option', message: '暂不支持机器人持工件（wobjdata.robhold=TRUE）' }
   }
   if (wobj.ufprog !== true) {
-    return { kind: 'unsupported-option', message: '暂不支持可移动用户坐标系（wobjdata.ufprog=FALSE）' }
+    return {
+      kind: 'unsupported-option',
+      message: '暂不支持可移动用户坐标系（wobjdata.ufprog=FALSE）',
+    }
   }
   if (wobj.ufmec !== '') {
-    return { kind: 'unsupported-option', message: '暂不支持协调外部机械单元（wobjdata.ufmec 非空）' }
+    return {
+      kind: 'unsupported-option',
+      message: '暂不支持协调外部机械单元（wobjdata.ufmec 非空）',
+    }
   }
   if (target.robconf.some((value) => value !== 0)) {
     return { kind: 'unsupported-option', message: '首期只支持 robtarget.robconf=[0,0,0,0] 构型' }

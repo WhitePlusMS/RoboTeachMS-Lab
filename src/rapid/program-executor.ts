@@ -1,5 +1,9 @@
 import type { MotionPlanError, MotionPlanErrorKind } from './plan-shared.ts'
-import type { RapidScalarValue, RapidScalarVariable, StructuredMotionInstruction } from './rapid-types.ts'
+import type {
+  RapidScalarValue,
+  RapidScalarVariable,
+  StructuredMotionInstruction,
+} from './rapid-types.ts'
 
 /** ProgramExecutor 只要求计划项具备 kind；具体 RAPID 语句由上层 execution seam 解释。 */
 export interface ProgramInstruction {
@@ -50,8 +54,13 @@ export type InstructionOutcome =
  * FK/IK/路径采样/关节插值/RAF/通用队列/UI 文案。MotionRunner 可保留内部暂停能力，
  * 但程序产品界面不提供独立“暂停/继续”。
  */
-export interface ProgramExecutionSeam<TInstruction extends ProgramInstruction = StructuredMotionInstruction> {
-  execute: (instruction: TInstruction, context: ProgramExecutionContext) => Promise<InstructionOutcome>
+export interface ProgramExecutionSeam<
+  TInstruction extends ProgramInstruction = StructuredMotionInstruction,
+> {
+  execute: (
+    instruction: TInstruction,
+    context: ProgramExecutionContext,
+  ) => Promise<InstructionOutcome>
   stop: () => void
 }
 
@@ -153,7 +162,10 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
   }
 
   /** 指令执行后的统一结算：completed 推进 PP 并继续，stopped/error 终止并记录。 */
-  function settleOutcome(index: number, outcome: InstructionOutcome): 'continue' | 'stopped' | 'error' {
+  function settleOutcome(
+    index: number,
+    outcome: InstructionOutcome,
+  ): 'continue' | 'stopped' | 'error' {
     if (!outcome.ok) {
       error = { index, code: outcome.error.kind, message: outcome.error.message }
       motionPointer = null

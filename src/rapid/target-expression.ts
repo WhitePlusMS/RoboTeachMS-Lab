@@ -1,10 +1,10 @@
-import { Matrix4x4 } from '../robotics/matrix4x4.ts'
+import { Matrix4x4 } from '@/robotics/matrix4x4.ts'
 import {
   mat3Mul,
   quaternionToRotationMatrix,
   rotationMatrixToQuaternion,
-} from '../robotics/math/rotation3d.ts'
-import { degToRad } from '../robotics/math/angle.ts'
+} from '@/robotics/math/rotation3d.ts'
+import { degToRad } from '@/robotics/math/angle.ts'
 import type { RobTarget } from './rapid-types.ts'
 import { internalQuatToRapid, rapidQuatToInternal } from './plan-shared.ts'
 
@@ -61,7 +61,11 @@ export function relToolRobTarget(
   const r0 = quaternionToRotationMatrix(rapidQuatToInternal(target.rot))
   // 位移沿输入点定义的当前工具坐标系（其 x/y/z 轴即 r0 的列）。
   const trans = Matrix4x4.mat3Vec3Mul(r0, [dx, dy, dz])
-  const position = [target.trans[0] + trans[0], target.trans[1] + trans[1], target.trans[2] + trans[2]] as RobTarget['trans']
+  const position = [
+    target.trans[0] + trans[0],
+    target.trans[1] + trans[1],
+    target.trans[2] + trans[2],
+  ] as RobTarget['trans']
 
   if (rx === undefined && ry === undefined && rz === undefined) {
     return { ...target, trans: position }

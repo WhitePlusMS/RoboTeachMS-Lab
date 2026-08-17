@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
-import type { JointAngles, Pose } from '../robotics/types.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'
-import { defaultTool0, defaultWobj0, type RobTarget, type ToolData, type WobjData } from './rapid-types.ts'
-import { rotationMatrixToQuaternion } from '../robotics/math/rotation3d.ts'
+import {
+  defaultTool0,
+  defaultWobj0,
+  type RobTarget,
+  type ToolData,
+  type WobjData,
+} from './rapid-types.ts'
+import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import { internalQuatToRapid } from './plan-shared.ts'
 
 /**
@@ -37,7 +43,10 @@ describe('Task 1 — 同一 robtarget 在不同固定 wobjdata/tooldata 下得�
       robconf: [0, 0, 0, 0],
       extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9],
     }
-    const offsetWobj: WobjData = { ...defaultWobj0(), uframe: { trans: [60, 0, 0], rot: [1, 0, 0, 0] } }
+    const offsetWobj: WobjData = {
+      ...defaultWobj0(),
+      uframe: { trans: [60, 0, 0], rot: [1, 0, 0, 0] },
+    }
 
     const flangeWorld = robTargetToFlangePose(target, defaultWobj0(), defaultTool0())
     const flangeOffset = robTargetToFlangePose(target, offsetWobj, defaultTool0())
@@ -50,7 +59,15 @@ describe('Task 1 — 同一 robtarget 在不同固定 wobjdata/tooldata 下得�
       kind: 'movej' as const,
       target,
       speed: { v_tcp: 100, v_ori: 500, v_leax: 5000, v_reax: 1000 },
-      zone: { finep: true, pzoneTcp: 0, pzoneOri: 0, pzoneEax: 0, zoneOri: 0, zoneLeax: 0, zoneReax: 0 },
+      zone: {
+        finep: true,
+        pzoneTcp: 0,
+        pzoneOri: 0,
+        pzoneEax: 0,
+        zoneOri: 0,
+        zoneLeax: 0,
+        zoneReax: 0,
+      },
       tool: defaultTool0(),
       wobj: offsetWobj,
     }
@@ -99,7 +116,13 @@ ENDMODULE
     const relInstruction = result.program[1]
     expect(offsInstruction && isRapidMotionInstruction(offsInstruction)).toBe(true)
     expect(relInstruction && isRapidMotionInstruction(relInstruction)).toBe(true)
-    if (!offsInstruction || !relInstruction || !isRapidMotionInstruction(offsInstruction) || !isRapidMotionInstruction(relInstruction)) return
+    if (
+      !offsInstruction ||
+      !relInstruction ||
+      !isRapidMotionInstruction(offsInstruction) ||
+      !isRapidMotionInstruction(relInstruction)
+    )
+      return
     const offs = offsInstruction.target
     const rel = relInstruction.target
     expect(offs.trans).toEqual([110, 200, 300]) // Offs：沿 Object 轴 +X。
@@ -121,13 +144,25 @@ describe('Task 3 — 同一路径替换 speeddata，运行时长产生可解释�
       return {
         kind: 'movej' as const,
         target: {
-          trans: [baseFk.position[0] + 80, baseFk.position[1], baseFk.position[2]] as [number, number, number],
+          trans: [baseFk.position[0] + 80, baseFk.position[1], baseFk.position[2]] as [
+            number,
+            number,
+            number,
+          ],
           rot: internalQuatToRapid(quat),
           robconf: [0, 0, 0, 0] as [number, number, number, number],
           extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9] as [number, number, number, number, number, number],
         },
         speed: { v_tcp: vTcp, v_ori: 500, v_leax: 5000, v_reax: 1000 },
-        zone: { finep: true, pzoneTcp: 0, pzoneOri: 0, pzoneEax: 0, zoneOri: 0, zoneLeax: 0, zoneReax: 0 },
+        zone: {
+          finep: true,
+          pzoneTcp: 0,
+          pzoneOri: 0,
+          pzoneEax: 0,
+          zoneOri: 0,
+          zoneLeax: 0,
+          zoneReax: 0,
+        },
         tool: defaultTool0(),
         wobj: defaultWobj0(),
       }
@@ -163,7 +198,13 @@ ENDMODULE
     expect(fineInstruction && isRapidMotionInstruction(fineInstruction)).toBe(true)
     expect(flybyInstruction && isRapidMotionInstruction(flybyInstruction)).toBe(true)
     expect(flyby.canExecute).toBe(true)
-    if (!fineInstruction || !flybyInstruction || !isRapidMotionInstruction(fineInstruction) || !isRapidMotionInstruction(flybyInstruction)) return
+    if (
+      !fineInstruction ||
+      !flybyInstruction ||
+      !isRapidMotionInstruction(fineInstruction) ||
+      !isRapidMotionInstruction(flybyInstruction)
+    )
+      return
     expect(fineInstruction.zone.finep).toBe(true)
     const zone = flybyInstruction.zone
     expect(zone?.finep).toBe(false)

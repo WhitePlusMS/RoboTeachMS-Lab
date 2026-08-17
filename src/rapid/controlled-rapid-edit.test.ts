@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { applyRapidEdit, formatRobTarget } from './controlled-rapid-edit.ts'
-import { isRapidMotionInstruction, isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
+import {
+  isRapidMotionInstruction,
+  isRobtargetProgramData,
+  parseRapidProgram,
+  type RapidProgramDataTarget,
+} from './rapid-parser.ts'
 
 const BASE = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -23,12 +28,21 @@ function robtargets(parsed: ReturnType<typeof parse>): RapidProgramDataTarget[] 
 }
 
 function target(trans: [number, number, number]) {
-  return { trans, rot: [1, 0, 0, 0] as [number, number, number, number], robconf: [0, 0, 0, 0] as [number, number, number, number], extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9] as [number, number, number, number, number, number] }
+  return {
+    trans,
+    rot: [1, 0, 0, 0] as [number, number, number, number],
+    robconf: [0, 0, 0, 0] as [number, number, number, number],
+    extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9] as [number, number, number, number, number, number],
+  }
 }
 
 describe('新建目标', () => {
   it('在 main 之前新建模块级 CONST robtarget，源程序保持可执行', () => {
-    const result = applyRapidEdit(BASE, { type: 'create-target', name: 'pWork', target: target([300, 0, 400]) })
+    const result = applyRapidEdit(BASE, {
+      type: 'create-target',
+      name: 'pWork',
+      target: target([300, 0, 400]),
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -42,14 +56,22 @@ describe('新建目标', () => {
   })
 
   it('非法名称被拒绝且源文本逐字不变', () => {
-    const result = applyRapidEdit(BASE, { type: 'create-target', name: '9bad', target: target([0, 0, 0]) })
+    const result = applyRapidEdit(BASE, {
+      type: 'create-target',
+      name: '9bad',
+      target: target([0, 0, 0]),
+    })
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.code).toBe('invalid-name')
   })
 
   it('大小写不敏感的重名被拒绝', () => {
-    const result = applyRapidEdit(BASE, { type: 'create-target', name: 'papproach', target: target([0, 0, 0]) })
+    const result = applyRapidEdit(BASE, {
+      type: 'create-target',
+      name: 'papproach',
+      target: target([0, 0, 0]),
+    })
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.code).toBe('duplicate-name')
@@ -58,7 +80,11 @@ describe('新建目标', () => {
 
 describe('Modify Position', () => {
   it('只替换目标值，其余源码与引用保持不变', () => {
-    const result = applyRapidEdit(BASE, { type: 'modify-position', name: 'pApproach', target: target([999, 111, 222]) })
+    const result = applyRapidEdit(BASE, {
+      type: 'modify-position',
+      name: 'pApproach',
+      target: target([999, 111, 222]),
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -73,7 +99,11 @@ describe('Modify Position', () => {
   })
 
   it('缺失目标返回 undefined-target', () => {
-    const result = applyRapidEdit(BASE, { type: 'modify-position', name: 'nope', target: target([0, 0, 0]) })
+    const result = applyRapidEdit(BASE, {
+      type: 'modify-position',
+      name: 'nope',
+      target: target([0, 0, 0]),
+    })
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.code).toBe('undefined-target')
@@ -83,7 +113,11 @@ describe('Modify Position', () => {
 describe('重命名', () => {
   it('更新声明名与所有引用，不修改相似名称或注释', () => {
     // pApproach 在声明与 MoveJ 各出现一次（大小写不同）。
-    const result = applyRapidEdit(BASE, { type: 'rename-target', name: 'pApproach', newName: 'pStart' })
+    const result = applyRapidEdit(BASE, {
+      type: 'rename-target',
+      name: 'pApproach',
+      newName: 'pStart',
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -98,7 +132,11 @@ describe('重命名', () => {
   })
 
   it('重命名为已存在名称（大小写不敏感）被拒绝', () => {
-    const result = applyRapidEdit(BASE, { type: 'rename-target', name: 'pApproach', newName: 'PREST' })
+    const result = applyRapidEdit(BASE, {
+      type: 'rename-target',
+      name: 'pApproach',
+      newName: 'PREST',
+    })
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.code).toBe('duplicate-name')
@@ -127,7 +165,12 @@ describe('删除目标', () => {
 
 describe('插入运动指令', () => {
   it('在 main 末尾插入引用现有目标的 MoveJ，参数为 v100,fine,tool0', () => {
-    const result = applyRapidEdit(BASE, { type: 'insert-motion', name: 'pRest', kind: 'movej', insertionIndex: 1 })
+    const result = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      name: 'pRest',
+      kind: 'movej',
+      insertionIndex: 1,
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -142,17 +185,32 @@ describe('插入运动指令', () => {
   })
 
   it('插入 MoveL 且缺失目标返回 undefined-target', () => {
-    const ok = applyRapidEdit(BASE, { type: 'insert-motion', name: 'pRest', kind: 'movel', insertionIndex: 1 })
+    const ok = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      name: 'pRest',
+      kind: 'movel',
+      insertionIndex: 1,
+    })
     expect(ok.ok).toBe(true)
     if (ok.ok) expect(parse(ok.result.source).program[1].kind).toBe('movel')
 
-    const missing = applyRapidEdit(BASE, { type: 'insert-motion', name: 'nope', kind: 'movej', insertionIndex: 1 })
+    const missing = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      name: 'nope',
+      kind: 'movej',
+      insertionIndex: 1,
+    })
     expect(missing.ok).toBe(false)
     if (!missing.ok) expect(missing.error.code).toBe('undefined-target')
   })
 
   it('按指定插入位置插入到第一条运动之前，并返回 PP 下标位移提示', () => {
-    const result = applyRapidEdit(BASE, { type: 'insert-motion', name: 'pRest', kind: 'movej', insertionIndex: 0 })
+    const result = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      name: 'pRest',
+      kind: 'movej',
+      insertionIndex: 0,
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 

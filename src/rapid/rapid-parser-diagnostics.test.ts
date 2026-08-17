@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isRobtargetProgramData, parseRapidProgram, type RapidDiagnostic } from './rapid-parser.ts'
-import {
-  MAIN_MODULE_CLOSING,
-  MODULE_WITH_P1_MAIN_PREFIX,
-} from './rapid-parser-test-fixtures.ts'
+import { MAIN_MODULE_CLOSING, MODULE_WITH_P1_MAIN_PREFIX } from './rapid-parser-test-fixtures.ts'
 
 function getDiagnostics(source: string): readonly RapidDiagnostic[] {
   return parseRapidProgram(source).diagnostics
@@ -28,7 +25,9 @@ function isSortedByOffset(diagnostics: readonly RapidDiagnostic[]): boolean {
 describe('Ticket 01 — 诊断稳定契约', () => {
   it('同一含多错误源码重复解析时，诊断 code 与范围顺序完全一致', () => {
     const source =
-      MODULE_WITH_P1_MAIN_PREFIX + '        MoveJ p1,v100\n        MoveL unknown,v50,fine,tool0;\n' + MAIN_MODULE_CLOSING
+      MODULE_WITH_P1_MAIN_PREFIX +
+      '        MoveJ p1,v100\n        MoveL unknown,v50,fine,tool0;\n' +
+      MAIN_MODULE_CLOSING
     const first = parseRapidProgram(source)
     const second = parseRapidProgram(source)
     expect(second.diagnostics).toEqual(first.diagnostics)
@@ -36,7 +35,10 @@ describe('Ticket 01 — 诊断稳定契约', () => {
 
   it('诊断严格按 start.offset、end.offset、生成次序升序排列', () => {
     // 人为制造跨位置的多 error：缺操作数（前）与未定义符号（后）。
-    const source = MODULE_WITH_P1_MAIN_PREFIX + '        MoveJ p1,v100\n        MoveL nope,v50,fine,tool0;\n' + MAIN_MODULE_CLOSING
+    const source =
+      MODULE_WITH_P1_MAIN_PREFIX +
+      '        MoveJ p1,v100\n        MoveL nope,v50,fine,tool0;\n' +
+      MAIN_MODULE_CLOSING
     const result = parseRapidProgram(source)
     expect(result.diagnostics.length).toBeGreaterThan(1)
     expect(isSortedByOffset(result.diagnostics)).toBe(true)
@@ -66,18 +68,21 @@ describe('Ticket 01 — 诊断稳定契约', () => {
 
   it('一处根因不派生一串“后续所有操作数均缺失”的连锁错误', () => {
     // MoveJ 后只有 target，却缺逗号/速度/zone/tool：只应有一条指向根因，且不再吞掉 ENDPROC。
-    const result = parseRapidProgram(MODULE_WITH_P1_MAIN_PREFIX + '        MoveJ p1\n' + MAIN_MODULE_CLOSING)
+    const result = parseRapidProgram(
+      MODULE_WITH_P1_MAIN_PREFIX + '        MoveJ p1\n' + MAIN_MODULE_CLOSING,
+    )
     const commas = result.diagnostics.filter((d) => d.message.includes('期望符号 ,'))
     expect(commas.length).toBeLessThanOrEqual(1)
     // ENDPROC / ENDMODULE 真实存在，不能被误报为缺失。
-    expect(
-      result.diagnostics.some((d) => d.message.includes('期望关键字 ENDPROC')),
-    ).toBe(false)
+    expect(result.diagnostics.some((d) => d.message.includes('期望关键字 ENDPROC'))).toBe(false)
     expect(result.diagnostics.some((d) => d.message.includes('缺少 ENDMODULE'))).toBe(false)
   })
 
   it('运动断裂后恢复到下一条已知运动，不把下一条指令误当操作数', () => {
-    const source = MODULE_WITH_P1_MAIN_PREFIX + '        MoveJ garbage garbage2\n        MoveL p1,v50,fine,tool0;\n' + MAIN_MODULE_CLOSING
+    const source =
+      MODULE_WITH_P1_MAIN_PREFIX +
+      '        MoveJ garbage garbage2\n        MoveL p1,v50,fine,tool0;\n' +
+      MAIN_MODULE_CLOSING
     const result = parseRapidProgram(source)
     // 下一条合法 MoveL 的操作数不能被误报为“暂不支持 fine/tool0”。
     expect(

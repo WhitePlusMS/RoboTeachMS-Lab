@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '../robotics/motion-runner.ts'
-import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
-import type { JointAngles, Pose } from '../robotics/types.ts'
+import { createMotionRunner } from '@/robotics/motion-runner.ts'
+import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
+import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { executeMoveJ, planMoveJ, type MoveJPlanResult } from './movej-planner.ts'
 import { internalQuatToRapid, robTargetToPose } from './plan-shared.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'
-import { orientationError, rotationMatrixToQuaternion } from '../robotics/math/rotation3d.ts'
+import { orientationError, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import {
   defaultTool0,
   defaultWobj0,
@@ -57,7 +57,12 @@ describe('移动数据类型位于不依赖 Vue/Three 的领域层', () => {
 describe('planMoveJ 数据与配置校验', () => {
   it('非有限数值在调用 IK 前返回 invalid-data', () => {
     const invalidTrans: RobTarget = { ...REACHABLE_TARGET, trans: [NaN, 600, 100] }
-    const result = planMoveJ(makeMoveJ({ target: invalidTrans }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    const result = planMoveJ(
+      makeMoveJ({ target: invalidTrans }),
+      ABB_MODEL,
+      AT_HOME,
+      ABB_JOINT_RANGES,
+    )
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.kind).toBe('invalid-data')
   })
@@ -86,7 +91,12 @@ describe('planMoveJ 数据与配置校验', () => {
       tframe: { trans: [0, 0, 0], rot: [1, 0, 0, 0] },
       tload: { mass: 1, cog: [0, 0, 0], aom: [1, 0, 0, 0], ix: 0, iy: 0, iz: 0 },
     }
-    const result = planMoveJ(makeMoveJ({ tool: stationaryTool }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
+    const result = planMoveJ(
+      makeMoveJ({ tool: stationaryTool }),
+      ABB_MODEL,
+      AT_HOME,
+      ABB_JOINT_RANGES,
+    )
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.error.kind).toBe('unsupported-option')
@@ -147,7 +157,9 @@ describe('executeMoveJ 经 MotionRunner 完成一个 ABB 目标', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
     const seam = {
       model: ABB_MODEL,
@@ -184,7 +196,9 @@ describe('executeMoveJ 经 MotionRunner 完成一个 ABB 目标', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
     const seam = {
       model: ABB_MODEL,
@@ -253,8 +267,12 @@ describe('planMoveJ 补齐的结构/数值/配置输入校验', () => {
   it('畸形 tuple 长度返回 invalid-data', () => {
     const wrongTrans = { ...REACHABLE_TARGET, trans: [500, 600] } as unknown as RobTarget
     const wrongRot = { ...REACHABLE_TARGET, rot: [1, 0, 0] } as unknown as RobTarget
-    expect(planMoveJ(makeMoveJ({ target: wrongTrans }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES).ok).toBe(false)
-    expect(planMoveJ(makeMoveJ({ target: wrongRot }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES).ok).toBe(false)
+    expect(
+      planMoveJ(makeMoveJ({ target: wrongTrans }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES).ok,
+    ).toBe(false)
+    expect(
+      planMoveJ(makeMoveJ({ target: wrongRot }), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES).ok,
+    ).toBe(false)
   })
 
   it('speeddata 任一速度字段≤0 返回 invalid-data', () => {
@@ -355,7 +373,12 @@ describe('可靠回放大幅 MoveJ（多初值 IK）', () => {
   const DISTANT_CURRENT: JointAngles = [-120, 20, -60, 0, -20, 45]
 
   it('大幅 J1 复合目标能由 J1 约 -120° 的远端姿态规划并到达', () => {
-    const result = planMoveJ(makeMoveJ({ target: TARGET }), ABB_MODEL, DISTANT_CURRENT, ABB_JOINT_RANGES)
+    const result = planMoveJ(
+      makeMoveJ({ target: TARGET }),
+      ABB_MODEL,
+      DISTANT_CURRENT,
+      ABB_JOINT_RANGES,
+    )
     expectReaches(result, TARGET)
     // 大幅动作中 J1 确实产生显著变化：从 -120° 到达目标侧。
     if (result.ok) expect(result.joints[0]).toBeGreaterThan(0)
@@ -372,8 +395,18 @@ describe('可靠回放大幅 MoveJ（多初值 IK）', () => {
 
   it('多个候选成功时选择离当前姿态最近的解，平局结果稳定', () => {
     // 反复规划同一场景，选出的关节解稳定一致（无随机、顺序稳定）。
-    const first = planMoveJ(makeMoveJ({ target: TARGET }), ABB_MODEL, DISTANT_CURRENT, ABB_JOINT_RANGES)
-    const second = planMoveJ(makeMoveJ({ target: TARGET }), ABB_MODEL, DISTANT_CURRENT, ABB_JOINT_RANGES)
+    const first = planMoveJ(
+      makeMoveJ({ target: TARGET }),
+      ABB_MODEL,
+      DISTANT_CURRENT,
+      ABB_JOINT_RANGES,
+    )
+    const second = planMoveJ(
+      makeMoveJ({ target: TARGET }),
+      ABB_MODEL,
+      DISTANT_CURRENT,
+      ABB_JOINT_RANGES,
+    )
     expect(first.ok && second.ok).toBe(true)
     if (first.ok && second.ok) {
       expect(first.joints).toEqual(second.joints)
@@ -402,7 +435,12 @@ describe('可靠回放大幅 MoveJ（多初值 IK）', () => {
       robconf: [0, 0, 0, 0],
       extax: [...NO_EXTERNAL_AXIS],
     }
-    const result = planMoveJ(makeMoveJ({ target: unreachable }), ABB_MODEL, DISTANT_CURRENT, ABB_JOINT_RANGES)
+    const result = planMoveJ(
+      makeMoveJ({ target: unreachable }),
+      ABB_MODEL,
+      DISTANT_CURRENT,
+      ABB_JOINT_RANGES,
+    )
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.kind).toBe('unreachable')
 

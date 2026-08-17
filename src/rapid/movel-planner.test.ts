@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '../robotics/motion-runner.ts'
-import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '../robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
-import { mat3Mul, rotationMatrixToQuaternion } from '../robotics/math/rotation3d.ts'
-import type { JointAngles } from '../robotics/types.ts'
+import { createMotionRunner } from '@/robotics/motion-runner.ts'
+import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
+import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import { mat3Mul, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
+import type { JointAngles } from '@/robotics/types.ts'
 import { executeMoveL, planMoveL } from './movel-planner.ts'
 import { internalQuatToRapid } from './plan-shared.ts'
 import {
@@ -19,9 +19,10 @@ import {
 
 const ABB_MODEL = new AbbDhRobotModel()
 
-function degreeFrameFromPose(
-  joints: JointAngles,
-): { frame: RapidPose; position: [number, number, number] } {
+function degreeFrameFromPose(joints: JointAngles): {
+  frame: RapidPose
+  position: [number, number, number]
+} {
   const pose = ABB_MODEL.forwardKinematics(joints)
   if (!pose) throw new Error('FK 失败')
   // FK 旋转矩阵转出的是数学模块内部 [x,y,z,w]，RAPID frame.rot 用的是 [q1,q2,q3,q4]，需显式转换。
@@ -32,10 +33,7 @@ function degreeFrameFromPose(
   }
 }
 
-function makeMoveL(
-  target: RobTarget,
-  overrides: Partial<StructuredMoveL> = {},
-): StructuredMoveL {
+function makeMoveL(target: RobTarget, overrides: Partial<StructuredMoveL> = {}): StructuredMoveL {
   return {
     kind: 'movel',
     target,
@@ -62,7 +60,12 @@ function maxJointStep(waypoints: readonly JointAngles[]): number {
 describe('planMoveL 校验与支持边界', () => {
   it('非有限数值与非正速度返回 invalid-data，非默认配置返回 unsupported-option', () => {
     const { frame } = degreeFrameFromPose([0, 0, 0, 0, 0, 0])
-    const base = makeMoveL({ trans: [460, 700, 10], rot: frame.rot, robconf: [0, 0, 0, 0], extax: [...NO_EXTERNAL_AXIS] })
+    const base = makeMoveL({
+      trans: [460, 700, 10],
+      rot: frame.rot,
+      robconf: [0, 0, 0, 0],
+      extax: [...NO_EXTERNAL_AXIS],
+    })
 
     const nonFinite = planMoveL(
       makeMoveL({ ...base.target, trans: [NaN, 700, 10] }),
@@ -120,17 +123,20 @@ describe('planMoveL 5 mm 位置保持直线', () => {
     if (!plan.ok) return
 
     const poses = plan.waypoints.map((joints) => ABB_MODEL.forwardKinematics(joints))
-    const maxCrossTrack = Math.max(...poses.map((pose) => Math.hypot(
-      pose.position[1] - start.position[1],
-      pose.position[2] - start.position[2],
-    )))
+    const maxCrossTrack = Math.max(
+      ...poses.map((pose) =>
+        Math.hypot(pose.position[1] - start.position[1], pose.position[2] - start.position[2]),
+      ),
+    )
     const endpoint = poses[poses.length - 1]
     expect(maxCrossTrack).toBeLessThan(0.5)
-    expect(Math.hypot(
-      endpoint.position[0] - target.trans[0],
-      endpoint.position[1] - target.trans[1],
-      endpoint.position[2] - target.trans[2],
-    )).toBeLessThan(0.2)
+    expect(
+      Math.hypot(
+        endpoint.position[0] - target.trans[0],
+        endpoint.position[1] - target.trans[1],
+        endpoint.position[2] - target.trans[2],
+      ),
+    ).toBeLessThan(0.2)
 
     // 整组 waypoint 通过轨迹入口一次性提交并完成。
     const clock = new ManualMotionClock()
@@ -138,7 +144,9 @@ describe('planMoveL 5 mm 位置保持直线', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
     let trajectoryCalls = 0
     const outcomePromise = executeMoveL(makeMoveL(target), {
@@ -170,7 +178,9 @@ describe('planMoveL 带姿态变化保持连续 waypoint', () => {
     ]
     const startRotation = ABB_MODEL.forwardKinematics(startJoints)!.rotation
     // rotationMatrixToQuaternion 输出数学模块内部 [x,y,z,w]，目标 rot 需转成 RAPID [q1,q2,q3,q4]。
-    const targetRot = internalQuatToRapid(rotationMatrixToQuaternion(mat3Mul(worldZ, startRotation)))
+    const targetRot = internalQuatToRapid(
+      rotationMatrixToQuaternion(mat3Mul(worldZ, startRotation)),
+    )
     const target: RobTarget = {
       // 位置带 10mm 平移以提升可解性；姿态改变 10°。
       trans: [start.position[0] + 10, start.position[1], start.position[2]],
@@ -202,14 +212,19 @@ describe('executeMoveL 控制与时长', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
-    const outcomePromise = executeMoveL(makeMoveL(target, { speed: { v_tcp: 1, v_ori: 100, v_leax: 100, v_reax: 100 } }), {
-      model: ABB_MODEL,
-      currentJoints: () => joints,
-      jointRanges: ABB_JOINT_RANGES,
-      runTrajectory: (waypoints, durationMs) => runner.startTrajectory(waypoints, durationMs),
-    })
+    const outcomePromise = executeMoveL(
+      makeMoveL(target, { speed: { v_tcp: 1, v_ori: 100, v_leax: 100, v_reax: 100 } }),
+      {
+        model: ABB_MODEL,
+        currentJoints: () => joints,
+        jointRanges: ABB_JOINT_RANGES,
+        runTrajectory: (waypoints, durationMs) => runner.startTrajectory(waypoints, durationMs),
+      },
+    )
     clock.advanceBy(100)
     runner.stop()
     const stoppedAt = [...joints]
@@ -241,7 +256,9 @@ describe('executeMoveL 控制与时长', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
     const outcomePromise = executeMoveL(makeMoveL(target), {
       model: ABB_MODEL,
@@ -316,15 +333,18 @@ describe('planMoveL/executeMoveL 非法输入不会进入路径规划', () => {
       extax: [...NO_EXTERNAL_AXIS],
     }
     let runTrajectoryCalls = 0
-    const outcome = await executeMoveL(makeMoveL(target, { zone: { ...defaultZoneFine(), pzoneOri: Infinity } }), {
-      model: ABB_MODEL,
-      currentJoints: () => startJoints,
-      jointRanges: ABB_JOINT_RANGES,
-      runTrajectory: () => {
-        runTrajectoryCalls += 1
-        return Promise.resolve('completed' as const)
+    const outcome = await executeMoveL(
+      makeMoveL(target, { zone: { ...defaultZoneFine(), pzoneOri: Infinity } }),
+      {
+        model: ABB_MODEL,
+        currentJoints: () => startJoints,
+        jointRanges: ABB_JOINT_RANGES,
+        runTrajectory: () => {
+          runTrajectoryCalls += 1
+          return Promise.resolve('completed' as const)
+        },
       },
-    })
+    )
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) expect(outcome.error.kind).toBe('invalid-data')
     expect(runTrajectoryCalls).toBe(0)

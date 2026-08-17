@@ -1,8 +1,8 @@
-import { solveIK } from '../robotics/ik-solver.ts'
-import type { MotionResult } from '../robotics/motion-runner.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
-import type { SixAxisJointRanges } from '../robotics/robot-profile.ts'
-import type { JointAngles, Pose } from '../robotics/types.ts'
+import { solveIK } from '@/robotics/ik-solver.ts'
+import type { MotionResult } from '@/robotics/motion-runner.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { SixAxisJointRanges } from '@/robotics/robot-profile.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import {
   isJointAtLimit,
   simulateDurationMs,
@@ -13,8 +13,7 @@ import { robTargetToFlangePose } from './coordinate-transform.ts'
 import type { StructuredMoveJ } from './rapid-types.ts'
 
 export type MoveJPlanResult =
-  | { ok: true; joints: JointAngles; durationMs: number }
-  | { ok: false; error: MotionPlanError }
+  { ok: true; joints: JointAngles; durationMs: number } | { ok: false; error: MotionPlanError }
 
 /** MoveJ 执行注入的运动执行 seam；规划层不自行操作 RAF 或插值关节。 */
 export interface MoveJExecutionSeam {
@@ -25,8 +24,7 @@ export interface MoveJExecutionSeam {
 }
 
 export type MoveJOutcome =
-  | { ok: true; result: MotionResult }
-  | { ok: false; error: MotionPlanError }
+  { ok: true; result: MotionResult } | { ok: false; error: MotionPlanError }
 
 /**
  * 生成有限、确定性、受关节范围约束的备用 IK 初值：由当前关节姿态派生各构型翻转
@@ -58,17 +56,59 @@ function buildAlternateIKSeeds(
 
   const raw = [
     // 腕部翻转（J4/J6 +180、J5 取负）。
-    [currentJoints[0], currentJoints[1], currentJoints[2], currentJoints[3] + 180, -currentJoints[4], currentJoints[5] + 180],
+    [
+      currentJoints[0],
+      currentJoints[1],
+      currentJoints[2],
+      currentJoints[3] + 180,
+      -currentJoints[4],
+      currentJoints[5] + 180,
+    ],
     // J1 肩部镜像（+180 回绕）。
-    [wrap(currentJoints[0] + 180), currentJoints[1], currentJoints[2], currentJoints[3], currentJoints[4], currentJoints[5]],
+    [
+      wrap(currentJoints[0] + 180),
+      currentJoints[1],
+      currentJoints[2],
+      currentJoints[3],
+      currentJoints[4],
+      currentJoints[5],
+    ],
     // J1 肩部镜像（-180 回绕）。
-    [wrap(currentJoints[0] - 180), currentJoints[1], currentJoints[2], currentJoints[3], currentJoints[4], currentJoints[5]],
+    [
+      wrap(currentJoints[0] - 180),
+      currentJoints[1],
+      currentJoints[2],
+      currentJoints[3],
+      currentJoints[4],
+      currentJoints[5],
+    ],
     // J1 镜像 + 腕部翻转。
-    [wrap(currentJoints[0] + 180), currentJoints[1], currentJoints[2], currentJoints[3] + 180, -currentJoints[4], currentJoints[5] + 180],
+    [
+      wrap(currentJoints[0] + 180),
+      currentJoints[1],
+      currentJoints[2],
+      currentJoints[3] + 180,
+      -currentJoints[4],
+      currentJoints[5] + 180,
+    ],
     // 肩肘翻转（J2/J3 取负）。
-    [currentJoints[0], -currentJoints[1], -currentJoints[2], currentJoints[3], currentJoints[4], currentJoints[5]],
+    [
+      currentJoints[0],
+      -currentJoints[1],
+      -currentJoints[2],
+      currentJoints[3],
+      currentJoints[4],
+      currentJoints[5],
+    ],
     // 肩肘翻转 + 腕部翻转。
-    [currentJoints[0], -currentJoints[1], -currentJoints[2], currentJoints[3] + 180, -currentJoints[4], currentJoints[5] + 180],
+    [
+      currentJoints[0],
+      -currentJoints[1],
+      -currentJoints[2],
+      currentJoints[3] + 180,
+      -currentJoints[4],
+      currentJoints[5] + 180,
+    ],
   ]
     .map(clamp)
     // 去重：初始 seed 与当前初值重复、或翻转后互相重复的丢弃。
@@ -183,7 +223,6 @@ function resolveJointSolution(
   }
   return { joints: best }
 }
-
 
 /**
  * 规划成功后只通过注入的缓动入口提交关节目标，并把 MotionRunner 的

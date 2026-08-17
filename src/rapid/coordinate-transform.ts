@@ -1,10 +1,10 @@
-import { Matrix4x4 } from '../robotics/matrix4x4.ts'
+import { Matrix4x4 } from '@/robotics/matrix4x4.ts'
 import {
   mat3Transpose,
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
-} from '../robotics/math/rotation3d.ts'
-import type { Pose } from '../robotics/types.ts'
+} from '@/robotics/math/rotation3d.ts'
+import type { Pose } from '@/robotics/types.ts'
 import type { RapidPose, RobTarget, ToolData, WobjData } from './rapid-types.ts'
 import { rapidQuatToInternal } from './plan-shared.ts'
 
@@ -81,9 +81,7 @@ export function robTargetToWorldPose(target: RobTarget, wobj: WobjData): Pose {
       )
     })(),
   })
-  const world = frameMatrix(wobj.uframe)
-    .multiply(frameMatrix(wobj.oframe))
-    .multiply(object)
+  const world = frameMatrix(wobj.uframe).multiply(frameMatrix(wobj.oframe)).multiply(object)
   return matrixToPose(world)
 }
 

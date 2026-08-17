@@ -101,9 +101,7 @@ export type RapidScalarKind = 'num' | 'bool'
 export type RapidScalarValue = number | boolean
 
 /** ProgramExecutor 持有的一个标量变量快照；名称在调用方按 RAPID 规则归一化。 */
-export type RapidScalarVariable =
-  | { kind: 'num'; value: number }
-  | { kind: 'bool'; value: boolean }
+export type RapidScalarVariable = { kind: 'num'; value: number } | { kind: 'bool'; value: boolean }
 
 /**
  * 结构化运动指令；MoveJ 与 MoveL 直接携带已解析的目标、速度、zone、工具和工件值。
@@ -239,16 +237,39 @@ export const SYSTEM_LOADDATA: Readonly<Record<string, LoadData>> = {
  * v_tcp 单位 mm/s；vmax 的 v_tcp 用 MAX_ROB_SPEED_SENTINEL 占位（依赖机器人型号，见票据 04）。
  */
 const TCP_SPEED_VALUES: ReadonlyArray<readonly [string, number]> = [
-  ['v5', 5], ['v10', 10], ['v20', 20], ['v30', 30], ['v40', 40], ['v50', 50], ['v60', 60], ['v80', 80],
-  ['v100', 100], ['v150', 150], ['v200', 200], ['v300', 300], ['v400', 400], ['v500', 500], ['v600', 600],
-  ['v800', 800], ['v1000', 1000], ['v1500', 1500], ['v2000', 2000], ['v2500', 2500], ['v3000', 3000],
-  ['v4000', 4000], ['v5000', 5000], ['v6000', 6000], ['v7000', 7000],
+  ['v5', 5],
+  ['v10', 10],
+  ['v20', 20],
+  ['v30', 30],
+  ['v40', 40],
+  ['v50', 50],
+  ['v60', 60],
+  ['v80', 80],
+  ['v100', 100],
+  ['v150', 150],
+  ['v200', 200],
+  ['v300', 300],
+  ['v400', 400],
+  ['v500', 500],
+  ['v600', 600],
+  ['v800', 800],
+  ['v1000', 1000],
+  ['v1500', 1500],
+  ['v2000', 2000],
+  ['v2500', 2500],
+  ['v3000', 3000],
+  ['v4000', 4000],
+  ['v5000', 5000],
+  ['v6000', 6000],
+  ['v7000', 7000],
 ]
 
 const commonSpeed: SpeedData = { v_tcp: 0, v_ori: 500, v_leax: 5000, v_reax: 1000 }
 
 export const SYSTEM_SPEED: Readonly<Record<string, SpeedData>> = {
-  ...Object.fromEntries(TCP_SPEED_VALUES.map(([name, vTcp]) => [name, { ...commonSpeed, v_tcp: vTcp }])),
+  ...Object.fromEntries(
+    TCP_SPEED_VALUES.map(([name, vTcp]) => [name, { ...commonSpeed, v_tcp: vTcp }]),
+  ),
   vmax: { ...commonSpeed, v_tcp: MAX_ROB_SPEED_SENTINEL },
 }
 
@@ -258,7 +279,9 @@ export const SYSTEM_SPEED: Readonly<Record<string, SpeedData>> = {
  * pzone* 为停点允差(mm)，zone* 为过渡区半径（zoneOri/zoneReax 单位 °，zoneLeax 单位 mm）。
  * 当前 MVP 仅 fine 作为精确停点执行；各 fly-by 档识别为“已识别、未模拟路径融合”（见票据 04）。
  */
-const ZONE_TABLE: ReadonlyArray<readonly [string, false, number, number, number, number, number, number]> = [
+const ZONE_TABLE: ReadonlyArray<
+  readonly [string, false, number, number, number, number, number, number]
+> = [
   ['z0', false, 0.3, 0.3, 0.3, 0.03, 0.3, 0.03],
   ['z1', false, 1, 1, 1, 0.1, 1, 0.1],
   ['z5', false, 5, 8, 8, 0.8, 8, 0.8],

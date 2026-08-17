@@ -1,18 +1,17 @@
-import { planCartesianPath } from '../robotics/cartesian-path-planner.ts'
-import type { MotionResult } from '../robotics/motion-runner.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
-import type { JointAngles } from '../robotics/types.ts'
+import { planCartesianPath } from '@/robotics/cartesian-path-planner.ts'
+import type { MotionResult } from '@/robotics/motion-runner.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { simulateDurationMs, validateMotionInput, type MotionPlanError } from './plan-shared.ts'
 import {
-  simulateDurationMs,
-  validateMotionInput,
-  type MotionPlanError,
-} from './plan-shared.ts'
-import { flangeToWorldTcpPose, robTargetToWorldPose, worldTcpToFlangePose } from './coordinate-transform.ts'
+  flangeToWorldTcpPose,
+  robTargetToWorldPose,
+  worldTcpToFlangePose,
+} from './coordinate-transform.ts'
 import type { StructuredMoveL } from './rapid-types.ts'
 
 export type MoveLPlanResult =
-  | { ok: true; waypoints: JointAngles[]; durationMs: number }
-  | { ok: false; error: MotionPlanError }
+  { ok: true; waypoints: JointAngles[]; durationMs: number } | { ok: false; error: MotionPlanError }
 
 /** MoveL 执行注入的运动执行 seam；规划层不自行操作 RAF 或插值关节。 */
 export interface MoveLExecutionSeam {
@@ -23,8 +22,7 @@ export interface MoveLExecutionSeam {
 }
 
 export type MoveLOutcome =
-  | { ok: true; result: MotionResult }
-  | { ok: false; error: MotionPlanError }
+  { ok: true; result: MotionResult } | { ok: false; error: MotionPlanError }
 
 /**
  * 校验并规划单条结构化 MoveL：复用现有 planCartesianPath 生成连续关节 waypoint。
@@ -56,16 +54,10 @@ export function planMoveL(
   // MoveL 要求 TCP 走直线：以当前法兰→工具得到的 TCP 为起点、robtarget 世界 TCP 为终点，
   // 在 TCP 空间插补，再逐点把 TCP 转回机械法兰送入 IK。
   const tcpTarget = robTargetToWorldPose(movel.target, movel.wobj)
-  const waypoints = planCartesianPath(
-    tcpTarget,
-    currentJoints,
-    model,
-    jointRanges,
-    {
-      tcpStart: flangeToWorldTcpPose(currentFlange, movel.tool),
-      toFlange: (tcp) => worldTcpToFlangePose(tcp, movel.tool),
-    },
-  )
+  const waypoints = planCartesianPath(tcpTarget, currentJoints, model, jointRanges, {
+    tcpStart: flangeToWorldTcpPose(currentFlange, movel.tool),
+    toFlange: (tcp) => worldTcpToFlangePose(tcp, movel.tool),
+  })
   if (!waypoints || waypoints.length === 0) {
     return {
       ok: false,

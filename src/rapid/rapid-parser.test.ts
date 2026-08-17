@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { isRapidMotionInstruction, isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
+import {
+  isRapidMotionInstruction,
+  isRobtargetProgramData,
+  parseRapidProgram,
+  type RapidProgramDataTarget,
+} from './rapid-parser.ts'
 
 /** 从解析结果取 robtarget 点位条目（Program Data 联合中的点位视图）。 */
 function robtargets(result: ReturnType<typeof parseRapidProgram>): RapidProgramDataTarget[] {
@@ -33,7 +38,12 @@ describe('RAPID 文本解析模块', () => {
     ])
     const first = result.program[0]
     const second = result.program[1]
-    if (!first || !second || !isRapidMotionInstruction(first) || !isRapidMotionInstruction(second)) {
+    if (
+      !first ||
+      !second ||
+      !isRapidMotionInstruction(first) ||
+      !isRapidMotionInstruction(second)
+    ) {
       throw new Error('最小程序结构异常')
     }
     expect(first.target.trans).toEqual([551, 613, 60])
@@ -151,9 +161,7 @@ ENDMODULE
     const result = parseRapidProgram(`MODULE Empty ENDMODULE`)
 
     expect(result.canExecute).toBe(false)
-    expect(result.diagnostics).toEqual([
-      expect.objectContaining({ code: 'missing-entrypoint' }),
-    ])
+    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'missing-entrypoint' })])
   })
 
   it('拒绝 ENDMODULE 后的尾随内容，避免静默忽略源程序', () => {
@@ -180,9 +188,7 @@ ENDMODULE
 
     expect(result.canExecute).toBe(false)
     expect(result.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'invalid-data' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ code: 'invalid-data' })]),
     )
   })
 })
@@ -250,7 +256,9 @@ ENDMODULE
     const result = parseRapidProgram(SOURCE)
 
     // 第 6 行注释里的 pApproach 不产生引用。
-    expect(robtargets(result)[0].referenceRanges.every((range) => range.start.line !== 6)).toBe(true)
+    expect(robtargets(result)[0].referenceRanges.every((range) => range.start.line !== 6)).toBe(
+      true,
+    )
   })
 
   it('源码存在 error 时仍暴露已识别数据（只读浏览），但不可执行', () => {

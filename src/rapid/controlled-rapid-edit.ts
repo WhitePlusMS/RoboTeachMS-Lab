@@ -1,4 +1,8 @@
-import { isRobtargetProgramData, parseRapidProgram, type RapidProgramDataTarget } from './rapid-parser.ts'
+import {
+  isRobtargetProgramData,
+  parseRapidProgram,
+  type RapidProgramDataTarget,
+} from './rapid-parser.ts'
 import { NO_EXTERNAL_AXIS, type RobTarget } from './rapid-types.ts'
 
 /**
@@ -37,7 +41,8 @@ export interface RapidEditSuccess {
   programIndexShift?: { at: number; delta: 1 }
 }
 
-export type RapidEditResult = { ok: true; result: RapidEditSuccess } | { ok: false; error: RapidEditError }
+export type RapidEditResult =
+  { ok: true; result: RapidEditSuccess } | { ok: false; error: RapidEditError }
 
 /** RAPID 标识符：字母/下划线开头，后续字母数字下划线；长度非空。 */
 const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -120,7 +125,9 @@ export function applyRapidEdit(source: string, command: RapidEditCommand): Rapid
 }
 
 /** 仅考虑 robtarget 条目：受控编辑只作用于点位符号，不覆盖 tooldata/wobjdata/speeddata/zonedata。 */
-function robtargetSymbols(parsed: ReturnType<typeof parseRapidProgram>): Map<string, RapidProgramDataTarget> {
+function robtargetSymbols(
+  parsed: ReturnType<typeof parseRapidProgram>,
+): Map<string, RapidProgramDataTarget> {
   return new Map(parsed.data.filter(isRobtargetProgramData).map((d) => [normalizeName(d.name), d]))
 }
 
@@ -166,7 +173,8 @@ function modifyPosition(
   target: RobTarget,
 ): RapidEditResult {
   const entry = findTarget(parsed, name)
-  if (!entry) return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
+  if (!entry)
+    return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
 
   const start = entry.valueRange.start.offset
   const end = entry.valueRange.end.offset
@@ -182,7 +190,8 @@ function renameTarget(
   newName: string,
 ): RapidEditResult {
   const entry = findTarget(parsed, name)
-  if (!entry) return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
+  if (!entry)
+    return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
 
   const symbols = robtargetSymbols(parsed)
   const nameError = validateNewName(newName, symbols, normalizeName(name))
@@ -207,7 +216,8 @@ function deleteTarget(
   name: string,
 ): RapidEditResult {
   const entry = findTarget(parsed, name)
-  if (!entry) return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
+  if (!entry)
+    return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
   if (entry.referenceRanges.length > 0) {
     return {
       ok: false,
@@ -234,12 +244,18 @@ function insertMotion(
   insertionIndex: number,
 ): RapidEditResult {
   const entry = findTarget(parsed, name)
-  if (!entry) return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
-  const insertionPoint = parsed.motionInsertionPoints.find((point) => point.index === insertionIndex)
+  if (!entry)
+    return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
+  const insertionPoint = parsed.motionInsertionPoints.find(
+    (point) => point.index === insertionIndex,
+  )
   if (!insertionPoint) {
     return {
       ok: false,
-      error: { code: 'invalid-insertion-position', message: `插入位置 ${insertionIndex} 不在 main 的合法运动位置中` },
+      error: {
+        code: 'invalid-insertion-position',
+        message: `插入位置 ${insertionIndex} 不在 main 的合法运动位置中`,
+      },
     }
   }
 

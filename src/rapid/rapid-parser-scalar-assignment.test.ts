@@ -52,10 +52,12 @@ ENDMODULE`)
     expect(third.sourceText).toContain('count-1')
 
     const scalars = result.data.filter((entry) => entry.kind === 'num' || entry.kind === 'bool')
-    expect(scalars).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'num', name: 'count', value: 1, storage: 'var' }),
-      expect.objectContaining({ kind: 'bool', name: 'ready', value: false, storage: 'var' }),
-    ]))
+    expect(scalars).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'num', name: 'count', value: 1, storage: 'var' }),
+        expect.objectContaining({ kind: 'bool', name: 'ready', value: false, storage: 'var' }),
+      ]),
+    )
     expect(result.motionInsertionPoints.map((point) => point.index)).toEqual([3, 4])
     const motion = result.program[3]
     expect(motion && isRapidMotionInstruction(motion)).toBe(true)
