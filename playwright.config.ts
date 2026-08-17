@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
-const chromePath = process.env.PLAYWRIGHT_CHROME_PATH
-  ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+const chromePath =
+  process.env.PLAYWRIGHT_CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 
 export default defineConfig({
   testDir: './e2e',

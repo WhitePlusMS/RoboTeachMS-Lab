@@ -51,3 +51,25 @@ npm run preview
 当前未实现：`REPEAT...UNTIL`、`TEST/CASE`、PROC/FUNC 调用、I/O、复合数据赋值、变量驱动 `Offs`/`RelTool`、完整调试器能力和完整 RAPID 编译器语义。超出子集的语法会给出诊断并阻止部分执行。
 
 该目录拥有自己的依赖、资源、构建配置和测试，不通过路径别名、工作区、软链接或运行时加载引用其他项目。
+
+## Linting & Formatting
+
+项目使用 ESLint（flat config）+ TypeScript-ESLint + eslint-plugin-vue + Prettier + Stylelint，并统一由 Prettier 负责格式，ESLint 的格式类规则通过 `eslint-config-prettier` 关闭以避免冲突。首次使用前需先 `npm install`（安装 ESLint/Prettier/Stylelint 等新依赖）。
+
+```bash
+# 类型检查（既有）
+npm run check
+
+# ESLint 检查 / 自动修复（src/**/*.ts 与 *.vue）
+npm run lint
+npm run lint:fix
+
+# Stylelint 检查（src/**/*.css 与 *.vue 内样式）
+npm run lint:style
+
+# Prettier 格式化 / 检查
+npm run format
+npm run format:check
+```
+
+格式化约定（见 `.prettierrc.json`）：无分号、单引号、`trailingComma: 'all'`、`printWidth: 100`、`tabWidth: 2`——与代码库既有风格一致。`.editorconfig` 固定 utf-8、LF、2 空格缩进。
