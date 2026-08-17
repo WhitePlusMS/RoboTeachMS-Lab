@@ -46,7 +46,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     runner.startEased(jointsAt(10), 100)
@@ -65,7 +67,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     runner.startEased(jointsAt(10), 100)
@@ -83,7 +87,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
       motionConfig: { jointSpeedLimit: 10, ikAnimDuration: 800, snapThreshold: 0.01 },
     })
 
@@ -106,7 +112,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     runner.startEased(jointsAt(10), 100)
@@ -126,7 +134,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     runner.startTrajectory([jointsAt(10), jointsAt(20)], 100)
@@ -145,7 +155,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     expect(runner.getStatus()).toBe('idle')
@@ -164,7 +176,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startEased(jointsAt(10), 100)
@@ -183,7 +197,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
       motionConfig: { jointSpeedLimit: 1000, ikAnimDuration: 800, snapThreshold: 0.01 },
     })
 
@@ -207,7 +223,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const first = runner.startEased(jointsAt(10), 200)
@@ -224,7 +242,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startEased(jointsAt(10), 100)
@@ -254,7 +274,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startTrajectory([jointsAt(15), jointsAt(25)], 100)
@@ -276,7 +298,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
       motionConfig: { jointSpeedLimit: 10, ikAnimDuration: 800, snapThreshold: 0.01 },
     })
 
@@ -300,7 +324,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     expect(runner.getStatus()).toBe('idle')
@@ -329,7 +355,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     expect(runner.getStatus()).toBe('idle')
@@ -344,7 +372,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startEased(jointsAt(10), 100)
@@ -361,7 +391,9 @@ describe('Motion Runner', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     expect(runner.getStatus()).toBe('idle')
@@ -395,7 +427,9 @@ describe('Motion Runner 暂停后 retarget 的时间轴', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startEased(jointsAt(10), 100)
@@ -420,7 +454,9 @@ describe('Motion Runner 暂停后 retarget 的时间轴', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startEased(jointsAt(10), 100)
@@ -445,7 +481,9 @@ describe('Motion Runner 暂停后 retarget 的时间轴', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     const result = runner.startTrajectory([jointsAt(15), jointsAt(25)], 100)
@@ -472,7 +510,9 @@ describe('Motion Runner 暂停后 retarget 的时间轴', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => joints,
-      setJoints: (next) => { joints = [...next] },
+      setJoints: (next) => {
+        joints = [...next]
+      },
     })
 
     runner.startEased(jointsAt(10), 60)

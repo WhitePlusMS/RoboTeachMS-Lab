@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { extractPose } from '../../robotics/kinematics.ts'
-import { abbBaseFrameToSceneFrame } from '../../scene/abb-scene-transform.ts'
+import { extractPose } from '@/robotics/kinematics.ts'
+import { abbBaseFrameToSceneFrame } from '@/scene/abb-scene-transform.ts'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,
@@ -57,7 +57,9 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
   })
 
   it('ABB 基座 frame 经唯一场景显示转换后的关节轴与 FBX 一致，并使腕部沿负 Y 伸出', () => {
-    const frames = forwardAbbKinematicsFramesDegrees([0, 0, 0, 0, 0, 0]).map(abbBaseFrameToSceneFrame)
+    const frames = forwardAbbKinematicsFramesDegrees([0, 0, 0, 0, 0, 0]).map(
+      abbBaseFrameToSceneFrame,
+    )
     const expectedDirectedAxes = [
       [0, 1, 0],
       [0, 0, -1],

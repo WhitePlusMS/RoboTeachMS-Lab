@@ -1,7 +1,7 @@
 import { Matrix, solve } from 'ml-matrix'
-import { clampDegStep, clampVectorMagnitude } from './math/vector.ts'
-import { radToDeg } from './math/angle.ts'
-import { orientationError } from './math/rotation3d.ts'
+import { clampDegStep, clampVectorMagnitude } from '@/robotics/math/vector.ts'
+import { radToDeg } from '@/robotics/math/angle.ts'
+import { orientationError } from '@/robotics/math/rotation3d.ts'
 import type { RobotModel } from './robot-model.ts'
 import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
 

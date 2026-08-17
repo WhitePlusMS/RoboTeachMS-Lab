@@ -3,7 +3,7 @@ import {
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
   rotationMatrixToQuaternion,
-} from './math/rotation3d.ts'
+} from '@/robotics/math/rotation3d.ts'
 import type { RobotModel } from './robot-model.ts'
 import type { JointAngles, Pose } from './types.ts'
 
@@ -35,9 +35,7 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
   const denominator = Math.sin(angle)
   const startWeight = Math.sin((1 - progress) * angle) / denominator
   const endWeight = Math.sin(progress * angle) / denominator
-  return start.map((value, index) =>
-    value * startWeight + end[index] * endWeight,
-  ) as Quaternion
+  return start.map((value, index) => value * startWeight + end[index] * endWeight) as Quaternion
 }
 
 /**
@@ -74,10 +72,9 @@ export function planCartesianPath(
   )
   const startQuaternion = rotationMatrixToQuaternion(startPose.rotation)
   const targetQuaternion = rotationMatrixToQuaternion(targetPose.rotation)
-  const quaternionDot = Math.abs(startQuaternion.reduce(
-    (sum, value, index) => sum + value * targetQuaternion[index],
-    0,
-  ))
+  const quaternionDot = Math.abs(
+    startQuaternion.reduce((sum, value, index) => sum + value * targetQuaternion[index], 0),
+  )
   const angularDistance = 2 * Math.acos(Math.max(-1, Math.min(1, quaternionDot)))
   const segmentCount = Math.max(
     1,
@@ -94,8 +91,8 @@ export function planCartesianPath(
       slerpQuaternion(startQuaternion, targetQuaternion, progress),
     )
     const waypointPose: Pose = {
-      position: startPose.position.map((value, axis) =>
-        value + (targetPose.position[axis] - value) * progress,
+      position: startPose.position.map(
+        (value, axis) => value + (targetPose.position[axis] - value) * progress,
       ) as Pose['position'],
       euler: rotationMatrixToEulerZYX(waypointRotation),
       rotation: waypointRotation,
@@ -108,9 +105,9 @@ export function planCartesianPath(
       jointRanges,
     )
     if (!solved) return null
-    const maxJointStep = Math.max(...solved.map((value, index) =>
-      Math.abs(value - previousJoints[index]),
-    ))
+    const maxJointStep = Math.max(
+      ...solved.map((value, index) => Math.abs(value - previousJoints[index])),
+    )
     if (maxJointStep > MAX_JOINT_STEP_DEG) return null
     waypoints.push(solved)
     previousJoints = solved

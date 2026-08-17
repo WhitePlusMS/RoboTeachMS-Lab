@@ -1,4 +1,4 @@
-import { orientationError } from './math/rotation3d.ts'
+import { orientationError } from '@/robotics/math/rotation3d.ts'
 import type { JointAngles, Pose } from './types.ts'
 
 export type ForwardKinematics = (jointsDeg: JointAngles) => Pose | null
@@ -23,8 +23,7 @@ export function estimateNumericalJacobian(
     if (!offsetPose) return null
 
     for (let axis = 0; axis < 3; axis += 1) {
-      jacobian[axis][jointIndex] =
-        (offsetPose.position[axis] - basePose.position[axis]) / stepDeg
+      jacobian[axis][jointIndex] = (offsetPose.position[axis] - basePose.position[axis]) / stepDeg
     }
 
     const orientationDelta = orientationError(offsetPose.rotation, basePose.rotation)

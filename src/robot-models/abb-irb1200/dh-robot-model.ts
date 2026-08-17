@@ -1,7 +1,7 @@
-import { estimateNumericalJacobian } from '../../robotics/numerical-jacobian.ts'
-import { extractPose } from '../../robotics/kinematics.ts'
-import type { RobotModel } from '../../robotics/robot-model.ts'
-import type { JointAngles, Pose } from '../../robotics/types.ts'
+import { estimateNumericalJacobian } from '@/robotics/numerical-jacobian.ts'
+import { extractPose } from '@/robotics/kinematics.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { forwardAbbKinematicsDegrees } from './abb-kinematics.ts'
 
 /**

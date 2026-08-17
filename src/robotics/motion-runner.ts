@@ -175,7 +175,10 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     else finishMotion()
   }
 
-  function startEased(target: JointAngles, duration = config.ikAnimDuration): Promise<MotionResult> {
+  function startEased(
+    target: JointAngles,
+    duration = config.ikAnimDuration,
+  ): Promise<MotionResult> {
     targetJoints = [...target]
     startJoints = [...options.getCurrentJoints()]
     startTime = options.clock.now()

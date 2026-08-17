@@ -1,4 +1,4 @@
-import type { RobotProfile } from '../../robotics/robot-profile.ts'
+import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import { AbbDhRobotModel } from './dh-robot-model.ts'
 import {
   ABB_DEFAULT_JOINTS,

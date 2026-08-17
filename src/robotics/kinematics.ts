@@ -18,13 +18,10 @@ export function dhTransform(theta: number, d: number, a: number, alpha: number):
 /** 正解核心保持历史语义：关节输入为弧度，DH 的偏置仍为弧度。 */
 export function forwardKinematics(jointsRad: JointAngles, config: RobotConfig): Matrix4x4 {
   const dhValues = Object.values(config.dhParams)
-  return dhValues.reduce(
-    (transform, dh, index) => {
-      const theta = jointsRad[index] * (dh.thetaSign ?? 1) + (dh.thetaOffset ?? 0)
-      return transform.multiply(dhTransform(theta, dh.d, dh.a, dh.alpha))
-    },
-    Matrix4x4.identity(),
-  )
+  return dhValues.reduce((transform, dh, index) => {
+    const theta = jointsRad[index] * (dh.thetaSign ?? 1) + (dh.thetaOffset ?? 0)
+    return transform.multiply(dhTransform(theta, dh.d, dh.a, dh.alpha))
+  }, Matrix4x4.identity())
 }
 
 /** 供 Vue 控制台使用的角度入口，避免页面重复处理单位转换。 */
@@ -63,6 +60,10 @@ export function poseFromJoints(joints: JointAngles, config: RobotConfig): PoseDi
   const pose = extractPose(forwardKinematicsDegrees(joints, config))
   return {
     positionMm: pose.position,
-    orientationDeg: pose.eulerZYX.map((value) => (value * 180) / Math.PI) as [number, number, number],
+    orientationDeg: pose.eulerZYX.map((value) => (value * 180) / Math.PI) as [
+      number,
+      number,
+      number,
+    ],
   }
 }

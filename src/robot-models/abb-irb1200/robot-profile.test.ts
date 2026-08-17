@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RobotProfile } from '../../robotics/robot-profile.ts'
+import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import { AbbDhRobotModel } from './dh-robot-model.ts'
 import { ABB_IRB1200_PROFILE } from './robot-profile.ts'
 import {
@@ -9,6 +9,7 @@ import {
 } from './robot-config.ts'
 
 // 仅参与 TypeScript 静态检查；不可在测试运行时改写全局 profile 单例。
+// eslint-disable-next-line no-constant-condition -- intentional: only a TS static-check block.
 if (false) {
   const readonlyProfile: RobotProfile = ABB_IRB1200_PROFILE
   // @ts-expect-error - RobotProfile 字段只读，禁止替换共享模型。
@@ -29,7 +30,13 @@ describe('ABB IRB 1200 profile seam', () => {
 
   it('只聚合契约字段：型号身份、一体模型、关节范围与回零状态', () => {
     const profile = ABB_IRB1200_PROFILE as RobotProfile
-    expect(Object.keys(profile).sort()).toEqual(['displayName', 'homeJoints', 'id', 'jointRanges', 'model'])
+    expect(Object.keys(profile).sort()).toEqual([
+      'displayName',
+      'homeJoints',
+      'id',
+      'jointRanges',
+      'model',
+    ])
   })
 
   it('六轴关节范围结构固定且零位落在范围内', () => {

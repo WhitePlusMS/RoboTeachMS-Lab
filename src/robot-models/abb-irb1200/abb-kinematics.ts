@@ -1,16 +1,11 @@
-import { Matrix4x4 } from '../../robotics/matrix4x4.ts'
-import type { JointAngles, RobotConfig } from '../../robotics/types.ts'
+import { Matrix4x4 } from '@/robotics/matrix4x4.ts'
+import type { JointAngles, RobotConfig } from '@/robotics/types.ts'
 import { ABB_IRB1200_5_90_STANDARD_DH } from './robot-config.ts'
 
 /**
  * 标准 DH 齐次变换；与 KUKA 历史矩阵约定隔离，长度单位为毫米，角度使用弧度。
  */
-export function standardDhTransform(
-  theta: number,
-  d: number,
-  a: number,
-  alpha: number,
-): Matrix4x4 {
+export function standardDhTransform(theta: number, d: number, a: number, alpha: number): Matrix4x4 {
   const cosTheta = Math.cos(theta)
   const sinTheta = Math.sin(theta)
   const cosAlpha = Math.cos(alpha)
