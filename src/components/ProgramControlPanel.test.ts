@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramControlPanel from './ProgramControlPanel.vue'
-import type { ProgramControllerSnapshot } from '../application/program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
 
 const SOURCE = 'MODULE Demo ENDMODULE'
 
@@ -62,7 +62,9 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
   })
 
   it('stopped 且下一条仍在程序内时显示等待下一步提示', () => {
-    const wrapper = mountPanel(snapshot({ state: 'stopped', programPointer: 1, stopReason: 'step-completed' }))
+    const wrapper = mountPanel(
+      snapshot({ state: 'stopped', programPointer: 1, stopReason: 'step-completed' }),
+    )
     expect(wrapper.text()).toContain('等待下一步')
   })
 
@@ -148,12 +150,17 @@ describe('ProgramControlPanel 状态与指针显示', () => {
   it('存在静态诊断时禁用运行与单步', () => {
     const wrapper = mountPanel(
       snapshot({
-        diagnostics: [{
-          code: 'syntax-error',
-          severity: 'error',
-          message: '缺少分号',
-          range: { start: { offset: 1, line: 2, column: 1 }, end: { offset: 2, line: 2, column: 2 } },
-        }],
+        diagnostics: [
+          {
+            code: 'syntax-error',
+            severity: 'error',
+            message: '缺少分号',
+            range: {
+              start: { offset: 1, line: 2, column: 1 },
+              end: { offset: 2, line: 2, column: 2 },
+            },
+          },
+        ],
       }),
     )
     const [run, step] = wrapper.findAll('button')
@@ -179,10 +186,21 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
   })
 
   it('存在静态诊断时即使 idle 也不能运行', () => {
-    const wrapper = mountPanel(snapshot({ diagnostics: [{
-      code: 'syntax-error', severity: 'error', message: '错误',
-      range: { start: { offset: 0, line: 1, column: 1 }, end: { offset: 1, line: 1, column: 2 } },
-    }] }))
+    const wrapper = mountPanel(
+      snapshot({
+        diagnostics: [
+          {
+            code: 'syntax-error',
+            severity: 'error',
+            message: '错误',
+            range: {
+              start: { offset: 0, line: 1, column: 1 },
+              end: { offset: 1, line: 1, column: 2 },
+            },
+          },
+        ],
+      }),
+    )
     expect(wrapper.findAll('button')[0].attributes('disabled')).toBeDefined()
   })
 
@@ -201,13 +219,18 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
   })
 })
 
-import type { RapidMotionInstruction } from '../rapid/rapid-parser.ts'
-import { defaultTool0, defaultWobj0, defaultZoneFine } from '../rapid/rapid-types.ts'
+import type { RapidMotionInstruction } from '@/rapid/rapid-parser.ts'
+import { defaultTool0, defaultWobj0, defaultZoneFine } from '@/rapid/rapid-types.ts'
 
 function programWith(lines: number[], operands: string[]): RapidMotionInstruction[] {
   return lines.map((line, index) => ({
     kind: 'movej' as const,
-    target: { trans: [0, 0, 0], rot: [1, 0, 0, 0], robconf: [0, 0, 0, 0], extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9] },
+    target: {
+      trans: [0, 0, 0],
+      rot: [1, 0, 0, 0],
+      robconf: [0, 0, 0, 0],
+      extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9],
+    },
     speed: { v_tcp: 200, v_ori: 500, v_leax: 5000, v_reax: 1000 },
     zone: defaultZoneFine(),
     tool: defaultTool0(),

@@ -30,14 +30,22 @@ describe('WorkbenchLayout 三栏折叠壳层', () => {
     const wrapper = mountLayout()
 
     await wrapper.get('[aria-label="收起左侧面板"]').trigger('click')
-    expect(wrapper.get('[data-testid="left-content"]').element.parentElement?.parentElement?.getAttribute('style')).toContain('display: none')
+    expect(
+      wrapper
+        .get('[data-testid="left-content"]')
+        .element.parentElement?.parentElement?.getAttribute('style'),
+    ).toContain('display: none')
     expect(wrapper.get('.workbench-layout').classes()).toContain('left-collapsed')
     expect(wrapper.get('[aria-label="展开左侧面板"]')).toBeTruthy()
     expect(wrapper.get('[aria-label="展开左侧面板"]').attributes('aria-expanded')).toBe('false')
     expect(wrapper.findAll('[data-testid="right-content"]')).toHaveLength(1)
 
     await wrapper.get('[aria-label="收起右侧面板"]').trigger('click')
-    expect(wrapper.get('[data-testid="right-content"]').element.parentElement?.parentElement?.getAttribute('style')).toContain('display: none')
+    expect(
+      wrapper
+        .get('[data-testid="right-content"]')
+        .element.parentElement?.parentElement?.getAttribute('style'),
+    ).toContain('display: none')
     expect(wrapper.get('.workbench-layout').classes()).toContain('right-collapsed')
     expect(wrapper.get('[aria-label="展开右侧面板"]').attributes('aria-expanded')).toBe('false')
 

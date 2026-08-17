@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createBuiltinRapidSource } from './builtin-program.ts'
-import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
-import { planMoveJ } from '../rapid/movej-planner.ts'
-import { planMoveL } from '../rapid/movel-planner.ts'
-import { isDefaultTool0, isDefaultWobj0 } from '../rapid/rapid-types.ts'
-import { robTargetToPose } from '../rapid/plan-shared.ts'
-import { orientationError } from '../robotics/math/rotation3d.ts'
-import { DEFAULT_IK_CONFIG } from '../robotics/ik-solver.ts'
-import type { JointAngles } from '../robotics/types.ts'
-import { isRapidMotionInstruction, parseRapidProgram } from '../rapid/rapid-parser.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import { planMoveJ } from '@/rapid/movej-planner.ts'
+import { planMoveL } from '@/rapid/movel-planner.ts'
+import { isDefaultTool0, isDefaultWobj0 } from '@/rapid/rapid-types.ts'
+import { robTargetToPose } from '@/rapid/plan-shared.ts'
+import { orientationError } from '@/robotics/math/rotation3d.ts'
+import { DEFAULT_IK_CONFIG } from '@/robotics/ik-solver.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/rapid-parser.ts'
 
 /** 相邻 waypoint 构型跳变上限（度），与 cartesian-path-planner 的 MAX_JOINT_STEP_DEG 一致。 */
 const MAX_WAYPOINT_JOINT_STEP_DEG = 5
@@ -23,7 +23,10 @@ function positionError(actual: readonly number[], target: readonly number[]): nu
   return Math.hypot(...actual.map((value, index) => value - target[index]))
 }
 
-function rotationErrorMagnitude(actual: Parameters<typeof orientationError>[0], target: Parameters<typeof orientationError>[1]): number {
+function rotationErrorMagnitude(
+  actual: Parameters<typeof orientationError>[0],
+  target: Parameters<typeof orientationError>[1],
+): number {
   return Math.hypot(...orientationError(actual, target))
 }
 
@@ -52,8 +55,12 @@ describe('页面默认 RAPID 源程序', () => {
       expect(inst.target.rot).toEqual([1, 0, 0, 0])
     }
     if (
-      program[0] && program[1] && program[2] &&
-      program[0].kind === 'movej' && program[1].kind === 'movel' && program[2].kind === 'movej'
+      program[0] &&
+      program[1] &&
+      program[2] &&
+      program[0].kind === 'movej' &&
+      program[1].kind === 'movel' &&
+      program[2].kind === 'movej'
     ) {
       expect(program[0].target.trans).toEqual(P_APPROACH)
       expect(program[1].target.trans).toEqual(P_WORK)
@@ -72,7 +79,14 @@ describe('页面默认 RAPID 源程序', () => {
     expect(result.canExecute).toBe(true)
     const program = result.program
     const [first, second, third] = program
-    if (!first || !second || !third || first.kind !== 'movej' || second.kind !== 'movel' || third.kind !== 'movej') {
+    if (
+      !first ||
+      !second ||
+      !third ||
+      first.kind !== 'movej' ||
+      second.kind !== 'movel' ||
+      third.kind !== 'movej'
+    ) {
       throw new Error('内置程序结构异常，应为 MoveJ → MoveL → MoveJ')
     }
 
@@ -85,9 +99,13 @@ describe('页面默认 RAPID 源程序', () => {
     const approachPose = model.forwardKinematics(moveJ.joints)
     expect(approachPose).not.toBeNull()
     if (approachPose) {
-      expect(positionError(approachPose.position, P_APPROACH)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.posTolerance)
+      expect(positionError(approachPose.position, P_APPROACH)).toBeLessThanOrEqual(
+        DEFAULT_IK_CONFIG.posTolerance,
+      )
       const approachTargetRotation = robTargetToPose(first.target).rotation
-      expect(rotationErrorMagnitude(approachPose.rotation, approachTargetRotation)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.oriTolerance)
+      expect(
+        rotationErrorMagnitude(approachPose.rotation, approachTargetRotation),
+      ).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.oriTolerance)
     }
 
     // —— 第二条 MoveL -> pWork（沿 ABB 基座 Z 轴下降约 50mm）——
@@ -152,9 +170,13 @@ describe('页面默认 RAPID 源程序', () => {
     const restPose = model.forwardKinematics(moveJFinal.joints)
     expect(restPose).not.toBeNull()
     if (restPose) {
-      expect(positionError(restPose.position, P_REST)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.posTolerance)
+      expect(positionError(restPose.position, P_REST)).toBeLessThanOrEqual(
+        DEFAULT_IK_CONFIG.posTolerance,
+      )
       const restTargetRotation = robTargetToPose(third.target).rotation
-      expect(rotationErrorMagnitude(restPose.rotation, restTargetRotation)).toBeLessThanOrEqual(DEFAULT_IK_CONFIG.oriTolerance)
+      expect(rotationErrorMagnitude(restPose.rotation, restTargetRotation)).toBeLessThanOrEqual(
+        DEFAULT_IK_CONFIG.oriTolerance,
+      )
     }
   })
 })

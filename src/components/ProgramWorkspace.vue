@@ -1,31 +1,35 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import ProgramControlPanel from './ProgramControlPanel.vue'
 import ProgramDataPanel from './ProgramDataPanel.vue'
-import type { ProgramControllerSnapshot } from '../application/program-control.ts'
-import type { RapidEditCommand, RapidEditResult } from '../rapid/controlled-rapid-edit.ts'
+import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
 import type {
   RapidExecutableInstruction,
   RapidMotionInsertionPoint,
   RapidProgramData,
   RapidSourceRange,
-} from '../rapid/rapid-parser.ts'
-import type { Pose } from '../robotics/types.ts'
-import type { RapidScalarVariable } from '../rapid/rapid-types.ts'
+} from '@/rapid/rapid-parser.ts'
+import type { Pose } from '@/robotics/types.ts'
+import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
+import {
+  injectProgramPanelController,
+  type ProgramPanelController,
+} from '@/application/use-program-panel-controller.ts'
 
 interface Props {
-  snapshot: ProgramControllerSnapshot
-  source: string
-  program: readonly RapidExecutableInstruction[]
-  pendingClear: 'run' | 'step' | null
+  snapshot?: ProgramControllerSnapshot
+  source?: string
+  program?: readonly RapidExecutableInstruction[]
+  pendingClear?: 'run' | 'step' | null
   /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */
-  data: readonly RapidProgramData[]
+  data?: readonly RapidProgramData[]
   /** 当前活动/下一条指令下标，供 Program Data 面板高亮当前 Tool/WObj/Speed/Zone/目标。 */
-  activeIndex: number | null
-  canExecute: boolean
-  insertionPoints: readonly RapidMotionInsertionPoint[]
-  pose: Pose | null
-  applyEdit: (command: RapidEditCommand) => RapidEditResult
+  activeIndex?: number | null
+  canExecute?: boolean
+  insertionPoints?: readonly RapidMotionInsertionPoint[]
+  pose?: Pose | null
+  applyEdit?: (command: RapidEditCommand) => RapidEditResult
   /** ProgramExecutor 的标量当前值快照。 */
   runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
 }
@@ -41,6 +45,50 @@ const emit = defineEmits<{
   'confirm-clear': []
   'cancel-clear': []
 }>()
+
+const EMPTY_SNAPSHOT: ProgramControllerSnapshot = {
+  state: 'idle',
+  programPointer: 0,
+  motionPointer: null,
+  stopReason: null,
+  error: null,
+  variables: new Map(),
+  diagnostics: [],
+  needsPPtoMain: false,
+  offPath: false,
+}
+
+const noopEdit: (command: RapidEditCommand) => RapidEditResult = () => ({
+  ok: false,
+  error: { code: 'source-error', message: '面板未注入程序控制器' },
+})
+
+/**
+ * 共享控制器：App provide 时直接使用；独立挂载（测试）时回退到本地 props + 转发事件。
+ * 真实应用里右侧 ProgramWorkspace 无需再接收一长串 props/emits。
+ */
+const controller: ProgramPanelController =
+  injectProgramPanelController() ??
+  {
+    snapshot: computed(() => props.snapshot ?? EMPTY_SNAPSHOT),
+    source: computed(() => props.source ?? ''),
+    program: computed(() => props.program ?? []),
+    pendingClear: computed(() => props.pendingClear ?? null),
+    data: computed(() => props.data ?? []),
+    activeIndex: computed(() => props.activeIndex ?? null),
+    canExecute: computed(() => props.canExecute ?? true),
+    insertionPoints: computed(() => props.insertionPoints ?? []),
+    pose: computed(() => props.pose ?? null),
+    runtimeValues: computed(() => props.runtimeValues ?? new Map()),
+    applyEdit: props.applyEdit ?? noopEdit,
+    run: () => emit('run'),
+    step: () => emit('step'),
+    stop: () => emit('stop'),
+    ppToMain: () => emit('pp'),
+    confirmClearToNext: () => emit('confirm-clear'),
+    cancelClearToNext: () => emit('cancel-clear'),
+    setSource: (source) => emit('source-change', source),
+  }
 
 type ProgramTab = 'rapid' | 'data'
 const activeTab = ref<ProgramTab>('rapid')
@@ -102,7 +150,9 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
         :tabindex="activeTab === 'rapid' ? 0 : -1"
         @click="selectTab('rapid')"
         @keydown="handleTabKeydown($event, 'rapid')"
-      >RAPID</button>
+      >
+        RAPID
+      </button>
       <button
         id="program-tab-data"
         ref="dataTabButton"
@@ -115,7 +165,9 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
         :tabindex="activeTab === 'data' ? 0 : -1"
         @click="selectTab('data')"
         @keydown="handleTabKeydown($event, 'data')"
-      >Program Data</button>
+      >
+        Program Data
+      </button>
     </div>
 
     <div class="program-workspace-content">
@@ -128,13 +180,13 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
       >
         <ProgramControlPanel
           display="content"
-          :snapshot="props.snapshot"
-          :source="props.source"
-          :program="props.program"
-          :pending-clear="props.pendingClear"
+          :snapshot="controller.snapshot.value"
+          :source="controller.source.value"
+          :program="controller.program.value"
+          :pending-clear="controller.pendingClear.value"
           :focus-range="focusRange"
           :focus-request-id="focusRequestId"
-          @source-change="emit('source-change', $event)"
+          @source-change="controller.setSource"
         />
       </div>
       <div
@@ -145,14 +197,14 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
         :hidden="activeTab !== 'data'"
       >
         <ProgramDataPanel
-          :data="props.data"
-          :active-index="props.activeIndex"
-          :can-execute="props.canExecute"
-          :program="props.program"
-          :insertion-points="props.insertionPoints"
-          :pose="props.pose"
-          :apply-edit="props.applyEdit"
-          :runtime-values="props.runtimeValues"
+          :data="controller.data.value"
+          :active-index="controller.activeIndex.value"
+          :can-execute="controller.canExecute.value"
+          :program="controller.program.value"
+          :insertion-points="controller.insertionPoints.value"
+          :pose="controller.pose.value"
+          :apply-edit="controller.applyEdit"
+          :runtime-values="controller.runtimeValues.value"
           @view-reference="focusRapidReference"
         />
       </div>
@@ -161,17 +213,54 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
     <div class="program-workspace-actions">
       <ProgramControlPanel
         display="actions"
-        :snapshot="props.snapshot"
-        :source="props.source"
-        :program="props.program"
-        :pending-clear="props.pendingClear"
-        @run="emit('run')"
-        @step="emit('step')"
-        @stop="emit('stop')"
-        @pp="emit('pp')"
-        @confirm-clear="emit('confirm-clear')"
-        @cancel-clear="emit('cancel-clear')"
+        :snapshot="controller.snapshot.value"
+        :source="controller.source.value"
+        :program="controller.program.value"
+        :pending-clear="controller.pendingClear.value"
+        @run="controller.run"
+        @step="controller.step"
+        @stop="controller.stop"
+        @pp="controller.ppToMain"
+        @confirm-clear="controller.confirmClearToNext"
+        @cancel-clear="controller.cancelClearToNext"
       />
     </div>
   </section>
 </template>
+
+<style scoped>
+.program-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.program-workspace-tabs {
+  flex: 0 0 auto;
+}
+
+.program-workspace-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.program-workspace-tabpanel {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
+.program-workspace-actions {
+  min-height: 0;
+  border-top: 1px solid var(--color-border);
+  background: rgba(11, 18, 32, 0.94);
+}
+
+.program-workspace-tabpanel > .program-data-panel {
+  min-height: 100%;
+}
+</style>

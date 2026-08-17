@@ -2,8 +2,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import JogControlTabs from './JogControlTabs.vue'
-import { ABB_JOINT_RANGES } from '../robot-models/abb-irb1200/robot-config.ts'
-import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
 
 const joints: JointAngles = [0, 0, 0, 0, 0, 0]
 const pose: PoseDisplay = {
@@ -35,13 +35,19 @@ describe('JogControlTabs 左侧 Jog 工作区', () => {
 
     expect(tabs).toHaveLength(2)
     expect(tabs[0].attributes('aria-selected')).toBe('true')
-    expect(wrapper.get('[role="tabpanel"][aria-labelledby="jog-tab-joint"]').attributes('hidden')).toBeUndefined()
-    expect(wrapper.get('[role="tabpanel"][aria-labelledby="jog-tab-cartesian"]').attributes('hidden')).toBeDefined()
+    expect(
+      wrapper.get('[role="tabpanel"][aria-labelledby="jog-tab-joint"]').attributes('hidden'),
+    ).toBeUndefined()
+    expect(
+      wrapper.get('[role="tabpanel"][aria-labelledby="jog-tab-cartesian"]').attributes('hidden'),
+    ).toBeDefined()
 
     await tabs[1].trigger('click')
     expect(tabs[1].attributes('aria-selected')).toBe('true')
     expect(wrapper.findAll('[role="tabpanel"][aria-labelledby="jog-tab-joint"]')).toHaveLength(1)
-    expect(wrapper.get('[role="tabpanel"][aria-labelledby="jog-tab-cartesian"]').attributes('hidden')).toBeUndefined()
+    expect(
+      wrapper.get('[role="tabpanel"][aria-labelledby="jog-tab-cartesian"]').attributes('hidden'),
+    ).toBeUndefined()
   })
 
   it('支持左右方向键切换，并转发现有关节事件', async () => {

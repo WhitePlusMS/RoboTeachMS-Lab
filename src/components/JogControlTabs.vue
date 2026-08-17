@@ -1,27 +1,36 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import CartesianControlPanel from './CartesianControlPanel.vue'
 import JointControlPanel from './JointControlPanel.vue'
-import type { CartesianAxis, CoordinateSystem, JointAngles, PoseDisplay } from '../robotics/types.ts'
-import type { JointRange, } from '../robotics/robot-profile.ts'
-import type { JointDirection, JointStep } from '../application/joint-control.ts'
+import type {
+  CartesianAxis,
+  CoordinateSystem,
+  JointAngles,
+  PoseDisplay,
+} from '@/robotics/types.ts'
+import type { JointRange } from '@/robotics/robot-profile.ts'
+import type { JointDirection, JointStep } from '@/application/joint-control.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '../application/cartesian-control.ts'
+} from '@/application/cartesian-control.ts'
+import {
+  injectRobotController,
+  type RobotController,
+} from '@/application/use-robot-controller.ts'
 
 interface Props {
-  joints: JointAngles
-  jointRanges: readonly JointRange[]
-  jointStep: JointStep
-  pose: PoseDisplay
-  coordinateSystem: CoordinateSystem
-  positionStep: PositionStep
-  orientationStep: OrientationStep
-  status: CartesianStatus
-  statusMessage: string
+  joints?: JointAngles
+  jointRanges?: readonly JointRange[]
+  jointStep?: JointStep
+  pose?: PoseDisplay
+  coordinateSystem?: CoordinateSystem
+  positionStep?: PositionStep
+  orientationStep?: OrientationStep
+  status?: CartesianStatus
+  statusMessage?: string
 }
 
 const props = defineProps<Props>()
@@ -39,6 +48,39 @@ const emit = defineEmits<{
   'orientation-step-change': [value: number]
 }>()
 
+const EMPTY_JOINTS: JointAngles = [0, 0, 0, 0, 0, 0]
+const EMPTY_POSE: PoseDisplay = { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
+
+/**
+ * 共享控制器：App provide 时直接使用；独立挂载（测试）时回退到本地 props + 转发事件。
+ * 这样左侧 Jog 工作区在真实应用里无需再传一长串 props/emits。
+ */
+const controller: RobotController =
+  injectRobotController() ??
+  {
+    joints: computed(() => props.joints ?? EMPTY_JOINTS),
+    jointRanges: props.jointRanges ?? [],
+    jointStep: computed(() => props.jointStep ?? 1),
+    pose: computed(() => props.pose ?? EMPTY_POSE),
+    coordinateSystem: computed(() => props.coordinateSystem ?? 'World'),
+    positionStep: computed(() => props.positionStep ?? 1),
+    orientationStep: computed(() => props.orientationStep ?? 1),
+    status: computed(() => props.status ?? 'ready'),
+    statusMessage: computed(() => props.statusMessage ?? ''),
+    setJoint: (index, value) => emit('set-joint', index, value),
+    adjustJoint: (index, direction, isContinuous) =>
+      emit('adjust-joint', index, direction, isContinuous),
+    setStep: (value) => emit('step-change', value),
+    reset: () => emit('reset'),
+    randomize: () => emit('random'),
+    moveCartesian: (axis, direction, isContinuous) =>
+      emit('move', axis, direction, isContinuous),
+    setCartesianField: (axis, value) => emit('set-field', axis, value),
+    setCoordinateSystem: (value) => emit('coordinate-change', value),
+    setPositionStep: (value) => emit('position-step-change', value),
+    setOrientationStep: (value) => emit('orientation-step-change', value),
+  }
+
 type JogTab = 'joint' | 'cartesian'
 const activeTab = ref<JogTab>('joint')
 const jointTabButton = ref<HTMLButtonElement | null>(null)
@@ -53,22 +95,6 @@ function focusActiveTab(): void {
     const button = activeTab.value === 'joint' ? jointTabButton.value : cartesianTabButton.value
     button?.focus()
   })
-}
-
-function forwardSetJoint(index: number, value: number): void {
-  emit('set-joint', index, value)
-}
-
-function forwardAdjustJoint(index: number, direction: JointDirection, isContinuous?: boolean): void {
-  emit('adjust-joint', index, direction, isContinuous)
-}
-
-function forwardMove(axis: CartesianAxis, direction: CartesianDirection, isContinuous?: boolean): void {
-  emit('move', axis, direction, isContinuous)
-}
-
-function forwardSetField(axis: CartesianAxis, value: number): void {
-  emit('set-field', axis, value)
 }
 
 function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
@@ -107,7 +133,9 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :tabindex="activeTab === 'joint' ? 0 : -1"
         @click="selectTab('joint')"
         @keydown="handleTabKeydown($event, 'joint')"
-      >关节</button>
+      >
+        关节
+      </button>
       <button
         id="jog-tab-cartesian"
         ref="cartesianTabButton"
@@ -120,7 +148,9 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :tabindex="activeTab === 'cartesian' ? 0 : -1"
         @click="selectTab('cartesian')"
         @keydown="handleTabKeydown($event, 'cartesian')"
-      >笛卡尔</button>
+      >
+        笛卡尔
+      </button>
     </div>
 
     <div
@@ -131,15 +161,15 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
       :hidden="activeTab !== 'joint'"
     >
       <JointControlPanel
-        :joints="props.joints"
-        :joint-ranges="props.jointRanges"
-        :joint-step="props.jointStep"
-        :pose="props.pose"
-        @set-joint="forwardSetJoint"
-        @adjust-joint="forwardAdjustJoint"
-        @step-change="emit('step-change', $event)"
-        @reset="emit('reset')"
-        @random="emit('random')"
+        :joints="controller.joints.value"
+        :joint-ranges="controller.jointRanges"
+        :joint-step="controller.jointStep.value"
+        :pose="controller.pose.value"
+        @set-joint="controller.setJoint"
+        @adjust-joint="controller.adjustJoint"
+        @step-change="controller.setStep"
+        @reset="controller.reset"
+        @random="controller.randomize"
       />
     </div>
 
@@ -151,18 +181,33 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
       :hidden="activeTab !== 'cartesian'"
     >
       <CartesianControlPanel
-        :pose="props.pose"
-        :coordinate-system="props.coordinateSystem"
-        :position-step="props.positionStep"
-        :orientation-step="props.orientationStep"
-        :status="props.status"
-        :status-message="props.statusMessage"
-        @move="forwardMove"
-        @set-field="forwardSetField"
-        @coordinate-change="emit('coordinate-change', $event)"
-        @position-step-change="emit('position-step-change', $event)"
-        @orientation-step-change="emit('orientation-step-change', $event)"
+        :pose="controller.pose.value"
+        :coordinate-system="controller.coordinateSystem.value"
+        :position-step="controller.positionStep.value"
+        :orientation-step="controller.orientationStep.value"
+        :status="controller.status.value"
+        :status-message="controller.statusMessage.value"
+        @move="controller.moveCartesian"
+        @set-field="controller.setCartesianField"
+        @coordinate-change="controller.setCoordinateSystem"
+        @position-step-change="controller.setPositionStep"
+        @orientation-step-change="controller.setOrientationStep"
       />
     </div>
   </section>
 </template>
+
+<style scoped>
+.jog-control-tabs {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.jog-tabpanel {
+  min-height: 0;
+  overflow: hidden;
+}
+</style>

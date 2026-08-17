@@ -1,16 +1,16 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import { degToRad, radToDeg } from '../robotics/math/angle.ts'
-import { mat3Mul, rotationMatrixToEulerZYX } from '../robotics/math/rotation3d.ts'
-import { eulerZYXToMatrix } from '../robotics/matrix4x4.ts'
-import { planCartesianPath } from '../robotics/cartesian-path-planner.ts'
-import type { RobotProfile } from '../robotics/robot-profile.ts'
+import { degToRad, radToDeg } from '@/robotics/math/angle.ts'
+import { mat3Mul, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
+import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
+import { planCartesianPath } from '@/robotics/cartesian-path-planner.ts'
+import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import type {
   CartesianAxis,
   CoordinateSystem,
   JointAngles,
   Pose,
   PoseDisplay,
-} from '../robotics/types.ts'
+} from '@/robotics/types.ts'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
 export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
@@ -32,17 +32,32 @@ function rotationDelta(axis: CartesianAxis, degrees: number): number[][] {
   const angle = degToRad(degrees)
   const cosine = Math.cos(angle)
   const sine = Math.sin(angle)
-  if (axis === 'rx') return [[1, 0, 0], [0, cosine, -sine], [0, sine, cosine]]
-  if (axis === 'ry') return [[cosine, 0, sine], [0, 1, 0], [-sine, 0, cosine]]
-  return [[cosine, -sine, 0], [sine, cosine, 0], [0, 0, 1]]
+  if (axis === 'rx')
+    return [
+      [1, 0, 0],
+      [0, cosine, -sine],
+      [0, sine, cosine],
+    ]
+  if (axis === 'ry')
+    return [
+      [cosine, 0, sine],
+      [0, 1, 0],
+      [-sine, 0, cosine],
+    ]
+  return [
+    [cosine, -sine, 0],
+    [sine, cosine, 0],
+    [0, 0, 1],
+  ]
 }
 
-function transformVector(rotation: number[][], vector: [number, number, number]): [number, number, number] {
-  return rotation.map((row) => row.reduce((sum, value, index) => sum + value * vector[index], 0)) as [
-    number,
-    number,
-    number,
-  ]
+function transformVector(
+  rotation: number[][],
+  vector: [number, number, number],
+): [number, number, number] {
+  return rotation.map((row) =>
+    row.reduce((sum, value, index) => sum + value * vector[index], 0),
+  ) as [number, number, number]
 }
 
 /** 根据 World/Tool 坐标系计算一次笛卡尔增量，不触碰 Vue 或 Three.js 状态。 */
@@ -69,9 +84,13 @@ export function applyCartesianDelta(
   if (axis === 'x' || axis === 'y' || axis === 'z') {
     const localDelta: [number, number, number] = [0, 0, 0]
     localDelta[index] = delta
-    const worldDelta = coordinateSystem === 'Tool'
-      ? transformVector(eulerZYXToMatrix(pose.orientationDeg.map(degToRad) as [number, number, number]), localDelta)
-      : localDelta
+    const worldDelta =
+      coordinateSystem === 'Tool'
+        ? transformVector(
+            eulerZYXToMatrix(pose.orientationDeg.map(degToRad) as [number, number, number]),
+            localDelta,
+          )
+        : localDelta
     worldDelta.forEach((value, component) => {
       nextPosition[component] += value
     })
@@ -80,10 +99,15 @@ export function applyCartesianDelta(
       pose.orientationDeg.map(degToRad) as [number, number, number],
     )
     const deltaRotation = rotationDelta(axis, delta)
-    const nextRotation = coordinateSystem === 'Tool'
-      ? mat3Mul(currentRotation, deltaRotation)
-      : mat3Mul(deltaRotation, currentRotation)
-    const nextEuler = rotationMatrixToEulerZYX(nextRotation).map(radToDeg) as [number, number, number]
+    const nextRotation =
+      coordinateSystem === 'Tool'
+        ? mat3Mul(currentRotation, deltaRotation)
+        : mat3Mul(deltaRotation, currentRotation)
+    const nextEuler = rotationMatrixToEulerZYX(nextRotation).map(radToDeg) as [
+      number,
+      number,
+      number,
+    ]
     nextOrientation.splice(0, 3, ...nextEuler)
   }
 
@@ -144,9 +168,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
   }
 
   function move(axis: CartesianAxis, direction: CartesianDirection, isContinuous = false): void {
-    const step = axis === 'rx' || axis === 'ry' || axis === 'rz'
-      ? orientationStep.value
-      : positionStep.value
+    const step =
+      axis === 'rx' || axis === 'ry' || axis === 'rz' ? orientationStep.value : positionStep.value
     const target = applyCartesianDelta(
       options.pose.value,
       axis,

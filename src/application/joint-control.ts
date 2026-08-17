@@ -1,8 +1,8 @@
 import { computed, ref } from 'vue'
-import { radToDeg } from '../robotics/math/angle.ts'
-import type { JointRange, RobotProfile } from '../robotics/robot-profile.ts'
-import type { JointAngles, PoseDisplay } from '../robotics/types.ts'
-import { KUKA_JOINT_RANGES } from '../robot-models/kuka-like/robot-config.ts'
+import { radToDeg } from '@/robotics/math/angle.ts'
+import type { JointRange, RobotProfile } from '@/robotics/robot-profile.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
+import { KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/robot-config.ts'
 
 export const JOINT_STEPS = [0.1, 1, 5, 10] as const
 export type JointStep = (typeof JOINT_STEPS)[number]
@@ -13,7 +13,11 @@ export interface JointControlOptions {
   profile: RobotProfile
 }
 
-export function clampJointAngle(index: number, value: number, ranges: readonly JointRange[] = KUKA_JOINT_RANGES): number {
+export function clampJointAngle(
+  index: number,
+  value: number,
+  ranges: readonly JointRange[] = KUKA_JOINT_RANGES,
+): number {
   if (!Number.isFinite(value) || !ranges[index]) return ranges[index]?.[0] ?? 0
   const [min, max] = ranges[index]
   return Math.min(max, Math.max(min, value))

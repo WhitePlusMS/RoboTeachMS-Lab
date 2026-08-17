@@ -7,10 +7,10 @@ import {
   type RapidExecutableInstruction,
   type RapidMotionInsertionPoint,
   type RapidProgramData,
-} from '../rapid/rapid-parser.ts'
-import type { Pose } from '../robotics/types.ts'
-import type { RapidScalarVariable } from '../rapid/rapid-types.ts'
-import type { RapidEditCommand, RapidEditResult } from '../rapid/controlled-rapid-edit.ts'
+} from '@/rapid/rapid-parser.ts'
+import type { Pose } from '@/robotics/types.ts'
+import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
 
 const SOURCE = `
 MODULE Demo
@@ -27,7 +27,11 @@ const DEFAULT_PARSED = parseRapidProgram(SOURCE)
 const DEFAULT_POSE: Pose = {
   position: [451, 150, 680],
   euler: [0, 0, 0],
-  rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  rotation: [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ],
 }
 
 const okEdit: (command: RapidEditCommand) => RapidEditResult = vi.fn((_command) => ({
@@ -35,15 +39,17 @@ const okEdit: (command: RapidEditCommand) => RapidEditResult = vi.fn((_command) 
   result: { source: 'x' },
 }))
 
-function baseProps(overrides: {
-  data?: readonly RapidProgramData[]
-  activeIndex?: number | null
-  canExecute?: boolean
-  program?: readonly RapidExecutableInstruction[]
-  insertionPoints?: readonly RapidMotionInsertionPoint[]
-  runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
-  applyEdit?: (command: RapidEditCommand) => RapidEditResult
-} = {}) {
+function baseProps(
+  overrides: {
+    data?: readonly RapidProgramData[]
+    activeIndex?: number | null
+    canExecute?: boolean
+    program?: readonly RapidExecutableInstruction[]
+    insertionPoints?: readonly RapidMotionInsertionPoint[]
+    runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
+    applyEdit?: (command: RapidEditCommand) => RapidEditResult
+  } = {},
+) {
   return {
     data: overrides.data ?? [],
     activeIndex: overrides.activeIndex ?? null,
@@ -56,14 +62,16 @@ function baseProps(overrides: {
   }
 }
 
-function mountPanel(overrides: {
-  data?: readonly RapidProgramData[]
-  activeIndex?: number | null
-  canExecute?: boolean
-  program?: readonly RapidExecutableInstruction[]
-  runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
-  applyEdit?: (command: RapidEditCommand) => RapidEditResult
-} = {}) {
+function mountPanel(
+  overrides: {
+    data?: readonly RapidProgramData[]
+    activeIndex?: number | null
+    canExecute?: boolean
+    program?: readonly RapidExecutableInstruction[]
+    runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
+    applyEdit?: (command: RapidEditCommand) => RapidEditResult
+  } = {},
+) {
   return mount(ProgramDataPanel, { props: baseProps(overrides) })
 }
 
@@ -87,10 +95,14 @@ describe('ProgramDataPanel ABB 式 robtarget 列表', () => {
     await wrapper.get('[aria-label="按名称筛选点位"]').setValue('')
     await selectTarget(wrapper, 'pApproach')
     expect(wrapper.get('[aria-label="选中点位操作"]').text()).toContain('1 处引用')
-    expect(wrapper.get('[aria-label="选中点位操作"]').text()).toContain('Modify Position（更新位置）')
+    expect(wrapper.get('[aria-label="选中点位操作"]').text()).toContain(
+      'Modify Position（更新位置）',
+    )
 
     await wrapper.get('.program-data-selection-toggle').trigger('click')
-    expect(wrapper.get('[aria-label="选中点位操作"]').text()).not.toContain('Modify Position（更新位置）')
+    expect(wrapper.get('[aria-label="选中点位操作"]').text()).not.toContain(
+      'Modify Position（更新位置）',
+    )
     expect(wrapper.get('[aria-label="robtarget 点位列表"]').text()).toContain('pApproach')
   })
 
@@ -108,7 +120,9 @@ ENDMODULE
     const wrapper = mountPanel({ data: result.data })
     await selectTarget(wrapper, 'p1')
 
-    expect(wrapper.get('[aria-label="选中点位操作"]').text()).toContain('共享目标：示教将影响 2 处引用')
+    expect(wrapper.get('[aria-label="选中点位操作"]').text()).toContain(
+      '共享目标：示教将影响 2 处引用',
+    )
     const references = wrapper.findAll('.program-data-reference-link')
     expect(references).toHaveLength(2)
     await references[0].trigger('click')
@@ -155,9 +169,16 @@ describe('ProgramDataPanel 点位详情与受控编辑', () => {
     })
     await wrapper.get('[aria-label="新点位名称"]').setValue('pPick')
     // 定位到“新建点位”按钮（面板顶部新增了数据类型 Tab，第一个 button 不再是它）。
-    await wrapper.findAll('button').find((button) => button.text() === '新建点位')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '新建点位')!
+      .trigger('click')
 
-    const command = captures[0] as { type: string; name: string; target: { trans: number[]; rot: number[]; extax: number[] } }
+    const command = captures[0] as {
+      type: string
+      name: string
+      target: { trans: number[]; rot: number[]; extax: number[] }
+    }
     expect(command).toMatchObject({ type: 'create-target', name: 'pPick' })
     expect(command.target.trans).toEqual([451, 150, 680])
     expect(command.target.rot).toEqual([1, 0, 0, 0])
@@ -167,7 +188,10 @@ describe('ProgramDataPanel 点位详情与受控编辑', () => {
   it('选中目标后进入详情，显示 robconf MVP 说明、Modify Position、重命名和删除', async () => {
     const wrapper = mountPanel({ data: DEFAULT_PARSED.data })
     await selectTarget(wrapper, 'pApproach')
-    await wrapper.findAll('button').find((button) => button.text() === '编辑数据')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '编辑数据')!
+      .trigger('click')
 
     expect(wrapper.get('[aria-label="点位详情"]').text()).toContain('当前 MVP 未模拟构型控制')
     expect(wrapper.get('[aria-label="点位详情"]').text()).toContain('551.0, 613.0, 60.0')
@@ -175,39 +199,89 @@ describe('ProgramDataPanel 点位详情与受控编辑', () => {
   })
 
   it('Modify Position、MoveJ、MoveL 和重命名均提交对应受控命令', async () => {
-    const captures: Array<{ type: string; name: string; newName?: string; kind?: string; insertionIndex?: number }> = []
+    const captures: Array<{
+      type: string
+      name: string
+      newName?: string
+      kind?: string
+      insertionIndex?: number
+    }> = []
     const wrapper = mount(ProgramDataPanel, {
       props: baseProps({
         data: DEFAULT_PARSED.data,
         applyEdit: (command) => {
-          captures.push(command as typeof captures[number])
+          captures.push(command as (typeof captures)[number])
           return { ok: true, result: { source: 'x' } }
         },
       }),
     })
     await selectTarget(wrapper, 'pApproach')
-    await wrapper.findAll('button').find((button) => button.text() === 'Modify Position（更新位置）')!.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '插入 MoveJ')!.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '插入 MoveL')!.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '编辑数据')!.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '重命名')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Modify Position（更新位置）')!
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '插入 MoveJ')!
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '插入 MoveL')!
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '编辑数据')!
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '重命名')!
+      .trigger('click')
     await wrapper.get('[aria-label="重命名点位"]').setValue('pRenamed')
-    await wrapper.findAll('button').find((button) => button.text() === '确认重命名')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '确认重命名')!
+      .trigger('click')
 
     expect(captures[0]).toMatchObject({ type: 'modify-position', name: 'pApproach' })
-    expect(captures[1]).toMatchObject({ type: 'insert-motion', kind: 'movej', name: 'pApproach', insertionIndex: 2 })
-    expect(captures[2]).toMatchObject({ type: 'insert-motion', kind: 'movel', name: 'pApproach', insertionIndex: 2 })
-    expect(captures[3]).toMatchObject({ type: 'rename-target', name: 'pApproach', newName: 'pRenamed' })
+    expect(captures[1]).toMatchObject({
+      type: 'insert-motion',
+      kind: 'movej',
+      name: 'pApproach',
+      insertionIndex: 2,
+    })
+    expect(captures[2]).toMatchObject({
+      type: 'insert-motion',
+      kind: 'movel',
+      name: 'pApproach',
+      insertionIndex: 2,
+    })
+    expect(captures[3]).toMatchObject({
+      type: 'rename-target',
+      name: 'pApproach',
+      newName: 'pRenamed',
+    })
   })
 
   it('受控删除被拒绝时保留详情和结构化错误', async () => {
     const wrapper = mountPanel({
       data: DEFAULT_PARSED.data,
-      applyEdit: () => ({ ok: false, error: { code: 'target-referenced', message: 'robtarget pApproach 仍有 1 处引用，不能删除' } }),
+      applyEdit: () => ({
+        ok: false,
+        error: {
+          code: 'target-referenced',
+          message: 'robtarget pApproach 仍有 1 处引用，不能删除',
+        },
+      }),
     })
     await selectTarget(wrapper, 'pApproach')
-    await wrapper.findAll('button').find((button) => button.text() === '编辑数据')!.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '删除')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '编辑数据')!
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '删除')!
+      .trigger('click')
     expect(wrapper.text()).toContain('不能删除')
     expect(wrapper.findAll('[aria-label="点位详情"]')).toHaveLength(1)
   })
@@ -235,22 +309,37 @@ ENDMODULE
     // 默认 robtarget 列表。
     expect(wrapper.get('[aria-label="robtarget 点位列表"]').text()).toContain('pA')
     // 切到 tooldata。
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'tooldata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'tooldata')!
+      .trigger('click')
     expect(wrapper.get('[aria-label="tooldata 数据列表"]').text()).toContain('tGrip')
     // 切到 wobjdata。
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'wobjdata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'wobjdata')!
+      .trigger('click')
     expect(wrapper.get('[aria-label="wobjdata 数据列表"]').text()).toContain('wTable')
     // 切到 speeddata。
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'speeddata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'speeddata')!
+      .trigger('click')
     expect(wrapper.get('[aria-label="speeddata 数据列表"]').text()).toContain('vFast')
     // 切到 zonedata。
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'zonedata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'zonedata')!
+      .trigger('click')
     expect(wrapper.get('[aria-label="zonedata 数据列表"]').text()).toContain('zEnd')
   })
 
   it('非 robtarget 数据只读：无 Modify Position / 删除等写操作', async () => {
     const wrapper = mountPanel({ data: parsed.data, canExecute: true })
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'tooldata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'tooldata')!
+      .trigger('click')
     await wrapper.get('[aria-label="选择 tooldata tGrip"]').trigger('click')
     // 只读详情展示 ABB 字段。
     expect(wrapper.get('[aria-label="tooldata 详情"]').text()).toContain('0.5')
@@ -263,7 +352,10 @@ ENDMODULE
 
   it('系统预定义项（tool0/z50/v100）显示只读标记', async () => {
     const wrapper = mountPanel({ data: parsed.data })
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'speeddata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'speeddata')!
+      .trigger('click')
     // 官方 speed（如 v100）应在列表中。
     expect(wrapper.get('[aria-label="speeddata 数据列表"]').text()).toContain('v100')
     await wrapper.get('[aria-label="选择 speeddata v100"]').trigger('click')
@@ -277,7 +369,10 @@ ENDMODULE
     ])
     const wrapper = mountPanel({ data: parsed.data, runtimeValues })
 
-    await wrapper.findAll('.program-data-kind-tab').find((button) => button.text() === 'num')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((button) => button.text() === 'num')!
+      .trigger('click')
     expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('cycleCount')
     expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('var')
     expect(wrapper.get('[aria-label="num 数据列表"]').text()).toContain('3')
@@ -287,7 +382,10 @@ ENDMODULE
     expect(wrapper.get('[aria-label="num 详情"]').text()).toContain('初值3')
     expect(wrapper.get('[aria-label="num 详情"]').text()).toContain('当前值8')
 
-    await wrapper.findAll('.program-data-kind-tab').find((button) => button.text() === 'bool')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((button) => button.text() === 'bool')!
+      .trigger('click')
     expect(wrapper.get('[aria-label="bool 数据列表"]').text()).toContain('ready')
     expect(wrapper.get('[aria-label="bool 数据列表"]').text()).toContain('TRUE')
     expect(wrapper.get('[aria-label="bool 数据列表"]').text()).toContain('当前 FALSE')
@@ -301,7 +399,10 @@ ENDMODULE
     expect(wrapper.text()).toContain('工件 wTable')
     expect(wrapper.text()).toContain('fly-by：MVP 未模拟路径融合')
     // zEnd 是高亮状态。
-    await wrapper.findAll('.program-data-kind-tab').find((b) => b.text() === 'zonedata')!.trigger('click')
+    await wrapper
+      .findAll('.program-data-kind-tab')
+      .find((b) => b.text() === 'zonedata')!
+      .trigger('click')
     const zEndRow = wrapper.findAll('.program-data-item').find((li) => li.text().includes('zEnd'))
     expect(zEndRow?.classes()).toContain('active')
   })

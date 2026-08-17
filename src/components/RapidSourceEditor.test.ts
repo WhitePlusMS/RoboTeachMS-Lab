@@ -2,8 +2,11 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import RapidSourceEditor from './RapidSourceEditor.vue'
-import type { RapidExecutableInstruction, RapidConditionalInstruction } from '../rapid/rapid-parser.ts'
-import { defaultTool0, defaultWobj0, defaultZoneFine } from '../rapid/rapid-types.ts'
+import type {
+  RapidExecutableInstruction,
+  RapidConditionalInstruction,
+} from '@/rapid/rapid-parser.ts'
+import { defaultTool0, defaultWobj0, defaultZoneFine } from '@/rapid/rapid-types.ts'
 
 const SOURCE = `MODULE Demo
     CONST robtarget p1 := [[500,100,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -42,13 +45,15 @@ function instruction(line: number): RapidExecutableInstruction {
   }
 }
 
-function mountEditor(overrides: {
-  source?: string
-  readonly?: boolean
-  ppLine?: number | null
-  mpLine?: number | null
-  instruction?: RapidExecutableInstruction | null
-} = {}) {
+function mountEditor(
+  overrides: {
+    source?: string
+    readonly?: boolean
+    ppLine?: number | null
+    mpLine?: number | null
+    instruction?: RapidExecutableInstruction | null
+  } = {},
+) {
   return mount(RapidSourceEditor, {
     props: {
       source: overrides.source ?? SOURCE,

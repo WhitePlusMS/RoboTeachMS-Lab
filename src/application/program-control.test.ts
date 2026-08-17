@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { ref, type Ref } from 'vue'
-import { ABB_IRB1200_PROFILE } from '../robot-models/abb-irb1200/robot-profile.ts'
-import { createMotionRunner, type MotionResult, type MotionRunner } from '../robotics/motion-runner.ts'
-import { ManualMotionClock } from '../testing/manual-motion-clock.ts'
-import type { JointAngles } from '../robotics/types.ts'
-import { isRapidMotionInstruction } from '../rapid/rapid-parser.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import {
+  createMotionRunner,
+  type MotionResult,
+  type MotionRunner,
+} from '@/robotics/motion-runner.ts'
+import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { isRapidMotionInstruction } from '@/rapid/rapid-parser.ts'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { useProgramController, type ProgramControllerMotion } from './program-control.ts'
-import type { RobTarget } from '../rapid/rapid-types.ts'
-import { isRobtargetProgramData } from '../rapid/rapid-parser.ts'
+import type { RobTarget } from '@/rapid/rapid-types.ts'
+import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
 
 /** 构造一个用于 Program Data 示教操作的 robtarget（单位姿态、零 robconf、未使用外轴）。 */
 function taughtTarget(trans: [number, number, number]): RobTarget {
@@ -21,7 +25,6 @@ function taughtTarget(trans: [number, number, number]): RobTarget {
   }
 }
 
-
 /** 可控程序运动 fake：暴露 resolvers 以在测试末尾结算程序并清理轮询；stop 结算当前活动运动。 */
 function makeMotion() {
   let resolveEased: ((r: MotionResult) => void) | null = null
@@ -29,7 +32,9 @@ function makeMotion() {
   const motion: ProgramControllerMotion = {
     startEasedAnimation: () => {
       calls.eased += 1
-      return new Promise<MotionResult>((resolve) => { resolveEased = resolve })
+      return new Promise<MotionResult>((resolve) => {
+        resolveEased = resolve
+      })
     },
     startCartesianTrajectory: () => new Promise<MotionResult>(() => {}),
     stopAnimation: () => {
@@ -99,11 +104,14 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => [...joints.value],
-      setJoints: (next) => { joints.value = [...next] },
+      setJoints: (next) => {
+        joints.value = [...next]
+      },
     })
     const motion: ProgramControllerMotion = {
       startEasedAnimation: (target, duration) => runner.startEased(target, duration),
-      startCartesianTrajectory: (waypoints, duration) => runner.startTrajectory(waypoints, duration),
+      startCartesianTrajectory: (waypoints, duration) =>
+        runner.startTrajectory(waypoints, duration),
       stopAnimation: () => runner.stop(),
     }
     const ctrl = useProgramController({
@@ -117,7 +125,10 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
 
   // 四类手动控制入口在 App 里都先调 stopActiveProgram() 再启动手动运动；
   // 关节单步/随机姿态/回零走 eased，笛卡尔命令走 trajectory。逐一验证抢占。
-  const MANUAL_COMMANDS: Array<{ name: string; start: (runner: MotionRunner) => Promise<MotionResult> }> = [
+  const MANUAL_COMMANDS: Array<{
+    name: string
+    start: (runner: MotionRunner) => Promise<MotionResult>
+  }> = [
     { name: '关节单步', start: (runner) => runner.startEased([5, 0, 0, 0, 0, 0], 100) },
     { name: '随机姿态', start: (runner) => runner.startEased([30, -20, 10, 5, 5, 5], 100) },
     { name: '机器人回零', start: (runner) => runner.startEased([0, 0, 0, 0, 0, 0], 100) },
@@ -189,7 +200,11 @@ describe('applyEdit 单一受控编辑入口', () => {
     const { source, ctrl } = setupController()
     const before = source.value
 
-    const result = ctrl.applyEdit({ type: 'create-target', name: 'pTaught', target: taughtTarget([500, 0, 700]) })
+    const result = ctrl.applyEdit({
+      type: 'create-target',
+      name: 'pTaught',
+      target: taughtTarget([500, 0, 700]),
+    })
     expect(result.ok).toBe(true)
     expect(source.value).not.toBe(before)
     expect(ctrl.parsed.value.data.map((d) => d.name)).toContain('pTaught')
@@ -205,27 +220,46 @@ describe('applyEdit 单一受控编辑入口', () => {
     expect(denied.ok).toBe(false)
     if (!denied.ok) expect(denied.error.code).toBe('target-referenced')
     // 非法名称应被拒绝。
-    const invalid = ctrl.applyEdit({ type: 'create-target', name: '9x', target: taughtTarget([0, 0, 0]) })
+    const invalid = ctrl.applyEdit({
+      type: 'create-target',
+      name: '9x',
+      target: taughtTarget([0, 0, 0]),
+    })
     expect(invalid.ok).toBe(false)
     if (!invalid.ok) expect(invalid.error.code).toBe('invalid-name')
 
     expect(source.value).toBe(before)
     // 只关心 robtarget 点位；系统预定义 tool0/wobj0/speed/zone 与其它类型条目不计入。
-    expect(ctrl.parsed.value.data.filter(isRobtargetProgramData).map((d) => d.name)).toEqual(['pApproach', 'pWork', 'pRest'])
+    expect(ctrl.parsed.value.data.filter(isRobtargetProgramData).map((d) => d.name)).toEqual([
+      'pApproach',
+      'pWork',
+      'pRest',
+    ])
   })
 
   it('Modify Position 替换目标值后程序仍可执行', () => {
     const { ctrl } = setupController()
-    const result = ctrl.applyEdit({ type: 'modify-position', name: 'pWork', target: taughtTarget([600, 200, 400]) })
+    const result = ctrl.applyEdit({
+      type: 'modify-position',
+      name: 'pWork',
+      target: taughtTarget([600, 200, 400]),
+    })
     expect(result.ok).toBe(true)
     expect(ctrl.parsed.value.canExecute).toBe(true)
-    const pWork = ctrl.parsed.value.data.filter(isRobtargetProgramData).find((d) => d.name === 'pWork')
+    const pWork = ctrl.parsed.value.data
+      .filter(isRobtargetProgramData)
+      .find((d) => d.name === 'pWork')
     expect(pWork?.target.trans).toEqual([600, 200, 400])
   })
 
   it('插入 MoveJ 引用现有目标后可执行且新程序多一条运动', () => {
     const { ctrl } = setupController()
-    const result = ctrl.applyEdit({ type: 'insert-motion', name: 'pRest', kind: 'movej', insertionIndex: 3 })
+    const result = ctrl.applyEdit({
+      type: 'insert-motion',
+      name: 'pRest',
+      kind: 'movej',
+      insertionIndex: 3,
+    })
     expect(result.ok).toBe(true)
     expect(ctrl.parsed.value.canExecute).toBe(true)
     expect(ctrl.parsed.value.program).toHaveLength(4)
@@ -273,7 +307,11 @@ describe('停止后源码编辑的 PP 映射', () => {
     expect(h.ctrl.snapshot.value.state).toBe('stopped')
     expect(h.ctrl.snapshot.value.programPointer).toBe(1)
 
-    const result = h.ctrl.applyEdit({ type: 'modify-position', name: 'p2', target: taughtTarget([500, 100, 680]) })
+    const result = h.ctrl.applyEdit({
+      type: 'modify-position',
+      name: 'p2',
+      target: taughtTarget([500, 100, 680]),
+    })
     expect(result.ok).toBe(true)
     await flush()
     expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
@@ -353,7 +391,12 @@ describe('停止后源码编辑的 PP 映射', () => {
     await flush()
     expect(h.ctrl.snapshot.value.programPointer).toBe(1)
 
-    const result = h.ctrl.applyEdit({ type: 'insert-motion', name: 'p3', kind: 'movej', insertionIndex: 1 })
+    const result = h.ctrl.applyEdit({
+      type: 'insert-motion',
+      name: 'p3',
+      kind: 'movej',
+      insertionIndex: 1,
+    })
     expect(result.ok).toBe(true)
     await flush()
     expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
@@ -429,14 +472,22 @@ describe('off-path Clear 全程单一 MotionRunner 集成', () => {
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => [...joints.value],
-      setJoints: (next) => { joints.value = [...next] },
+      setJoints: (next) => {
+        joints.value = [...next]
+      },
     })
     const motion: ProgramControllerMotion = {
       startEasedAnimation: (target, duration) => runner.startEased(target, duration),
-      startCartesianTrajectory: (waypoints, duration) => runner.startTrajectory(waypoints, duration),
+      startCartesianTrajectory: (waypoints, duration) =>
+        runner.startTrajectory(waypoints, duration),
       stopAnimation: () => runner.stop(),
     }
-    const ctrl = useProgramController({ source: ref(MOVEJ_SOURCE), profile: ABB_IRB1200_PROFILE, joints, motion })
+    const ctrl = useProgramController({
+      source: ref(MOVEJ_SOURCE),
+      profile: ABB_IRB1200_PROFILE,
+      joints,
+      motion,
+    })
     return { clock, joints, runner, ctrl }
   }
 

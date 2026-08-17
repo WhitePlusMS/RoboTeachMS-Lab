@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import type { CartesianAxis, CoordinateSystem, PoseDisplay } from '../robotics/types.ts'
+import type { CartesianAxis, CoordinateSystem, PoseDisplay } from '@/robotics/types.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '../application/cartesian-control.ts'
-import {
-  ORIENTATION_STEPS,
-  POSITION_STEPS,
-} from '../application/cartesian-control.ts'
+} from '@/application/cartesian-control.ts'
+import { ORIENTATION_STEPS, POSITION_STEPS } from '@/application/cartesian-control.ts'
 
 interface Props {
   pose: PoseDisplay
@@ -121,7 +118,9 @@ onBeforeUnmount(stopPress)
         :class="['frame-choice', { active: props.coordinateSystem === frame }]"
         :aria-pressed="props.coordinateSystem === frame"
         @click="emit('coordinate-change', frame)"
-      >{{ frame }}</button>
+      >
+        {{ frame }}
+      </button>
     </div>
 
     <div class="cartesian-list">
@@ -135,7 +134,9 @@ onBeforeUnmount(stopPress)
           @pointerup="finishPress"
           @pointerleave="finishPress"
           @pointercancel="finishPress"
-        >−</button>
+        >
+          −
+        </button>
         <input
           class="cartesian-input"
           type="number"
@@ -153,7 +154,9 @@ onBeforeUnmount(stopPress)
           @pointerup="finishPress"
           @pointerleave="finishPress"
           @pointercancel="finishPress"
-        >+</button>
+        >
+          +
+        </button>
       </article>
     </div>
 
@@ -165,7 +168,9 @@ onBeforeUnmount(stopPress)
         type="button"
         :class="['step-choice', { active: props.positionStep === step }]"
         @click="emit('position-step-change', step)"
-      >{{ step }} mm</button>
+      >
+        {{ step }} mm
+      </button>
     </div>
 
     <div class="step-selector" aria-label="姿态步进选择">
@@ -176,12 +181,93 @@ onBeforeUnmount(stopPress)
         type="button"
         :class="['step-choice', { active: props.orientationStep === step }]"
         @click="emit('orientation-step-change', step)"
-      >{{ step }}°</button>
+      >
+        {{ step }}°
+      </button>
     </div>
 
     <div class="pose-card" aria-label="笛卡尔控制状态">
       <div class="pose-card-title">{{ props.statusMessage }}</div>
-      <p class="panel-hint">当前显示为世界坐标值，方向按钮按 {{ props.coordinateSystem }} 坐标系执行。</p>
+      <p class="panel-hint">
+        当前显示为世界坐标值，方向按钮按 {{ props.coordinateSystem }} 坐标系执行。
+      </p>
     </div>
   </section>
 </template>
+
+<style scoped>
+.cartesian-panel {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.cartesian-panel h2 {
+  color: var(--color-text-strong);
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.cartesian-status-solved {
+  border-color: rgba(52, 211, 153, 0.4);
+  color: var(--color-success-soft);
+}
+
+.cartesian-status-position-fallback {
+  border-color: rgba(251, 191, 36, 0.4);
+  color: var(--color-warning);
+}
+
+.cartesian-status-invalid,
+.cartesian-status-unreachable {
+  border-color: rgba(251, 113, 133, 0.4);
+  color: var(--color-danger-faint);
+}
+
+.cartesian-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cartesian-row {
+  display: grid;
+  grid-template-columns: 30px 28px minmax(60px, 1fr) 18px 28px;
+  align-items: center;
+  gap: 5px;
+}
+
+.cartesian-label {
+  color: var(--color-brand);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cartesian-input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 4px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-xs);
+  outline: none;
+  color: var(--color-text-strong);
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+.cartesian-input:focus {
+  border-color: var(--color-brand-strong);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.16);
+}
+
+/* Compact layout override when nested inside the jog tab panel. */
+.jog-tabpanel > .cartesian-panel {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  gap: 10px;
+}
+</style>

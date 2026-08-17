@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import JogControlTabs from './components/JogControlTabs.vue'
-import ProgramWorkspace from './components/ProgramWorkspace.vue'
-import SceneViewport from './components/SceneViewport.vue'
-import WorkbenchLayout from './components/WorkbenchLayout.vue'
-import type { JointAngles } from './robotics/types.ts'
-import { ABB_IRB1200_PROFILE } from './robot-models/abb-irb1200/robot-profile.ts'
-import { adjustJointAngle, randomJointAngles, useJointControl } from './application/joint-control.ts'
-import { useMotion } from './application/motion-control.ts'
-import { useProgramController } from './application/program-control.ts'
-import { createBuiltinRapidSource } from './application/builtin-program.ts'
-import { flangeToWorldTcpPose } from './rapid/coordinate-transform.ts'
-import type { AbbSceneStatus } from './scene/abb-scene.ts'
-import { useCartesianControl } from './application/cartesian-control.ts'
-import { isRapidMotionInstruction } from './rapid/rapid-parser.ts'
+import JogControlTabs from '@/components/JogControlTabs.vue'
+import ProgramWorkspace from '@/components/ProgramWorkspace.vue'
+import SceneViewport from '@/components/SceneViewport.vue'
+import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
+import type { JointAngles } from '@/robotics/types.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import {
+  adjustJointAngle,
+  randomJointAngles,
+  useJointControl,
+} from '@/application/joint-control.ts'
+import { useMotion } from '@/application/motion-control.ts'
+import { useProgramController } from '@/application/program-control.ts'
+import { createBuiltinRapidSource } from '@/application/builtin-program.ts'
+import { flangeToWorldTcpPose } from '@/rapid/coordinate-transform.ts'
+import type { AbbSceneStatus } from '@/scene/abb-scene.ts'
+import { useCartesianControl } from '@/application/cartesian-control.ts'
+import { isRapidMotionInstruction } from '@/rapid/rapid-parser.ts'
+import {
+  provideProgramPanelController,
+} from '@/application/use-program-panel-controller.ts'
+import { provideRobotController } from '@/application/use-robot-controller.ts'
 
 const profile = ABB_IRB1200_PROFILE
 const sceneStatus = ref<AbbSceneStatus>('loading')
@@ -32,15 +40,11 @@ const {
   setStep,
 } = useJointControl({ profile })
 
-const {
-  startEasedAnimation,
-  startSpeedLimitedAnimation,
-  startCartesianTrajectory,
-  stopAnimation,
-} = useMotion({
-  getCurrentJoints: () => joints.value,
-  setJoints: setJointsImmediate,
-})
+const { startEasedAnimation, startSpeedLimitedAnimation, startCartesianTrajectory, stopAnimation } =
+  useMotion({
+    getCurrentJoints: () => joints.value,
+    setJoints: setJointsImmediate,
+  })
 
 /** 滑块输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
 function setJoint(index: number, value: number): void {
@@ -51,7 +55,13 @@ function setJoint(index: number, value: number): void {
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
   programControl.stopActiveProgram()
-  const next = adjustJointAngle(joints.value, index, direction, jointStep.value, profile.jointRanges)
+  const next = adjustJointAngle(
+    joints.value,
+    index,
+    direction,
+    jointStep.value,
+    profile.jointRanges,
+  )
   if (isContinuous) startSpeedLimitedAnimation(next)
   else startEasedAnimation(next)
 }
@@ -66,7 +76,10 @@ function randomize(): void {
   startEasedAnimation(randomJointAngles(profile.jointRanges))
 }
 
-function animateCartesianTrajectory(trajectory: readonly JointAngles[], isContinuous = false): void {
+function animateCartesianTrajectory(
+  trajectory: readonly JointAngles[],
+  isContinuous = false,
+): void {
   programControl.stopActiveProgram()
   startCartesianTrajectory(trajectory, isContinuous ? 140 : undefined)
 }
@@ -128,7 +141,6 @@ const activeWobjFrameMm = computed<[number, number, number] | null>(() => {
   return [trans[0] / 1000, trans[1] / 1000, trans[2] / 1000]
 })
 
-
 const {
   coordinateSystem,
   positionStep,
@@ -151,6 +163,53 @@ const statusLabel = computed(() => {
   if (sceneStatus.value === 'ready') return '场景已就绪'
   if (sceneStatus.value === 'error') return '场景几何加载失败，使用占位显示'
   return '正在加载模型'
+})
+
+/** 左侧 Jog 工作区共享控制器：App 保持编排所有权（setJoint 先停程序/动画再运动）。 */
+provideRobotController({
+  joints,
+  jointRanges,
+  jointStep,
+  pose,
+  coordinateSystem,
+  positionStep,
+  orientationStep,
+  status: cartesianStatus,
+  statusMessage: cartesianStatusMessage,
+  setJoint,
+  adjustJoint,
+  setStep,
+  reset,
+  randomize,
+  moveCartesian,
+  setCartesianField,
+  setCoordinateSystem,
+  setPositionStep,
+  setOrientationStep,
+})
+
+/** 右侧 ProgramWorkspace 共享控制器：Program Data 全部派生自同一次 parseRapidProgram。 */
+provideProgramPanelController({
+  snapshot: programSnapshot,
+  source: computed(() => rapidSource.value),
+  program: computed(() => programControl.parsed.value.program),
+  pendingClear: pendingClearState,
+  data: programData,
+  activeIndex: activeInstructionIndex,
+  canExecute: programDataCanExecute,
+  insertionPoints: computed(() => programControl.parsed.value.motionInsertionPoints),
+  pose: toolPose,
+  runtimeValues: computed(() => programSnapshot.value.variables),
+  applyEdit: programControl.applyEdit,
+  run: () => programControl.run(),
+  step: () => programControl.step(),
+  stop: () => programControl.stop(),
+  ppToMain: () => programControl.ppToMain(),
+  confirmClearToNext: () => programControl.confirmClearToNext(),
+  cancelClearToNext: () => programControl.cancelClearToNext(),
+  setSource: (source) => {
+    rapidSource.value = source
+  },
 })
 </script>
 
@@ -182,27 +241,7 @@ const statusLabel = computed(() => {
             <p class="panel-hint">左键旋转 · 滚轮缩放 · 右键平移</p>
           </div>
 
-          <JogControlTabs
-            :joints="joints"
-            :joint-ranges="jointRanges"
-            :joint-step="jointStep"
-            :pose="pose"
-            :coordinate-system="coordinateSystem"
-            :position-step="positionStep"
-            :orientation-step="orientationStep"
-            :status="cartesianStatus"
-            :status-message="cartesianStatusMessage"
-            @set-joint="setJoint"
-            @adjust-joint="adjustJoint"
-            @step-change="setStep"
-            @reset="reset"
-            @random="randomize"
-            @move="moveCartesian"
-            @set-field="setCartesianField"
-            @coordinate-change="setCoordinateSystem"
-            @position-step-change="setPositionStep"
-            @orientation-step-change="setOrientationStep"
-          />
+          <JogControlTabs />
         </div>
       </template>
 
@@ -232,27 +271,176 @@ const statusLabel = computed(() => {
       </template>
 
       <template #right>
-        <ProgramWorkspace
-          :snapshot="programSnapshot"
-          :source="rapidSource"
-          :program="programControl.parsed.value.program"
-          :pending-clear="pendingClearState"
-          :data="programData"
-          :active-index="activeInstructionIndex"
-          :can-execute="programDataCanExecute"
-          :insertion-points="programControl.parsed.value.motionInsertionPoints"
-          :pose="toolPose"
-          :apply-edit="programControl.applyEdit"
-          :runtime-values="programSnapshot.variables"
-          @run="programControl.run()"
-          @step="programControl.step()"
-          @stop="programControl.stop()"
-          @pp="programControl.ppToMain()"
-          @confirm-clear="programControl.confirmClearToNext()"
-          @cancel-clear="programControl.cancelClearToNext()"
-          @source-change="rapidSource = $event"
-        />
+        <ProgramWorkspace />
       </template>
     </WorkbenchLayout>
   </main>
 </template>
+
+<style scoped>
+/* App shell: fixed full-screen single view, vertical flex. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  padding: 14px clamp(12px, 2vw, 32px);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% 14%, rgba(37, 99, 235, 0.15), transparent 30rem), var(--color-bg);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 16px;
+  width: 100%;
+  max-width: none;
+  margin: 0 auto 10px;
+}
+
+.app-header h1 {
+  color: var(--color-text-strong);
+  font-size: clamp(18px, 1.8vw, 26px);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+
+.app-header .subtitle {
+  margin-top: 4px;
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+
+.app-header-status {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.viewport-size-warning {
+  display: none;
+  margin: 0;
+  color: var(--color-warning);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Scene status pill (only shown in the app header). */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 9px 13px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  background: rgba(15, 23, 42, 0.74);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-warning-strong);
+  box-shadow: 0 0 12px currentColor;
+}
+
+.status-ready .status-dot {
+  color: var(--color-success);
+  background: var(--color-success);
+}
+
+.status-error .status-dot {
+  color: var(--color-danger);
+  background: var(--color-danger);
+}
+
+/* Left slot scaffold (model summary + jog tabs). */
+.left-workbench-content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+
+.left-model-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.left-model-summary h2 {
+  color: var(--color-text-strong);
+  font-size: 17px;
+  letter-spacing: -0.03em;
+}
+
+.left-model-summary .panel-hint {
+  max-width: 150px;
+  text-align: right;
+}
+
+/* Central viewport card hosts the 3D scene + caption. */
+.viewport-card {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.8);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.viewport-card .scene-viewport {
+  min-height: 0;
+}
+
+.viewport-caption {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  left: 16px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 1365px), (max-height: 767px) {
+  .viewport-size-warning {
+    display: block;
+  }
+}
+
+@media (max-width: 820px) {
+  .app-shell {
+    padding: 20px 14px 16px;
+  }
+
+  .app-header {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .viewport-card {
+    min-height: 58vh;
+  }
+}
+</style>

@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { JointAngles } from '../robotics/types.ts'
-import {
-  createAbbScene,
-  type AbbSceneController,
-  type AbbSceneStatus,
-} from '../scene/abb-scene.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { createAbbScene, type AbbSceneController, type AbbSceneStatus } from '@/scene/abb-scene.ts'
 
 const props = defineProps<{
   joints: JointAngles
@@ -66,7 +62,8 @@ function clearTrajectory(): void {
 }
 
 watch(
-  () => [props.showGrid, props.showCoordinateSystems, props.showDhDebug, props.showTrajectory] as const,
+  () =>
+    [props.showGrid, props.showCoordinateSystems, props.showDhDebug, props.showTrajectory] as const,
   ([showGrid, showCoordinateSystems, showDhDebug, showTrajectory]) => {
     controller?.setGridVisible(showGrid)
     controller?.setCoordinateSystemsVisible(showCoordinateSystems)
@@ -93,7 +90,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="scene-viewport">
-    <div ref="viewport" class="scene-canvas-host" role="img" aria-label="ABB IRB 1200-5/0.9 三维场景" />
+    <div
+      ref="viewport"
+      class="scene-canvas-host"
+      role="img"
+      aria-label="ABB IRB 1200-5/0.9 三维场景"
+    />
     <div v-if="sceneError" class="scene-webgl-fallback" role="status">
       <strong>Three.js 场景不可用</strong>
       <p>{{ sceneError }}</p>
@@ -104,31 +106,41 @@ onBeforeUnmount(() => {
         :class="['scene-aux-button', { active: props.showGrid }]"
         :aria-pressed="props.showGrid"
         @click="emit('grid-change', !props.showGrid)"
-      >网格</button>
+      >
+        网格
+      </button>
       <button
         type="button"
         :class="['scene-aux-button', { active: props.showCoordinateSystems }]"
         :aria-pressed="props.showCoordinateSystems"
         @click="emit('coordinates-change', !props.showCoordinateSystems)"
-      >基座/工具坐标</button>
+      >
+        基座/工具坐标
+      </button>
       <button
         type="button"
         :class="['scene-aux-button', { active: props.showDhDebug }]"
         :aria-pressed="props.showDhDebug"
         @click="emit('dh-debug-change', !props.showDhDebug)"
-      >DH参考链</button>
+      >
+        DH参考链
+      </button>
       <button
         type="button"
         :class="['scene-aux-button', { active: props.showTrajectory }]"
         :aria-pressed="props.showTrajectory"
         @click="emit('trajectory-change', !props.showTrajectory)"
-      >轨迹</button>
+      >
+        轨迹
+      </button>
       <button
         type="button"
         class="scene-aux-button scene-aux-clear"
         :disabled="props.trajectoryCount === 0"
         @click="clearTrajectory"
-      >清空轨迹</button>
+      >
+        清空轨迹
+      </button>
     </div>
   </div>
 </template>
@@ -140,7 +152,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 420px;
   overflow: hidden;
-  background: #101827;
+  background: var(--color-scene-bg);
 }
 
 .scene-canvas-host {
@@ -156,20 +168,20 @@ onBeforeUnmount(() => {
   place-content: center;
   gap: 8px;
   padding: 24px;
-  color: #cbd5e1;
+  color: var(--color-text-muted);
   text-align: center;
-  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.94), #101827 72%);
+  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.94), var(--color-scene-bg) 72%);
 }
 
 .scene-webgl-fallback strong {
-  color: #fca5a5;
+  color: var(--color-danger-soft);
   font-size: 14px;
 }
 
 .scene-webgl-fallback p {
   max-width: 360px;
   margin: 0;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -188,8 +200,8 @@ onBeforeUnmount(() => {
 .scene-aux-button {
   padding: 6px 9px;
   border: 1px solid rgba(148, 163, 184, 0.45);
-  border-radius: 6px;
-  color: #cbd5e1;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
   background: rgba(15, 23, 42, 0.82);
   cursor: pointer;
   font-size: 10px;
@@ -198,8 +210,8 @@ onBeforeUnmount(() => {
 
 .scene-aux-button:hover,
 .scene-aux-button.active {
-  border-color: #38bdf8;
-  color: #e0f2fe;
+  border-color: var(--color-brand-strong);
+  color: var(--color-brand-soft);
   background: rgba(14, 116, 144, 0.75);
 }
 
@@ -219,10 +231,10 @@ onBeforeUnmount(() => {
   z-index: 2;
   padding: 6px 9px;
   border: 1px solid rgba(249, 115, 22, 0.45);
-  border-radius: 6px;
-  color: #fed7aa;
+  border-radius: var(--radius-sm);
+  color: var(--color-orange-soft);
   background: rgba(124, 45, 18, 0.75);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 </style>

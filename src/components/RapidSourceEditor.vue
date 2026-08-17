@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { isRapidMotionInstruction, type RapidExecutableInstruction, type RapidSourceRange } from '../rapid/rapid-parser.ts'
+import {
+  isRapidMotionInstruction,
+  type RapidExecutableInstruction,
+  type RapidSourceRange,
+} from '@/rapid/rapid-parser.ts'
 
 interface Props {
   source: string
@@ -149,27 +153,195 @@ const kindLabel = computed(() => {
         </div>
       </dl>
       <dl v-else-if="assignmentInstruction" class="instruction-summary-fields">
-        <div><dt>指令</dt><dd>{{ kindLabel }}</dd></div>
-        <div><dt>变量</dt><dd>{{ assignmentInstruction.target.name }}</dd></div>
-        <div><dt>表达式</dt><dd>{{ assignmentInstruction.sourceText }}</dd></div>
+        <div>
+          <dt>指令</dt>
+          <dd>{{ kindLabel }}</dd>
+        </div>
+        <div>
+          <dt>变量</dt>
+          <dd>{{ assignmentInstruction.target.name }}</dd>
+        </div>
+        <div>
+          <dt>表达式</dt>
+          <dd>{{ assignmentInstruction.sourceText }}</dd>
+        </div>
       </dl>
       <dl v-else-if="conditionalInstruction" class="instruction-summary-fields">
-        <div><dt>指令</dt><dd>{{ conditionalInstruction.conditionKind === 'if' ? 'IF' : 'ELSEIF' }}</dd></div>
-        <div><dt>条件</dt><dd>{{ conditionalInstruction.sourceText }}</dd></div>
+        <div>
+          <dt>指令</dt>
+          <dd>{{ conditionalInstruction.conditionKind === 'if' ? 'IF' : 'ELSEIF' }}</dd>
+        </div>
+        <div>
+          <dt>条件</dt>
+          <dd>{{ conditionalInstruction.sourceText }}</dd>
+        </div>
       </dl>
       <dl v-else-if="whileInstruction" class="instruction-summary-fields">
-        <div><dt>指令</dt><dd>WHILE</dd></div>
-        <div><dt>条件</dt><dd>{{ whileInstruction.sourceText }}</dd></div>
+        <div>
+          <dt>指令</dt>
+          <dd>WHILE</dd>
+        </div>
+        <div>
+          <dt>条件</dt>
+          <dd>{{ whileInstruction.sourceText }}</dd>
+        </div>
       </dl>
       <dl v-else-if="forInstruction" class="instruction-summary-fields">
-        <div><dt>指令</dt><dd>FOR</dd></div>
-        <div><dt>循环头</dt><dd>{{ forInstruction.sourceText }}</dd></div>
-        <div><dt>循环变量</dt><dd>{{ forInstruction.loopVar.name }}</dd></div>
+        <div>
+          <dt>指令</dt>
+          <dd>FOR</dd>
+        </div>
+        <div>
+          <dt>循环头</dt>
+          <dd>{{ forInstruction.sourceText }}</dd>
+        </div>
+        <div>
+          <dt>循环变量</dt>
+          <dd>{{ forInstruction.loopVar.name }}</dd>
+        </div>
       </dl>
       <dl v-else-if="exitInstruction" class="instruction-summary-fields">
-        <div><dt>指令</dt><dd>EXITDO</dd></div>
-        <div><dt>说明</dt><dd>提前退出当前循环</dd></div>
+        <div>
+          <dt>指令</dt>
+          <dd>EXITDO</dd>
+        </div>
+        <div>
+          <dt>说明</dt>
+          <dd>提前退出当前循环</dd>
+        </div>
       </dl>
     </div>
   </div>
 </template>
+
+<style scoped>
+.rapid-source-editor {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-editor);
+  font: 13px/20px var(--font-mono);
+  white-space: pre;
+  overflow-x: auto;
+  resize: vertical;
+}
+
+.rapid-source-editor:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline-offset: 1px;
+}
+
+.rapid-source-editor:disabled {
+  color: var(--color-text-faint);
+  background: var(--color-surface);
+}
+
+.source-editor-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.source-editor-scroll {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-editor);
+  overflow: hidden;
+}
+
+.source-editor-scroll .source-gutter {
+  flex: 0 0 44px;
+  overflow: hidden;
+  border-right: 1px solid var(--color-border-strong);
+  background: var(--color-surface-deep);
+  user-select: none;
+}
+
+.source-gutter-inner {
+  padding: 12px 0;
+  font: 13px/20px var(--font-mono);
+}
+
+.source-line {
+  height: 20px;
+  line-height: 20px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--color-text-dim-deep);
+}
+
+.source-line.pp-line {
+  color: var(--color-editor);
+  background: var(--color-brand-strong);
+  font-weight: 700;
+}
+
+.source-line.mp-line {
+  color: var(--color-editor);
+  background: var(--color-orange);
+  font-weight: 700;
+}
+
+.source-line.both-line {
+  background: linear-gradient(90deg, var(--color-orange) 0 50%, var(--color-brand-strong) 50% 100%);
+}
+
+.source-line.diagnostic-line {
+  box-shadow: inset 4px 0 var(--color-danger-strong);
+}
+
+.source-line.runtime-error-line {
+  color: #fff;
+  background: var(--color-error-bg);
+  box-shadow: inset 4px 0 var(--color-error-edge);
+}
+
+.source-editor-scroll .rapid-source-editor {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.instruction-summary {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.instruction-summary-empty {
+  margin: 0;
+  color: var(--color-text-dim);
+  font-size: 12px;
+}
+
+.instruction-summary-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.instruction-summary-fields div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.instruction-summary-fields dt {
+  color: var(--color-text-dim);
+  font-size: 11px;
+}
+
+.instruction-summary-fields dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 12px;
+}
+</style>

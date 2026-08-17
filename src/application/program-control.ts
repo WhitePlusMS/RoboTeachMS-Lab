@@ -1,10 +1,10 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
-import type { MotionResult } from '../robotics/motion-runner.ts'
-import type { RobotProfile } from '../robotics/robot-profile.ts'
-import type { JointAngles } from '../robotics/types.ts'
-import { executeMoveJ } from '../rapid/movej-planner.ts'
-import { executeMoveL } from '../rapid/movel-planner.ts'
-import type { RapidScalarValue, RapidScalarVariable } from '../rapid/rapid-types.ts'
+import type { MotionResult } from '@/robotics/motion-runner.ts'
+import type { RobotProfile } from '@/robotics/robot-profile.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { executeMoveJ } from '@/rapid/movej-planner.ts'
+import { executeMoveL } from '@/rapid/movel-planner.ts'
+import type { RapidScalarValue, RapidScalarVariable } from '@/rapid/rapid-types.ts'
 import {
   parseRapidProgram,
   type RapidAssignmentInstruction,
@@ -16,13 +16,13 @@ import {
   type RapidScalarExpression,
   type RapidSourceRange,
   type RapidWhileInstruction,
-} from '../rapid/rapid-parser.ts'
+} from '@/rapid/rapid-parser.ts'
 import {
   applyRapidEdit,
   type RapidEditCommand,
   type RapidEditResult,
   type RapidEditSuccess,
-} from '../rapid/controlled-rapid-edit.ts'
+} from '@/rapid/controlled-rapid-edit.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,
@@ -32,7 +32,7 @@ import {
   type ProgramExecutor,
   type ProgramSnapshot,
   type ProgramState,
-} from '../rapid/program-executor.ts'
+} from '@/rapid/program-executor.ts'
 
 /** 程序控制器可用的 MotionRunner 能力子集（由现有 useMotion 提供）；不含程序级暂停/继续。 */
 export interface ProgramControllerMotion {
@@ -86,9 +86,7 @@ export interface ProgramController {
   pendingClear: Ref<'run' | 'step' | null>
 }
 
-type ScalarEvaluationResult =
-  | { ok: true; value: RapidScalarValue }
-  | { ok: false; message: string }
+type ScalarEvaluationResult = { ok: true; value: RapidScalarValue } | { ok: false; message: string }
 
 function runtimeError(message: string): ScalarEvaluationResult {
   return { ok: false, message }
@@ -106,7 +104,9 @@ function evaluateScalarExpression(
       return { ok: true, value: expression.value }
     case 'variable': {
       const variable = context.readVariable(expression.name)
-      return variable ? { ok: true, value: variable.value } : runtimeError(`运行时不存在变量 ${expression.name}`)
+      return variable
+        ? { ok: true, value: variable.value }
+        : runtimeError(`运行时不存在变量 ${expression.name}`)
     }
     case 'group':
       return evaluateScalarExpression(expression.expression, context)
@@ -117,7 +117,8 @@ function evaluateScalarExpression(
         if (typeof operand.value !== 'boolean') return runtimeError('NOT 运算的操作数必须是 bool')
         return { ok: true, value: !operand.value }
       }
-      if (typeof operand.value !== 'number') return runtimeError(`${expression.operator} 运算的操作数必须是 num`)
+      if (typeof operand.value !== 'number')
+        return runtimeError(`${expression.operator} 运算的操作数必须是 num`)
       const value = expression.operator === '-' ? -operand.value : operand.value
       return Number.isFinite(value) ? { ok: true, value } : runtimeError('表达式结果不是有限数值')
     }
@@ -131,19 +132,18 @@ function evaluateScalarExpression(
         if (typeof left.value !== 'boolean' || typeof right.value !== 'boolean') {
           return runtimeError(`${operator} 运算的两侧必须是 bool`)
         }
-        return { ok: true, value: operator === 'AND' ? left.value && right.value : left.value || right.value }
+        return {
+          ok: true,
+          value: operator === 'AND' ? left.value && right.value : left.value || right.value,
+        }
       }
       if (operator === '=' || operator === '<>') {
-        if (typeof left.value !== typeof right.value) return runtimeError('比较运算的两侧类型不一致')
+        if (typeof left.value !== typeof right.value)
+          return runtimeError('比较运算的两侧类型不一致')
         const equal = left.value === right.value
         return { ok: true, value: operator === '=' ? equal : !equal }
       }
-      if (
-        operator === '<' ||
-        operator === '<=' ||
-        operator === '>' ||
-        operator === '>='
-      ) {
+      if (operator === '<' || operator === '<=' || operator === '>' || operator === '>=') {
         if (typeof left.value !== 'number' || typeof right.value !== 'number') {
           return runtimeError(`${operator} 比较的两侧必须是 num`)
         }
@@ -158,10 +158,18 @@ function evaluateScalarExpression(
       if (operator === '/' && right.value === 0) return runtimeError('表达式除数不能为 0')
       let value: number
       switch (operator) {
-        case '+': value = left.value + right.value; break
-        case '-': value = left.value - right.value; break
-        case '*': value = left.value * right.value; break
-        case '/': value = left.value / right.value; break
+        case '+':
+          value = left.value + right.value
+          break
+        case '-':
+          value = left.value - right.value
+          break
+        case '*':
+          value = left.value * right.value
+          break
+        case '/':
+          value = left.value / right.value
+          break
       }
       return Number.isFinite(value) ? { ok: true, value } : runtimeError('表达式结果不是有限数值')
     }
@@ -206,7 +214,8 @@ function rapidLogicSignature(parsed: RapidParseResult): string {
     })
   const statements = parsed.program.map((instruction) => {
     if (instruction.kind === 'assign') return `assign|${instruction.sourceText}`
-    if (instruction.kind === 'if') return `if|${instruction.conditionKind}|${instruction.sourceText}`
+    if (instruction.kind === 'if')
+      return `if|${instruction.conditionKind}|${instruction.sourceText}`
     if (instruction.kind === 'while') return `while|${instruction.sourceText}`
     if (instruction.kind === 'for') return `for|${instruction.sourceText}`
     if (instruction.kind === 'exitdo') return `exitdo|${instruction.sourceText}`
@@ -233,7 +242,10 @@ function executeAssignment(
   const result = evaluateScalarExpression(instruction.expression, context)
   if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
   if (!context.writeVariable(instruction.target.name, result.value)) {
-    return { ok: false, error: { kind: 'runtime-error', message: `无法写入变量 ${instruction.target.name}` } }
+    return {
+      ok: false,
+      error: { kind: 'runtime-error', message: `无法写入变量 ${instruction.target.name}` },
+    }
   }
   return {
     ok: true,
@@ -247,11 +259,7 @@ function attachBranchNextPointer(
   instruction: RapidMotionInstruction | RapidAssignmentInstruction,
   outcome: InstructionOutcome,
 ): InstructionOutcome {
-  if (
-    !outcome.ok ||
-    outcome.result !== 'completed' ||
-    instruction.nextPointer === undefined
-  ) {
+  if (!outcome.ok || outcome.result !== 'completed' || instruction.nextPointer === undefined) {
     return outcome
   }
   return { ...outcome, nextPointer: instruction.nextPointer }
@@ -269,7 +277,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
   ): Promise<InstructionOutcome> {
     if (instruction.kind === 'if') {
       const result = evaluateScalarExpression(instruction.condition, context)
-      if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
+      if (!result.ok)
+        return { ok: false, error: { kind: 'runtime-error', message: result.message } }
       if (typeof result.value !== 'boolean') {
         return { ok: false, error: { kind: 'runtime-error', message: 'IF 条件必须是 bool' } }
       }
@@ -323,7 +332,10 @@ export function useProgramController(options: ProgramControllerOptions): Program
   function consumeLoopStep(): InstructionOutcome | null {
     loopSteps += 1
     if (loopSteps > MAX_LOOP_STEPS) {
-      return { ok: false, error: { kind: 'runtime-error', message: `循环迭代次数超过安全上限 ${MAX_LOOP_STEPS}` } }
+      return {
+        ok: false,
+        error: { kind: 'runtime-error', message: `循环迭代次数超过安全上限 ${MAX_LOOP_STEPS}` },
+      }
     }
     return null
   }
@@ -363,9 +375,16 @@ export function useProgramController(options: ProgramControllerOptions): Program
     what: string,
   ): { ok: true; value: number } | { ok: false; outcome: InstructionOutcome } {
     const result = evaluateScalarExpression(expression, context)
-    if (!result.ok) return { ok: false, outcome: { ok: false, error: { kind: 'runtime-error', message: result.message } } }
+    if (!result.ok)
+      return {
+        ok: false,
+        outcome: { ok: false, error: { kind: 'runtime-error', message: result.message } },
+      }
     if (typeof result.value !== 'number' || !Number.isFinite(result.value)) {
-      return { ok: false, outcome: { ok: false, error: { kind: 'runtime-error', message: `${what} 必须是有限数值` } } }
+      return {
+        ok: false,
+        outcome: { ok: false, error: { kind: 'runtime-error', message: `${what} 必须是有限数值` } },
+      }
     }
     return { ok: true, value: result.value }
   }
@@ -419,7 +438,10 @@ export function useProgramController(options: ProgramControllerOptions): Program
       return { ok: true, result: 'completed', nextPointer: instruction.falseTarget }
     }
     if (!context.writeVariable(instruction.loopVar.name, cursor.current)) {
-      return { ok: false, error: { kind: 'runtime-error', message: `无法写入循环变量 ${instruction.loopVar.name}` } }
+      return {
+        ok: false,
+        error: { kind: 'runtime-error', message: `无法写入循环变量 ${instruction.loopVar.name}` },
+      }
     }
     return { ok: true, result: 'completed', nextPointer: instruction.trueTarget }
   }
@@ -494,12 +516,7 @@ export function useProgramController(options: ProgramControllerOptions): Program
       loadedProgram = result.program
       loadedLogicSignature = rapidLogicSignature(result)
       logicContextDirty = false
-      executor = createProgramExecutor(
-        loadedProgram,
-        seam,
-        0,
-        runtimeVariablesForParsed(result),
-      )
+      executor = createProgramExecutor(loadedProgram, seam, 0, runtimeVariablesForParsed(result))
     }
     const promise = start(executor)
     sync()
@@ -598,7 +615,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
     const stateBeforeManualMotion = executor.getSnapshot().state
     stop()
     // 运行中被手动抢占或已有 stopped 上下文才表示偏离程序路径；completed/error 不再伪造路径事实。
-    if (stateBeforeManualMotion === 'running' || stateBeforeManualMotion === 'stopped') offPath = true
+    if (stateBeforeManualMotion === 'running' || stateBeforeManualMotion === 'stopped')
+      offPath = true
     sync()
   }
 
@@ -663,7 +681,11 @@ export function useProgramController(options: ProgramControllerOptions): Program
       return
     }
     const isStructuredEdit = pendingEdit !== null
-    if (!isStructuredEdit && loadedLogicSignature !== null && rapidLogicSignature(next) !== loadedLogicSignature) {
+    if (
+      !isStructuredEdit &&
+      loadedLogicSignature !== null &&
+      rapidLogicSignature(next) !== loadedLogicSignature
+    ) {
       needsPPtoMain = true
       logicContextDirty = true
       pendingEdit = null

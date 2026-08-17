@@ -2,9 +2,9 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramWorkspace from './ProgramWorkspace.vue'
-import { parseRapidProgram } from '../rapid/rapid-parser.ts'
-import type { ProgramControllerSnapshot } from '../application/program-control.ts'
-import type { Pose } from '../robotics/types.ts'
+import { parseRapidProgram } from '@/rapid/rapid-parser.ts'
+import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { Pose } from '@/robotics/types.ts'
 
 const SOURCE = `MODULE Demo
     CONST robtarget p1 := [[451,0,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -16,7 +16,11 @@ const parsed = parseRapidProgram(SOURCE)
 const pose: Pose = {
   position: [451, 0, 807.1],
   euler: [0, 0, 0],
-  rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  rotation: [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ],
 }
 const snapshot: ProgramControllerSnapshot = {
   state: 'idle',

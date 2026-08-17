@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PoseDisplay } from '../robotics/types.ts'
+import type { PoseDisplay } from '@/robotics/types.ts'
 
 defineProps<{
   toolPose: PoseDisplay
@@ -62,3 +62,81 @@ function formatValue(value: number): string {
     <p class="panel-hint">基坐标固定在底座；工具坐标跟随末端法兰运动。</p>
   </section>
 </template>
+
+<style scoped>
+.coordinate-info-panel {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.coordinate-info-panel h2 {
+  color: var(--color-text-strong);
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.coordinate-info-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.coordinate-info-card {
+  padding: 10px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.coordinate-info-base {
+  border-color: rgba(125, 211, 252, 0.28);
+}
+
+.coordinate-info-tool {
+  border-color: rgba(249, 115, 22, 0.3);
+}
+
+.coordinate-info-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.coordinate-info-heading small {
+  margin-left: auto;
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.coordinate-info-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-brand-strong);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+}
+
+.coordinate-info-tool .coordinate-info-dot {
+  background: var(--color-accent-orange);
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.8);
+}
+
+.coordinate-info-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.coordinate-info-values span {
+  white-space: nowrap;
+}
+</style>
