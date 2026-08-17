@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import type { JointAngles } from '../robotics/types.ts'
-import { forwardAbbKinematicsFramesDegrees } from '../robot-models/abb-irb1200/abb-kinematics.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { forwardAbbKinematicsFramesDegrees } from '@/robot-models/abb-irb1200/abb-kinematics.ts'
 import { abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
 
 const DH_FRAME_NAMES = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'FLANGE'] as const
@@ -17,10 +17,22 @@ export interface AbbDhDebugChain {
 
 function matrixToThreeMatrix(matrix: number[][]): THREE.Matrix4 {
   return new THREE.Matrix4().set(
-    matrix[0][0], matrix[0][1], matrix[0][2], 0,
-    matrix[1][0], matrix[1][1], matrix[1][2], 0,
-    matrix[2][0], matrix[2][1], matrix[2][2], 0,
-    0, 0, 0, 1,
+    matrix[0][0],
+    matrix[0][1],
+    matrix[0][2],
+    0,
+    matrix[1][0],
+    matrix[1][1],
+    matrix[1][2],
+    0,
+    matrix[2][0],
+    matrix[2][1],
+    matrix[2][2],
+    0,
+    0,
+    0,
+    0,
+    1,
   )
 }
 

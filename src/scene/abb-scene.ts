@@ -1,16 +1,15 @@
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import type { JointAngles } from '../robotics/types.ts'
-import { ABB_DEFAULT_JOINTS } from '../robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { ABB_DEFAULT_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
-import { createBaseAxes, createFrameAxes, createToolAxes } from './scene-helpers.ts'
+import { createFrameAxes } from './scene-helpers.ts'
 import {
-  appendTrajectoryPoint,
-  DEFAULT_TRAJECTORY_DISTANCE,
-  DEFAULT_TRAJECTORY_LIMIT,
-  type ScenePoint,
-} from './trajectory.ts'
+  createBaseScene,
+  createSceneController,
+  findNode as findNodeShared,
+  type SceneDisplayConfig,
+} from './scene-factory.ts'
 
 export const ABB_MODEL_URL = '/models/ABB_IRB1200_5_90.fbx'
 /** FBX 资产的单位基线是厘米；项目场景使用米，位姿面板再转换为毫米。 */
@@ -63,11 +62,7 @@ export interface AbbSceneController {
 }
 
 export function findNode(root: THREE.Object3D, name: string): THREE.Object3D | null {
-  let result: THREE.Object3D | null = null
-  root.traverse((child) => {
-    if (child.name === name) result = child
-  })
-  return result
+  return findNodeShared(root, name)
 }
 
 /** 仅用 dizuo 的包围盒计算抬升量，避免把底座误算成 J1。 */
@@ -84,8 +79,7 @@ export function applyAbbJointAngles(root: THREE.Group, joints: JointAngles): voi
     const joint = findNode(root, name)
     if (!joint) return
     const baseQuaternionArray = joint.userData.baseQuaternion as
-      | [number, number, number, number]
-      | undefined
+      [number, number, number, number] | undefined
     const baseQuaternion = baseQuaternionArray
       ? new THREE.Quaternion(...baseQuaternionArray)
       : new THREE.Quaternion()
@@ -141,34 +135,20 @@ export function prepareAbbModel(model: THREE.Group): THREE.Group {
   return root
 }
 
-function createWorkbench(): THREE.Group {
-  const workbench = new THREE.Group()
-  workbench.name = 'ABB_Benchmark_Workbench'
-
-  const top = new THREE.Mesh(
-    new THREE.BoxGeometry(2.4, 0.08, 2.4),
-    new THREE.MeshStandardMaterial({ color: 0xd5d9df, metalness: 0.25, roughness: 0.75 }),
-  )
-  top.position.y = -0.04
-  top.receiveShadow = true
-  workbench.add(top)
-
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(2.5, 0.08, 2.5),
-    new THREE.MeshStandardMaterial({ color: 0x667085, metalness: 0.45, roughness: 0.55 }),
-  )
-  frame.position.y = -0.1
-  frame.receiveShadow = true
-  workbench.add(frame)
-  return workbench
-}
-
 function createFallbackRobot(): THREE.Group {
   const root = new THREE.Group()
   root.name = 'ABB_Fallback_Robot'
 
-  const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x343b48, metalness: 0.6, roughness: 0.35 })
-  const yellowMaterial = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.35, roughness: 0.5 })
+  const darkMaterial = new THREE.MeshStandardMaterial({
+    color: 0x343b48,
+    metalness: 0.6,
+    roughness: 0.35,
+  })
+  const yellowMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b,
+    metalness: 0.35,
+    roughness: 0.5,
+  })
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.16, 32), darkMaterial)
   base.position.y = 0.08
   base.castShadow = true
@@ -188,80 +168,28 @@ function createFallbackRobot(): THREE.Group {
   return root
 }
 
-function configureRenderer(container: HTMLElement): THREE.WebGLRenderer {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.setSize(container.clientWidth, container.clientHeight, false)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.05
-  renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
-  renderer.domElement.setAttribute('aria-label', 'ABB IRB 1200-5/0.9 三维场景')
-  container.appendChild(renderer.domElement)
-  return renderer
+const ABB_DISPLAY: SceneDisplayConfig = {
+  ariaLabel: 'ABB IRB 1200-5/0.9 三维场景',
+  logTag: 'AbbScene',
+  gridSize: 4,
+  cameraPosition: [2.4, 1.55, 2.8],
+  controlsTarget: [0, 0.75, 0],
+  controlsMinDistance: 0.5,
+  controlsMaxDistance: 8,
+  keyLightPosition: [3, 4.5, 3],
+  keyLightFar: 15,
+  keyLightBounds: 3,
+  fillLightPosition: [-3, 2.5, -2],
+  bench: {
+    name: 'ABB_Benchmark_Workbench',
+    topSize: [2.4, 0.08, 2.4],
+    frameSize: [2.5, 0.08, 2.5],
+  },
 }
 
-function configureLighting(scene: THREE.Scene): void {
-  scene.add(new THREE.HemisphereLight(0xf6f8fb, 0x4b5563, 1.8))
-
-  const keyLight = new THREE.DirectionalLight(0xffffff, 3.2)
-  keyLight.position.set(3, 4.5, 3)
-  keyLight.castShadow = true
-  keyLight.shadow.mapSize.set(2048, 2048)
-  keyLight.shadow.camera.near = 0.1
-  keyLight.shadow.camera.far = 15
-  keyLight.shadow.camera.left = -3
-  keyLight.shadow.camera.right = 3
-  keyLight.shadow.camera.top = 3
-  keyLight.shadow.camera.bottom = -3
-  scene.add(keyLight)
-
-  const fillLight = new THREE.DirectionalLight(0x9ab9e8, 1.4)
-  fillLight.position.set(-3, 2.5, -2)
-  scene.add(fillLight)
-}
-
-function configureBaseScene(scene: THREE.Scene): void {
-  scene.background = new THREE.Color(0x101827)
-  scene.add(createWorkbench())
-
-  const grid = new THREE.GridHelper(4, 32, 0x64748b, 0x334155)
-  grid.position.y = 0.002
-  grid.name = 'Ground_Grid'
-  scene.add(grid)
-
-  const axes = createBaseAxes()
-  axes.position.y = 0.01
-  scene.add(axes)
-}
-
+/** 创建不依赖浏览器渲染器的基准场景树，便于初始化测试和后续场景适配复用。 */
 export function createAbbBenchmarkScene(): THREE.Scene {
-  const scene = new THREE.Scene()
-  configureBaseScene(scene)
-  configureLighting(scene)
-  return scene
-}
-
-function configureCamera(container: HTMLElement): THREE.PerspectiveCamera {
-  const aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1)
-  const camera = new THREE.PerspectiveCamera(42, aspect, 0.01, 100)
-  camera.position.set(2.4, 1.55, 2.8)
-  return camera
-}
-
-function configureControls(camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer): OrbitControls {
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.08
-  controls.enablePan = true
-  controls.enableZoom = true
-  controls.enableRotate = true
-  controls.minDistance = 0.5
-  controls.maxDistance = 8
-  controls.target.set(0, 0.75, 0)
-  controls.update()
-  return controls
+  return createBaseScene(ABB_DISPLAY)
 }
 
 export function createAbbScene(
@@ -270,60 +198,62 @@ export function createAbbScene(
 ): AbbSceneController {
   const onStatus = options.onStatus ?? (() => undefined)
   const onTrajectoryCount = options.onTrajectoryCount ?? (() => undefined)
-  const scene = createAbbBenchmarkScene()
-  const grid = scene.getObjectByName('Ground_Grid')
-  const baseAxes = scene.getObjectByName('BaseAxesHelper')
-  const showGrid = options.showGrid ?? true
-  let showCoordinateSystems = options.showCoordinateSystems ?? true
-  let showDhDebug = options.showDhDebug ?? true
-  let showTrajectory = options.showTrajectory ?? false
-  if (grid) grid.visible = showGrid
-  if (baseAxes) baseAxes.visible = showCoordinateSystems
+  const showDhDebug = options.showDhDebug ?? true
 
-  const trajectoryGeometry = new THREE.BufferGeometry()
-  const trajectoryPositions = new Float32Array(DEFAULT_TRAJECTORY_LIMIT * 3)
-  const trajectoryAttribute = new THREE.BufferAttribute(trajectoryPositions, 3)
-  trajectoryGeometry.setAttribute('position', trajectoryAttribute)
-  trajectoryGeometry.setDrawRange(0, 0)
-  const trajectoryMaterial = new THREE.LineBasicMaterial({
-    color: 0xf97316,
-    opacity: 0.8,
-    transparent: true,
-    depthTest: false,
-  })
-  const trajectoryLine = new THREE.Line(trajectoryGeometry, trajectoryMaterial)
-  trajectoryLine.name = 'EndEffector_Trajectory'
-  trajectoryLine.visible = showTrajectory
-  scene.add(trajectoryLine)
-
-  const camera = configureCamera(container)
-  const renderer = configureRenderer(container)
-  const controls = configureControls(camera, renderer)
-  const loader = new FBXLoader()
-  const resizeObserver = new ResizeObserver(() => {
-    const width = Math.max(container.clientWidth, 1)
-    const height = Math.max(container.clientHeight, 1)
-    camera.aspect = width / height
-    camera.updateProjectionMatrix()
-    renderer.setSize(width, height, false)
-  })
-  let animationFrame = 0
-  let loadedModel: THREE.Group | null = null
-  let targetJoints: JointAngles = [...ABB_DEFAULT_JOINTS]
   const dhDebugChain = createAbbDhDebugChain()
   dhDebugChain.group.visible = showDhDebug
-  dhDebugChain.update(targetJoints)
-  scene.add(dhDebugChain.group)
-  let toolAxes: THREE.Group | null = null
+
+  // ABB 专属：活动 Tool/WObj 坐标系框，由共享工具轴挂载时一并创建。
   let activeToolFrame: THREE.Group | null = null
   let activeWobjFrame: THREE.Group | null = null
-  let trajectoryPoints: ScenePoint[] = []
-  let lastTrajectoryPoint: ScenePoint | null = null
-  let lastTrajectoryTime = 0
-  let disposed = false
+
+  const { controller, runtime } = createSceneController(container, {
+    display: ABB_DISPLAY,
+    defaultJoints: [...ABB_DEFAULT_JOINTS],
+    loadModel: (onSuccess, onError) => {
+      const loader = new FBXLoader()
+      loader.load(ABB_MODEL_URL, onSuccess, undefined, onError)
+    },
+    prepareModel: prepareAbbModel,
+    applyJoints: applyAbbJointAngles,
+    findToolNode: (root) => findNode(root, ABB_TOOL_NODE_NAME),
+    createFallbackRobot,
+    onStatus,
+    onTrajectoryCount,
+    showGrid: options.showGrid,
+    showCoordinateSystems: options.showCoordinateSystems,
+    showTrajectory: options.showTrajectory,
+    skipFirstTrajectorySample: true,
+    onModelReady: (model) => {
+      const fbxBaseHeightMm = model.userData.fbxBaseHeightMm
+      if (typeof fbxBaseHeightMm === 'number') dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
+      console.info(
+        '[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，机械法兰=joint6，工具=joint7',
+      )
+    },
+    onJointUpdated: (joints) => dhDebugChain.update(joints),
+    onToolAxesAttached: (_toolAxes, sceneRuntime) => {
+      if (!activeToolFrame) {
+        activeToolFrame = createFrameAxes('ActiveToolFrameHelper')
+        activeToolFrame.visible = false
+        sceneRuntime.scene.add(activeToolFrame)
+      }
+      if (!activeWobjFrame) {
+        activeWobjFrame = createFrameAxes('ActiveWobjFrameHelper')
+        activeWobjFrame.visible = false
+        sceneRuntime.scene.add(activeWobjFrame)
+      }
+    },
+  })
+
+  dhDebugChain.group.visible = showDhDebug
+  runtime.scene.add(dhDebugChain.group)
 
   /** 把领域层给出的（场景米）活动 Tool/WObj 坐标系框移动到该位置并显示；null 隐藏。 */
-  function setActiveFrameAt(group: THREE.Group | null, position: [number, number, number] | null): void {
+  function setActiveFrameAt(
+    group: THREE.Group | null,
+    position: [number, number, number] | null,
+  ): void {
     if (!group) return
     if (!position) {
       group.visible = false
@@ -331,162 +261,15 @@ export function createAbbScene(
     }
     group.position.set(position[0], position[1], position[2])
     group.quaternion.set(0, 0, 0, 1) // 领域层只给出原点位置；轴方向沿用世界朝向（示意）。
-    group.visible = showCoordinateSystems
+    group.visible = runtime.coordinateSystemsVisible
   }
-
-  function refreshTrajectoryLine(): void {
-    trajectoryPoints.forEach((point, index) => {
-      trajectoryPositions[index * 3] = point[0]
-      trajectoryPositions[index * 3 + 1] = point[1]
-      trajectoryPositions[index * 3 + 2] = point[2]
-    })
-    trajectoryAttribute.needsUpdate = true
-    trajectoryGeometry.setDrawRange(0, trajectoryPoints.length)
-    trajectoryGeometry.computeBoundingSphere()
-  }
-
-  function attachToolAxes(): void {
-    toolAxes?.parent?.remove(toolAxes)
-    toolAxes = createToolAxes()
-    toolAxes.visible = showCoordinateSystems
-    scene.add(toolAxes)
-
-    if (!activeToolFrame) {
-      activeToolFrame = createFrameAxes('ActiveToolFrameHelper')
-      activeToolFrame.visible = false
-      scene.add(activeToolFrame)
-    }
-    if (!activeWobjFrame) {
-      activeWobjFrame = createFrameAxes('ActiveWobjFrameHelper')
-      activeWobjFrame.visible = false
-      scene.add(activeWobjFrame)
-    }
-  }
-
-  function updateToolAxes(): void {
-    if (!loadedModel || !toolAxes) return
-    const tool = findNode(loadedModel, ABB_TOOL_NODE_NAME)
-    if (!tool) return
-    loadedModel.updateMatrixWorld(true)
-    const position = new THREE.Vector3()
-    const quaternion = new THREE.Quaternion()
-    tool.getWorldPosition(position)
-    tool.getWorldQuaternion(quaternion)
-    toolAxes.position.copy(position)
-    toolAxes.quaternion.copy(quaternion)
-  }
-
-  function sampleTrajectory(now: number): void {
-    if (!loadedModel || now - lastTrajectoryTime < 50) return
-    lastTrajectoryTime = now
-    const tool = findNode(loadedModel, ABB_TOOL_NODE_NAME)
-    if (!tool) return
-
-    loadedModel.updateMatrixWorld(true)
-    const position = new THREE.Vector3()
-    tool.getWorldPosition(position)
-    const point: ScenePoint = [position.x, position.y, position.z]
-    const previousPoint = lastTrajectoryPoint
-    lastTrajectoryPoint = point
-    // 轨迹采样是教学事实源，和可见性开关解耦；用户运行后再打开显示也能看到已采样路径。
-    if (!previousPoint) return
-    if (Math.hypot(
-      point[0] - previousPoint[0],
-      point[1] - previousPoint[1],
-      point[2] - previousPoint[2],
-    ) < DEFAULT_TRAJECTORY_DISTANCE) return
-
-    const next = appendTrajectoryPoint(trajectoryPoints, point)
-    trajectoryPoints = next
-    refreshTrajectoryLine()
-    onTrajectoryCount(trajectoryPoints.length)
-  }
-
-  resizeObserver.observe(container)
-  onStatus('loading')
-
-  loader.load(
-    ABB_MODEL_URL,
-    (model) => {
-      if (disposed) return
-      loadedModel = prepareAbbModel(model)
-      const fbxBaseHeightMm = loadedModel.userData.fbxBaseHeightMm
-      if (typeof fbxBaseHeightMm === 'number') dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
-      applyAbbJointAngles(loadedModel, targetJoints)
-      scene.add(loadedModel)
-      attachToolAxes()
-      onStatus('ready')
-      console.info('[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，机械法兰=joint6，工具=joint7')
-    },
-    undefined,
-    (error) => {
-      if (disposed) return
-      const fallback = createFallbackRobot()
-      scene.add(fallback)
-      loadedModel = fallback
-      attachToolAxes()
-      onStatus('error')
-      console.error('[AbbScene] ABB FBX 加载失败，已显示回退几何', error)
-    },
-  )
-
-  const render = (): void => {
-    if (disposed) return
-    updateToolAxes()
-    sampleTrajectory(performance.now())
-    controls.update()
-    renderer.render(scene, camera)
-    animationFrame = window.requestAnimationFrame(render)
-  }
-  render()
 
   return {
-    setJoints: (joints: JointAngles) => {
-      targetJoints = [...joints]
-      dhDebugChain.update(targetJoints)
-      if (loadedModel) applyAbbJointAngles(loadedModel, targetJoints)
-    },
-    setGridVisible: (visible: boolean) => {
-      if (grid) grid.visible = visible
-    },
-    setCoordinateSystemsVisible: (visible: boolean) => {
-      showCoordinateSystems = visible
-      if (baseAxes) baseAxes.visible = visible
-      if (toolAxes) toolAxes.visible = visible
-    },
+    ...controller,
     setDhDebugVisible: (visible: boolean) => {
-      showDhDebug = visible
       dhDebugChain.group.visible = visible
-    },
-    setTrajectoryVisible: (visible: boolean) => {
-      showTrajectory = visible
-      trajectoryLine.visible = visible
     },
     setActiveToolFrame: (position) => setActiveFrameAt(activeToolFrame, position),
     setActiveWobjFrame: (position) => setActiveFrameAt(activeWobjFrame, position),
-    clearTrajectory: () => {
-      trajectoryPoints = []
-      lastTrajectoryPoint = null
-      refreshTrajectoryLine()
-      onTrajectoryCount(0)
-    },
-    dispose: () => {
-      disposed = true
-      window.cancelAnimationFrame(animationFrame)
-      resizeObserver.disconnect()
-      controls.dispose()
-      renderer.dispose()
-
-      scene.traverse((node) => {
-        if (!(node instanceof THREE.Mesh) && !(node instanceof THREE.Line)) return
-        node.geometry.dispose()
-        const material = node.material
-        if (Array.isArray(material)) material.forEach((item) => item.dispose())
-        else material.dispose()
-      })
-
-      renderer.domElement.remove()
-      console.info('[AbbScene] ABB 场景资源已释放')
-    },
   }
 }

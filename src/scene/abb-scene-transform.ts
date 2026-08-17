@@ -1,4 +1,4 @@
-import { Matrix4x4 } from '../robotics/matrix4x4.ts'
+import { Matrix4x4 } from '@/robotics/matrix4x4.ts'
 
 /**
  * ABB 机器人基座坐标到 Three.js 场景世界坐标的固定显示旋转。

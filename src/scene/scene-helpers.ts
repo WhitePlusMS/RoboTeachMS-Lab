@@ -41,7 +41,12 @@ function createAxes(name: string, config: AxesConfig): THREE.Group {
     const axisGroup = new THREE.Group()
     const material = new THREE.MeshBasicMaterial({ color, depthTest: false, toneMapped: false })
 
-    const shaftGeometry = new THREE.CylinderGeometry(config.radius, config.radius, config.length, 16)
+    const shaftGeometry = new THREE.CylinderGeometry(
+      config.radius,
+      config.radius,
+      config.length,
+      16,
+    )
     shaftGeometry.translate(0, config.length / 2, 0)
     axisGroup.add(new THREE.Mesh(shaftGeometry, material))
 
@@ -49,9 +54,7 @@ function createAxes(name: string, config: AxesConfig): THREE.Group {
     headGeometry.translate(0, config.length + config.headHeight / 2, 0)
     axisGroup.add(new THREE.Mesh(headGeometry, material))
 
-    axisGroup.setRotationFromQuaternion(
-      new THREE.Quaternion().setFromUnitVectors(up, direction),
-    )
+    axisGroup.setRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(up, direction))
     group.add(axisGroup)
   })
 
@@ -60,10 +63,7 @@ function createAxes(name: string, config: AxesConfig): THREE.Group {
     depthTest: false,
     toneMapped: false,
   })
-  group.add(new THREE.Mesh(
-    new THREE.SphereGeometry(config.originRadius, 16, 16),
-    originMaterial,
-  ))
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(config.originRadius, 16, 16), originMaterial))
 
   return group
 }

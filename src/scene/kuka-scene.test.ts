@@ -63,6 +63,9 @@ describe('KUKA 场景适配器', () => {
     const third = appendTrajectoryPoint(second, [0.02, 0, 0], 2)
 
     expect(duplicate).toEqual(first)
-    expect(third).toEqual([[0.01, 0, 0], [0.02, 0, 0]])
+    expect(third).toEqual([
+      [0.01, 0, 0],
+      [0.02, 0, 0],
+    ])
   })
 })

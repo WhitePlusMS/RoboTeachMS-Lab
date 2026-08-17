@@ -1,16 +1,15 @@
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { RobotModel } from '../robotics/robot-model.ts'
-import type { JointAngles } from '../robotics/types.ts'
-import { DEFAULT_JOINTS } from '../robot-models/kuka-like/robot-config.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { JointAngles } from '@/robotics/types.ts'
+import { DEFAULT_JOINTS } from '@/robot-models/kuka-like/robot-config.ts'
 import { KukaSceneRobotModel } from './kuka-scene-model.ts'
-import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
 import {
-  appendTrajectoryPoint,
-  DEFAULT_TRAJECTORY_LIMIT,
-  type ScenePoint,
-} from './trajectory.ts'
+  createBaseScene,
+  createSceneController,
+  findNode as findNodeShared,
+  type SceneDisplayConfig,
+} from './scene-factory.ts'
 
 /** KUKA 资产属于独立应用自己的 public 目录。 */
 export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'
@@ -55,11 +54,7 @@ export interface KukaSceneController {
 
 /** 在场景树中按名称查找节点，供模型适配和后续关节控制复用。 */
 export function findNode(root: THREE.Object3D, name: string): THREE.Object3D | null {
-  let result: THREE.Object3D | null = null
-  root.traverse((child) => {
-    if (child.name === name) result = child
-  })
-  return result
+  return findNodeShared(root, name)
 }
 
 /**
@@ -81,8 +76,7 @@ export function applyJointAngles(root: THREE.Group, joints: JointAngles): void {
     if (!(pivot instanceof THREE.Group)) return
 
     const baseQuaternionArray = pivot.userData.baseQuaternion as
-      | [number, number, number, number]
-      | undefined
+      [number, number, number, number] | undefined
     const baseQuaternion = baseQuaternionArray
       ? new THREE.Quaternion(...baseQuaternionArray)
       : new THREE.Quaternion()
@@ -94,35 +88,20 @@ export function applyJointAngles(root: THREE.Group, joints: JointAngles): void {
   })
 }
 
-function createWorkbench(): THREE.Group {
-  const workbench = new THREE.Group()
-  workbench.name = 'KUKA_Benchmark_Workbench'
-
-  const top = new THREE.Mesh(
-    new THREE.BoxGeometry(4.525, 0.08, 3.394),
-    new THREE.MeshStandardMaterial({ color: 0xd5d9df, metalness: 0.25, roughness: 0.75 }),
-  )
-  top.position.y = -0.04
-  top.receiveShadow = true
-  workbench.add(top)
-
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(4.667, 0.08, 3.536),
-    new THREE.MeshStandardMaterial({ color: 0x667085, metalness: 0.45, roughness: 0.55 }),
-  )
-  frame.position.y = -0.1
-  frame.receiveShadow = true
-  workbench.add(frame)
-
-  return workbench
-}
-
 function createFallbackRobot(): THREE.Group {
   const root = new THREE.Group()
   root.name = 'KUKA_Fallback_Robot'
 
-  const material = new THREE.MeshStandardMaterial({ color: 0xe6a400, metalness: 0.35, roughness: 0.5 })
-  const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x343b48, metalness: 0.6, roughness: 0.35 })
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xe6a400,
+    metalness: 0.35,
+    roughness: 0.5,
+  })
+  const darkMaterial = new THREE.MeshStandardMaterial({
+    color: 0x343b48,
+    metalness: 0.6,
+    roughness: 0.35,
+  })
 
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.48, 0.2, 32), darkMaterial)
   base.position.y = 0.1
@@ -160,7 +139,10 @@ function createFallbackRobot(): THREE.Group {
    * 占位模型没有真实 GLB 节点层级，因此为每个几何件建立同名 Pivot。
    * 这样加载失败时控制面板仍能驱动占位几何，且不会影响正式模型适配。
    */
-  const addFallbackJoint = (name: (typeof KUKA_JOINT_NODE_NAMES)[number], mesh: THREE.Mesh): void => {
+  const addFallbackJoint = (
+    name: (typeof KUKA_JOINT_NODE_NAMES)[number],
+    mesh: THREE.Mesh,
+  ): void => {
     const pivot = new THREE.Group()
     pivot.name = `Pivot_${name}`
     pivot.position.copy(mesh.position)
@@ -227,81 +209,28 @@ function prepareModel(model: THREE.Group): THREE.Group {
   return root
 }
 
-function configureRenderer(container: HTMLElement): THREE.WebGLRenderer {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.setSize(container.clientWidth, container.clientHeight, false)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.05
-  renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
-  renderer.domElement.setAttribute('aria-label', 'KUKA 机器人三维场景')
-  container.appendChild(renderer.domElement)
-  return renderer
-}
-
-function configureLighting(scene: THREE.Scene): void {
-  scene.add(new THREE.HemisphereLight(0xf6f8fb, 0x4b5563, 1.8))
-
-  const keyLight = new THREE.DirectionalLight(0xffffff, 3.2)
-  keyLight.position.set(3.5, 5.5, 4)
-  keyLight.castShadow = true
-  keyLight.shadow.mapSize.set(2048, 2048)
-  keyLight.shadow.camera.near = 0.1
-  keyLight.shadow.camera.far = 20
-  keyLight.shadow.camera.left = -5
-  keyLight.shadow.camera.right = 5
-  keyLight.shadow.camera.top = 5
-  keyLight.shadow.camera.bottom = -5
-  scene.add(keyLight)
-
-  const fillLight = new THREE.DirectionalLight(0x9ab9e8, 1.4)
-  fillLight.position.set(-4, 3, -2)
-  scene.add(fillLight)
-}
-
-function configureBaseScene(scene: THREE.Scene): void {
-  scene.background = new THREE.Color(0x101827)
-  scene.add(createWorkbench())
-
-  const grid = new THREE.GridHelper(8, 32, 0x64748b, 0x334155)
-  grid.position.y = 0.002
-  grid.name = 'Ground_Grid'
-  scene.add(grid)
-
-  const axes = createBaseAxes()
-  axes.position.y = 0.01
-  scene.add(axes)
+const KUKA_DISPLAY: SceneDisplayConfig = {
+  ariaLabel: 'KUKA 机器人三维场景',
+  logTag: 'KukaScene',
+  gridSize: 8,
+  cameraPosition: [3.4, 2.35, 4.25],
+  controlsTarget: [0, 1.1, 0],
+  controlsMinDistance: 1.1,
+  controlsMaxDistance: 12,
+  keyLightPosition: [3.5, 5.5, 4],
+  keyLightFar: 20,
+  keyLightBounds: 5,
+  fillLightPosition: [-4, 3, -2],
+  bench: {
+    name: 'KUKA_Benchmark_Workbench',
+    topSize: [4.525, 0.08, 3.394],
+    frameSize: [4.667, 0.08, 3.536],
+  },
 }
 
 /** 创建不依赖浏览器渲染器的基准场景树，便于初始化测试和后续场景适配复用。 */
 export function createBenchmarkScene(): THREE.Scene {
-  const scene = new THREE.Scene()
-  configureBaseScene(scene)
-  configureLighting(scene)
-  return scene
-}
-
-function configureCamera(container: HTMLElement): THREE.PerspectiveCamera {
-  const aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1)
-  const camera = new THREE.PerspectiveCamera(42, aspect, 0.01, 100)
-  camera.position.set(3.4, 2.35, 4.25)
-  return camera
-}
-
-function configureControls(camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer): OrbitControls {
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.08
-  controls.enablePan = true
-  controls.enableZoom = true
-  controls.enableRotate = true
-  controls.minDistance = 1.1
-  controls.maxDistance = 12
-  controls.target.set(0, 1.1, 0)
-  controls.update()
-  return controls
+  return createBaseScene(KUKA_DISPLAY)
 }
 
 export function createKukaScene(
@@ -311,192 +240,39 @@ export function createKukaScene(
   const onStatus = options.onStatus ?? (() => undefined)
   const onModel = options.onModel ?? (() => undefined)
   const onTrajectoryCount = options.onTrajectoryCount ?? (() => undefined)
-  const scene = createBenchmarkScene()
-  const grid = scene.getObjectByName('Ground_Grid')
-  const baseAxes = scene.getObjectByName('BaseAxesHelper')
-  const showGrid = options.showGrid ?? true
-  let showCoordinateSystems = options.showCoordinateSystems ?? true
-  let showTrajectory = options.showTrajectory ?? false
-  if (grid) grid.visible = showGrid
-  if (baseAxes) baseAxes.visible = showCoordinateSystems
 
-  const trajectoryGeometry = new THREE.BufferGeometry()
-  const trajectoryPositions = new Float32Array(DEFAULT_TRAJECTORY_LIMIT * 3)
-  const trajectoryAttribute = new THREE.BufferAttribute(trajectoryPositions, 3)
-  trajectoryGeometry.setAttribute('position', trajectoryAttribute)
-  trajectoryGeometry.setDrawRange(0, 0)
-  const trajectoryMaterial = new THREE.LineBasicMaterial({
-    color: 0xf97316,
-    opacity: 0.8,
-    transparent: true,
-    depthTest: false,
-  })
-  const trajectoryLine = new THREE.Line(trajectoryGeometry, trajectoryMaterial)
-  trajectoryLine.name = 'EndEffector_Trajectory'
-  trajectoryLine.visible = showTrajectory
-  scene.add(trajectoryLine)
-
-  const camera = configureCamera(container)
-  const renderer = configureRenderer(container)
-  const controls = configureControls(camera, renderer)
-  const loader = new GLTFLoader()
-  const resizeObserver = new ResizeObserver(() => {
-    const width = Math.max(container.clientWidth, 1)
-    const height = Math.max(container.clientHeight, 1)
-    camera.aspect = width / height
-    camera.updateProjectionMatrix()
-    renderer.setSize(width, height, false)
-  })
-  let animationFrame = 0
-  let loadedModel: THREE.Group | null = null
   let robotModel: KukaSceneRobotModel | null = null
-  let targetJoints: JointAngles = [...DEFAULT_JOINTS]
-  let toolAxes: THREE.Group | null = null
-  let trajectoryPoints: ScenePoint[] = []
-  let lastTrajectoryTime = 0
-  let disposed = false
 
-  function refreshTrajectoryLine(): void {
-    trajectoryPoints.forEach((point, index) => {
-      trajectoryPositions[index * 3] = point[0]
-      trajectoryPositions[index * 3 + 1] = point[1]
-      trajectoryPositions[index * 3 + 2] = point[2]
-    })
-    trajectoryAttribute.needsUpdate = true
-    trajectoryGeometry.setDrawRange(0, trajectoryPoints.length)
-    trajectoryGeometry.computeBoundingSphere()
-  }
-
-  function attachToolAxes(): void {
-    toolAxes?.parent?.remove(toolAxes)
-    toolAxes = createToolAxes()
-    toolAxes.visible = showCoordinateSystems
-    scene.add(toolAxes)
-  }
-
-  function updateToolAxes(): void {
-    if (!loadedModel || !toolAxes) return
-    const flange = findNode(loadedModel, 'Pivot_快拆机器人端口')
-      ?? findNode(loadedModel, '快拆机器人端口')
-    if (!flange) return
-    loadedModel.updateMatrixWorld(true)
-    const position = new THREE.Vector3()
-    const quaternion = new THREE.Quaternion()
-    flange.getWorldPosition(position)
-    flange.getWorldQuaternion(quaternion)
-    toolAxes.position.copy(position)
-    toolAxes.quaternion.copy(quaternion)
-  }
-
-  function sampleTrajectory(now: number): void {
-    if (!loadedModel || now - lastTrajectoryTime < 50) return
-    lastTrajectoryTime = now
-    const flange = findNode(loadedModel, 'Pivot_快拆机器人端口')
-      ?? findNode(loadedModel, '快拆机器人端口')
-    if (!flange) return
-
-    loadedModel.updateMatrixWorld(true)
-    const position = new THREE.Vector3()
-    flange.getWorldPosition(position)
-    const point: ScenePoint = [position.x, position.y, position.z]
-    const next = appendTrajectoryPoint(trajectoryPoints, point)
-    const previous = trajectoryPoints[trajectoryPoints.length - 1]
-    const current = next[next.length - 1]
-    const changed = next.length !== trajectoryPoints.length
-      || !previous
-      || previous[0] !== current[0]
-      || previous[1] !== current[1]
-      || previous[2] !== current[2]
-    if (!changed) return
-
-    trajectoryPoints = next
-    refreshTrajectoryLine()
-    onTrajectoryCount(trajectoryPoints.length)
-  }
-
-  resizeObserver.observe(container)
-  onStatus('loading')
-
-  loader.load(
-    KUKA_MODEL_URL,
-    (gltf) => {
-      if (disposed) return
-      loadedModel = prepareModel(gltf.scene)
-      applyJointAngles(loadedModel, targetJoints)
-      robotModel = new KukaSceneRobotModel(loadedModel, applyJointAngles, targetJoints)
-      scene.add(loadedModel)
-      attachToolAxes()
-      onModel(robotModel)
-      onStatus('ready')
-      console.info('[KukaScene] KUKA 基准模型加载完成')
+  const { controller, runtime } = createSceneController(container, {
+    display: KUKA_DISPLAY,
+    defaultJoints: [...DEFAULT_JOINTS],
+    loadModel: (onSuccess, onError) => {
+      const loader = new GLTFLoader()
+      loader.load(KUKA_MODEL_URL, (gltf) => onSuccess(gltf.scene), undefined, onError)
     },
-    undefined,
-    (error) => {
-      if (disposed) return
-      const fallback = createFallbackRobot()
-      scene.add(fallback)
-      loadedModel = fallback
-      applyJointAngles(loadedModel, targetJoints)
+    prepareModel,
+    applyJoints: applyJointAngles,
+    findToolNode: (root) =>
+      findNode(root, 'Pivot_快拆机器人端口') ?? findNode(root, '快拆机器人端口'),
+    createFallbackRobot,
+    onStatus,
+    onTrajectoryCount,
+    showGrid: options.showGrid,
+    showCoordinateSystems: options.showCoordinateSystems,
+    showTrajectory: options.showTrajectory,
+    onModelReady: (model) => {
       // 占位模型的 Pivot 只服务可视化，不构成真实串联运动链；IK 继续使用 App 的 DH 模型。
+      robotModel = new KukaSceneRobotModel(model, applyJointAngles, runtime.currentJoints)
+      onModel(robotModel)
+    },
+    onModelFallback: (fallback) => {
+      applyJointAngles(fallback, runtime.currentJoints)
       robotModel = null
-      attachToolAxes()
       onModel(null)
-      onStatus('error')
-      console.error('[KukaScene] KUKA 模型加载失败，已显示本地占位模型', error)
     },
-  )
+    onJointUpdated: (joints) => robotModel?.setCurrentJoints(joints),
+    onDispose: () => onModel(null),
+  })
 
-  const render = (): void => {
-    if (disposed) return
-    updateToolAxes()
-    sampleTrajectory(performance.now())
-    controls.update()
-    renderer.render(scene, camera)
-    animationFrame = window.requestAnimationFrame(render)
-  }
-  render()
-
-  return {
-    setJoints: (joints: JointAngles) => {
-      targetJoints = [...joints]
-      robotModel?.setCurrentJoints(targetJoints)
-      if (loadedModel) applyJointAngles(loadedModel, targetJoints)
-    },
-    setGridVisible: (visible: boolean) => {
-      if (grid) grid.visible = visible
-    },
-    setCoordinateSystemsVisible: (visible: boolean) => {
-      showCoordinateSystems = visible
-      if (baseAxes) baseAxes.visible = visible
-      if (toolAxes) toolAxes.visible = visible
-    },
-    setTrajectoryVisible: (visible: boolean) => {
-      showTrajectory = visible
-      trajectoryLine.visible = visible
-    },
-    clearTrajectory: () => {
-      trajectoryPoints = []
-      refreshTrajectoryLine()
-      onTrajectoryCount(0)
-    },
-    dispose: () => {
-      disposed = true
-      onModel(null)
-      window.cancelAnimationFrame(animationFrame)
-      resizeObserver.disconnect()
-      controls.dispose()
-      renderer.dispose()
-
-      scene.traverse((node) => {
-        if (!(node instanceof THREE.Mesh) && !(node instanceof THREE.Line)) return
-        node.geometry.dispose()
-        const material = node.material
-        if (Array.isArray(material)) material.forEach((item) => item.dispose())
-        else material.dispose()
-      })
-
-      renderer.domElement.remove()
-      console.info('[KukaScene] 场景资源已释放')
-    },
-  }
+  return controller
 }

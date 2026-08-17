@@ -1,7 +1,11 @@
 import * as THREE from 'three'
-import { orientationError, quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '../robotics/math/rotation3d.ts'
-import type { RobotModel } from '../robotics/robot-model.ts'
-import type { JointAngles, Pose } from '../robotics/types.ts'
+import {
+  orientationError,
+  quaternionToRotationMatrix,
+  rotationMatrixToEulerZYX,
+} from '@/robotics/math/rotation3d.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 
 type ApplyJointAngles = (root: THREE.Group, joints: JointAngles) => void
 
@@ -14,11 +18,7 @@ export class KukaSceneRobotModel implements RobotModel {
   private readonly root: THREE.Group
   private readonly applyJoints: ApplyJointAngles
 
-  constructor(
-    root: THREE.Group,
-    applyJoints: ApplyJointAngles,
-    initialJoints: JointAngles,
-  ) {
+  constructor(root: THREE.Group, applyJoints: ApplyJointAngles, initialJoints: JointAngles) {
     this.root = root
     this.applyJoints = applyJoints
     this.currentJoints = [...initialJoints]
@@ -36,7 +36,9 @@ export class KukaSceneRobotModel implements RobotModel {
     const restoreJoints = [...this.currentJoints] as JointAngles
     this.applyJoints(this.root, jointsDeg)
     this.root.updateMatrixWorld(true)
-    const flange = this.root.getObjectByName('Pivot_快拆机器人端口') ?? this.root.getObjectByName('快拆机器人端口')
+    const flange =
+      this.root.getObjectByName('Pivot_快拆机器人端口') ??
+      this.root.getObjectByName('快拆机器人端口')
     if (!flange) {
       this.applyJoints(this.root, restoreJoints)
       this.root.updateMatrixWorld(true)
@@ -75,8 +77,7 @@ export class KukaSceneRobotModel implements RobotModel {
       const offsetPose = this.forwardKinematics(offsetJoints)
       if (!offsetPose) return null
       for (let axis = 0; axis < 3; axis += 1) {
-        jacobian[axis][jointIndex] =
-          (offsetPose.position[axis] - basePose.position[axis]) / stepDeg
+        jacobian[axis][jointIndex] = (offsetPose.position[axis] - basePose.position[axis]) / stepDeg
       }
       const orientationDelta = orientationError(offsetPose.rotation, basePose.rotation)
       for (let axis = 0; axis < 3; axis += 1) {

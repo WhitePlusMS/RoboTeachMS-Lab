@@ -76,17 +76,19 @@ export function extractAbbFbxCalibration(root: THREE.Group): AbbFbxCalibration {
     const configuredAxis = ABB_JOINT_AXES[name].clone().normalize()
     const axisWorld = configuredAxis.clone().applyQuaternion(worldQuaternion).normalize()
 
-    return [{
-      name,
-      parentName: joint.parent?.name || null,
-      configuredAxisLocal: vectorToTuple(configuredAxis),
-      axisWorldAtZero: vectorToTuple(axisWorld),
-      localZeroTransform: matrixToRows(joint.matrix),
-      worldZeroTransform: matrixToRows(joint.matrixWorld),
-      localPosition: vectorToTuple(joint.position),
-      rotationCenterMm: [worldPosition.x * 1000, worldPosition.y * 1000, worldPosition.z * 1000],
-      worldZeroQuaternion: quaternionToTuple(worldQuaternion),
-    } satisfies AbbFbxJointCalibration]
+    return [
+      {
+        name,
+        parentName: joint.parent?.name || null,
+        configuredAxisLocal: vectorToTuple(configuredAxis),
+        axisWorldAtZero: vectorToTuple(axisWorld),
+        localZeroTransform: matrixToRows(joint.matrix),
+        worldZeroTransform: matrixToRows(joint.matrixWorld),
+        localPosition: vectorToTuple(joint.position),
+        rotationCenterMm: [worldPosition.x * 1000, worldPosition.y * 1000, worldPosition.z * 1000],
+        worldZeroQuaternion: quaternionToTuple(worldQuaternion),
+      } satisfies AbbFbxJointCalibration,
+    ]
   })
 
   const flange = findNode(root, ABB_FLANGE_NODE_NAME)

@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { Matrix4x4 } from '../robotics/matrix4x4.ts'
-import { extractPose } from '../robotics/kinematics.ts'
-import { forwardAbbKinematicsDegrees } from '../robot-models/abb-irb1200/abb-kinematics.ts'
-import {
-  ABB_FLANGE_TO_FBX_TOOL,
-  abbBaseFrameToSceneFrame,
-} from './abb-scene-transform.ts'
+import { Matrix4x4 } from '@/robotics/matrix4x4.ts'
+import { extractPose } from '@/robotics/kinematics.ts'
+import { forwardAbbKinematicsDegrees } from '@/robot-models/abb-irb1200/abb-kinematics.ts'
+import { ABB_FLANGE_TO_FBX_TOOL, abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
 
 describe('ABB 场景显示适配', () => {
   it('ABB 基座零位机械法兰经显示转换后映射到 Three.js 坐标', () => {

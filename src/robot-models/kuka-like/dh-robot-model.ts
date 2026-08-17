@@ -1,7 +1,7 @@
-import { extractPose, forwardKinematicsDegrees } from '../../robotics/kinematics.ts'
-import { orientationError } from '../../robotics/math/rotation3d.ts'
-import type { RobotModel } from '../../robotics/robot-model.ts'
-import type { JointAngles, Pose } from '../../robotics/types.ts'
+import { extractPose, forwardKinematicsDegrees } from '@/robotics/kinematics.ts'
+import { orientationError } from '@/robotics/math/rotation3d.ts'
+import type { RobotModel } from '@/robotics/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { KUKA_LIKE } from './robot-config.ts'
 
 /** GLB 尚未完成加载时的同接口 DH 回退模型。 */
@@ -24,8 +24,7 @@ export class DhRobotModel implements RobotModel {
       offset[jointIndex] += stepDeg
       const offsetPose = this.forwardKinematics(offset)
       for (let axis = 0; axis < 3; axis += 1) {
-        jacobian[axis][jointIndex] =
-          (offsetPose.position[axis] - basePose.position[axis]) / stepDeg
+        jacobian[axis][jointIndex] = (offsetPose.position[axis] - basePose.position[axis]) / stepDeg
       }
       const orientationDelta = orientationError(offsetPose.rotation, basePose.rotation)
       for (let axis = 0; axis < 3; axis += 1) {

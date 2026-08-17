@@ -19,7 +19,14 @@ import { extractAbbFbxCalibration } from './abb-fbx-calibration.ts'
 describe('ABB IRB 1200 FBX 场景适配器', () => {
   it('明确底座、六个主动轴、机械法兰和工具节点', () => {
     expect(ABB_BASE_NODE_NAME).toBe('dizuo')
-    expect(ABB_ACTIVE_JOINT_NODE_NAMES).toEqual(['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6'])
+    expect(ABB_ACTIVE_JOINT_NODE_NAMES).toEqual([
+      'joint1',
+      'joint2',
+      'joint3',
+      'joint4',
+      'joint5',
+      'joint6',
+    ])
     expect(ABB_FLANGE_NODE_NAME).toBe('joint6')
     expect(ABB_TOOL_NODE_NAME).toBe('joint7')
     expect(ABB_MODEL_SCALE).toBe(0.01)
@@ -125,5 +132,4 @@ describe('ABB IRB 1200 FBX 场景适配器', () => {
     expect(frame.visible).toBe(true)
     expect(frame.children.length).toBeGreaterThan(0)
   })
-
 })
