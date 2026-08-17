@@ -286,6 +286,10 @@ export function useProgramController(options: ProgramControllerOptions): Program
       return executeFor(instruction, context)
     }
     if (instruction.kind === 'exitdo') {
+      // EXITDO 的目标恒等于其所在（最内层）FOR 的正常结束目标 falseTarget。
+      // 提前退出会绕过 executeFor 的自然完成清理，这里清除该 FOR 游标，
+      // 使外层循环再次进入时能按 FROM 重新初始化而不是续值。
+      clearForCursorByExitTarget(instruction.target)
       return { ok: true, result: 'completed', nextPointer: instruction.target }
     }
     if (instruction.kind === 'movej') {
@@ -322,6 +326,16 @@ export function useProgramController(options: ProgramControllerOptions): Program
       return { ok: false, error: { kind: 'runtime-error', message: `循环迭代次数超过安全上限 ${MAX_LOOP_STEPS}` } }
     }
     return null
+  }
+
+  /** EXITDO 提前退出 FOR 后清除其游标，使再次进入时按 FROM 重新初始化（而非续值）。 */
+  function clearForCursorByExitTarget(target: number): void {
+    if (forCursors.size === 0) return
+    for (const instruction of loadedProgram) {
+      if (instruction.kind === 'for' && instruction.falseTarget === target) {
+        forCursors.delete(instruction)
+      }
+    }
   }
 
   function executeWhile(
@@ -380,10 +394,11 @@ export function useProgramController(options: ProgramControllerOptions): Program
       forCursors.set(instruction, cursor)
     }
     if (!cursor.initialized) {
-      const from = readForBound(instruction.fromExpr, NaN, context, 'FOR 起始值')
-      if (typeof from !== 'number') return from
-      const to = readForBound(instruction.toExpr, NaN, context, 'FOR 终止值')
-      if (typeof to !== 'number') return to
+      // from/to 必填（parser 已保证非 null），直接经判别联合求值；step 可选由 readForBound 兜底 1。
+      const from = evaluateNumExpr(instruction.fromExpr, context, 'FOR 起始值')
+      if (!from.ok) return from.outcome
+      const to = evaluateNumExpr(instruction.toExpr, context, 'FOR 终止值')
+      if (!to.ok) return to.outcome
       const step = readForBound(instruction.stepExpr, 1, context, 'FOR 步长')
       if (typeof step !== 'number') return step
       // 步长为 0 无法推进，直接判定空循环。
@@ -392,8 +407,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
         return { ok: true, result: 'completed', nextPointer: instruction.falseTarget }
       }
       cursor.initialized = true
-      cursor.current = from
-      cursor.end = to
+      cursor.current = from.value
+      cursor.end = to.value
       cursor.step = step
     } else {
       cursor.current += cursor.step

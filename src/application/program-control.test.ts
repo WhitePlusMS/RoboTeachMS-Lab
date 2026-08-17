@@ -739,6 +739,56 @@ ENDMODULE`)
     expect(ctrl.snapshot.value.variables.get('s')).toEqual({ kind: 'num', value: 2 })
   })
 
+  it('外层循环体以嵌套循环结尾时，内外层迭代计数正确（回归）', async () => {
+    const { ctrl } = setupScalarController(`MODULE LoopDemo
+    VAR num i := 0;
+    VAR num j := 0;
+    VAR num c := 0;
+    PROC main()
+        FOR i FROM 1 TO 3 DO
+            c := c + 1;
+            FOR j FROM 1 TO 2 DO
+                c := c + 1;
+            ENDFOR
+        ENDFOR
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    // 外层 3 轮 × 每轮先行 c+1，再加内层 2 次：3 + 3*2 = 9。
+    expect(ctrl.snapshot.value.variables.get('c')).toEqual({ kind: 'num', value: 9 })
+  })
+
+  it('外层循环经 EXITDO 提前退出的内层 FOR，再次进入时按 FROM 重新初始化（回归）', async () => {
+    const { ctrl } = setupScalarController(`MODULE LoopDemo
+    VAR num i := 0;
+    VAR num j := 0;
+    VAR num c := 0;
+    PROC main()
+        FOR i FROM 1 TO 2 DO
+            FOR j FROM 1 TO 2 DO
+                c := c + 1;
+                IF j >= 2 THEN
+                    EXITDO;
+                ENDIF
+            ENDFOR
+        ENDFOR
+    ENDPROC
+ENDMODULE`)
+
+    expect(ctrl.parsed.value.canExecute).toBe(true)
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('completed')
+    // 每轮外层迭代，内层 FOR 都从 j=1 重新开始并跑满 1、2 两次：2 轮 × 2 次 = 4。
+    expect(ctrl.snapshot.value.variables.get('c')).toEqual({ kind: 'num', value: 4 })
+  })
+
   it('死循环（WHILE TRUE）超过 1 万次上限报 runtime-error 并自动停止', async () => {
     const { ctrl } = setupScalarController(`MODULE LoopDemo
     VAR num i := 0;

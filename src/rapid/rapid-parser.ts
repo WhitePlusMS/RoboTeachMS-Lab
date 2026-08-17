@@ -2110,7 +2110,11 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
   }
 
-  function appendConditional(conditional: PendingConditional, output: RapidExecutableInstruction[]): void {
+  function appendConditional(
+    conditional: PendingConditional,
+    output: RapidExecutableInstruction[],
+    outerBack?: number,
+  ): void {
     if (conditional.branches.some((branch) => branch.condition === null)) return
     for (const branch of conditional.branches) {
       const condition = branch.condition
@@ -2156,36 +2160,45 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
 
     const afterConditional = output.length
+    // 完成叶子统一跳到本 IF 结束；当该条件块是外层循环体的末尾语句时（outerBack 提供），
+    // 所有匹配分支的完成叶子都折回外层循环头——因为 IF 之后没有别的语句，只剩循环回跳。
+    const exitTarget = outerBack ?? afterConditional
     for (let index = 0; index < branchBodies.length; index += 1) {
       const body = branchBodies[index]
       const condition = output[conditionIndices[index]]
       if (!condition || condition.kind !== 'if') continue
       const nextCondition = conditionIndices[index + 1]
-      const falseTarget = nextCondition ?? elseBody?.start ?? afterConditional
-      condition.trueTarget = body.start < body.end ? body.start : afterConditional
+      // 无 ELSEIF/ELSE 时的假路径（未命中任何分支）与空分支真路径，都折回 exitTarget：
+      // 非末尾条件块即 afterConditional，末尾条件块即外层循环头（outerBack）。
+      const falseTarget = nextCondition ?? elseBody?.start ?? exitTarget
+      condition.trueTarget = body.start < body.end ? body.start : exitTarget
       condition.falseTarget = falseTarget
-      if (body.end > body.start) setBranchExit(output[body.end - 1], afterConditional)
+      if (body.end > body.start) setBranchExit(output[body.end - 1], exitTarget)
     }
     if (elseBody && elseBody.end > elseBody.start) {
-      setBranchExit(output[elseBody.end - 1], afterConditional)
+      setBranchExit(output[elseBody.end - 1], exitTarget)
     }
   }
 
-  function appendStatement(statement: PendingStatement, output: RapidExecutableInstruction[]): void {
+  function appendStatement(
+    statement: PendingStatement,
+    output: RapidExecutableInstruction[],
+    outerBack?: number,
+  ): void {
     if (statement.kind === 'conditional') {
-      appendConditional(statement.conditional, output)
+      appendConditional(statement.conditional, output, outerBack)
       return
     }
     if (statement.kind === 'while') {
-      appendWhile(statement.whileLoop, output)
+      appendWhile(statement.whileLoop, output, outerBack)
       return
     }
     if (statement.kind === 'for') {
-      appendFor(statement.forLoop, output)
+      appendFor(statement.forLoop, output, outerBack)
       return
     }
     if (statement.kind === 'exitdo') {
-      output.push({ kind: 'exitdo', target: 0, ...pendingExit(statement.exit) })
+      output.push({ kind: 'exitdo', target: -1, ...pendingExit(statement.exit) })
       return
     }
     const resolved = resolveLeaf(statement)
@@ -2196,31 +2209,47 @@ export function parseRapidProgram(source: string): RapidParseResult {
     return { sourceRange: exit.range, sourceText: exit.sourceText }
   }
 
-  /** 把分支/循环体内的语句展平进 output；支持条件/循环的递归嵌套。 */
-  function appendBody(statements: PendingStatement[], output: RapidExecutableInstruction[]): void {
-    for (const statement of statements) appendStatement(statement, output)
+  function isControlBlockStatement(statement: PendingStatement): boolean {
+    return statement.kind === 'conditional' || statement.kind === 'while' || statement.kind === 'for'
   }
 
-  /** 收集 output[start,end) 范围内尚未绑定退出目标的 EXITDO 指令。
-   *  内层循环先于外层展平并已把其 EXITDO 的目标设为非 0 的 afterLoop，
-   *  因此这里只取 target 仍为 0（直属本层循环体）的 EXITDO，避免覆盖内层循环的退出点。 */
+  /** 把分支/循环体内的语句展平进 output（支持递归嵌套）。
+   *  当 back 存在且末尾就是控制块时，把 back 作为该控制块的完成返回目标传下去，
+   *  使"外层循环体以嵌套控制块结尾"时回跳不被内层破坏。返回末尾是否为已消费 back 的控制块。 */
+  function appendBody(
+    statements: PendingStatement[],
+    output: RapidExecutableInstruction[],
+    back?: number,
+  ): boolean {
+    let trailingBlock = false
+    for (let index = 0; index < statements.length; index += 1) {
+      const statement = statements[index]
+      const isLast = index === statements.length - 1
+      trailingBlock = isLast && back !== undefined && isControlBlockStatement(statement)
+      appendStatement(statement, output, trailingBlock ? back : undefined)
+    }
+    return trailingBlock
+  }
+
+  /** 收集 output[start,end) 范围内尚未绑定退出目标（target 为 -1）的 EXITDO 指令并统一设为 target。
+   *  内层循环先于外层展平并已把其 EXITDO 的目标设为非 -1（含 0，即 index0 也是合法目标），
+   *  因此这里只取 target 仍为 -1（直属本层循环体）的 EXITDO，避免覆盖内层循环的退出点。 */
   function collectExitdos(
     output: RapidExecutableInstruction[],
     start: number,
     end: number,
-  ): RapidExitInstruction[] {
-    const exits: RapidExitInstruction[] = []
+    target: number,
+  ): void {
     for (let index = start; index < end; index += 1) {
       const instruction = output[index]
-      if (instruction && instruction.kind === 'exitdo' && instruction.target === 0) {
-        exits.push(instruction)
+      if (instruction && instruction.kind === 'exitdo' && instruction.target === -1) {
+        instruction.target = target
       }
     }
-    return exits
   }
 
-  /** 展平一个 WHILE 循环：循环头指令 + 循环体语句，循环体末条回跳循环头。 */
-  function appendWhile(loop: PendingWhile, output: RapidExecutableInstruction[]): void {
+  /** 展平一个 WHILE 循环：循环头指令 + 循环体语句，循环体尾部回跳循环头。 */
+  function appendWhile(loop: PendingWhile, output: RapidExecutableInstruction[], outerBack?: number): void {
     if (loop.condition === null) return
     const expressionKind = scalarExpressionType(loop.condition)
     if (expressionKind && expressionKind !== 'bool') {
@@ -2242,21 +2271,23 @@ export function parseRapidProgram(source: string): RapidParseResult {
       sourceText: loop.sourceText,
     })
     const bodyStart = output.length
-    appendBody(loop.statements, output)
+    // 把 headIndex 作为 body 尾部控制块的完成返回目标（嵌套循环/条件以循环体结尾时折回本循环头）。
+    const trailingBlock = appendBody(loop.statements, output, headIndex)
     const bodyEnd = output.length
-    // 循环体末条在完成正常流动后回跳循环头；空体无需设置回跳。
-    if (bodyEnd > bodyStart) setBranchExit(output[bodyEnd - 1], headIndex)
+    // 仅当循环体以叶子结尾时把末条回跳循环头；以控制块结尾时其完成已折回 headIndex。
+    if (!trailingBlock && bodyEnd > bodyStart) setBranchExit(output[bodyEnd - 1], headIndex)
     const afterLoop = output.length
     const whileHead = output[headIndex]
     if (whileHead && whileHead.kind === 'while') {
       whileHead.trueTarget = bodyEnd > bodyStart ? bodyStart : afterLoop
-      whileHead.falseTarget = afterLoop
+      // 本循环是外层循环体的末尾语句时，正常结束折回外层循环头。
+      whileHead.falseTarget = outerBack ?? afterLoop
     }
-    for (const exit of collectExitdos(output, bodyStart, bodyEnd)) exit.target = afterLoop
+    collectExitdos(output, bodyStart, bodyEnd, outerBack ?? afterLoop)
   }
 
   /** 展平一个 FOR 循环：循环头指令 + 循环体语句。 */
-  function appendFor(loop: PendingFor, output: RapidExecutableInstruction[]): void {
+  function appendFor(loop: PendingFor, output: RapidExecutableInstruction[], outerBack?: number): void {
     if (loop.fromExpr === null || loop.toExpr === null) return
     const headIndex = output.length
     output.push({
@@ -2271,16 +2302,16 @@ export function parseRapidProgram(source: string): RapidParseResult {
       sourceText: loop.sourceText,
     })
     const bodyStart = output.length
-    appendBody(loop.statements, output)
+    const trailingBlock = appendBody(loop.statements, output, headIndex)
     const bodyEnd = output.length
-    if (bodyEnd > bodyStart) setBranchExit(output[bodyEnd - 1], headIndex)
+    if (!trailingBlock && bodyEnd > bodyStart) setBranchExit(output[bodyEnd - 1], headIndex)
     const afterLoop = output.length
     const forHead = output[headIndex]
     if (forHead && forHead.kind === 'for') {
       forHead.trueTarget = bodyEnd > bodyStart ? bodyStart : afterLoop
-      forHead.falseTarget = afterLoop
+      forHead.falseTarget = outerBack ?? afterLoop
     }
-    for (const exit of collectExitdos(output, bodyStart, bodyEnd)) exit.target = afterLoop
+    collectExitdos(output, bodyStart, bodyEnd, outerBack ?? afterLoop)
   }
 
   for (const statement of pendingStatements) appendStatement(statement, program)
