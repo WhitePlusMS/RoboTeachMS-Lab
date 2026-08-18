@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WRITEBENCH — UI 方向原型（PROTOTYPE — 可丢弃）</title>
+<!--
+  UI 方向原型（throwaway）。定位：让用户在最接近真实的布局下，对比三种观感方向，
+  并用底部切换条在 A/B/C 之间切换。不接 Vue / Three.js / 业务数据，全部用示例数据，
+  仅评审视觉方向，不改动任何业务代码。
+  运行方式：直接用浏览器打开本文件即可（或用 vite/任意静态服务器托管）。
+  切换：?variant=a|b|c 或页面左下角浮条 + 键盘 ← / →。
+  PROTOTYPE — 选定方向后丢弃，不并入 main。
+-->
+<style>
+  /* ---------- 基础 ---------- */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Consolas, 'JetBrains Mono', monospace;
+  }
+  html, body { height: 100%; }
+  body { font-family: var(--font-sans); overflow: hidden; }
+
+  .wire { outline: 1px dashed rgba(128,128,128,.35); } /* 调试辅助，可删 */
+
+  /* 通用可见性：同一时刻只显示当前方向 */
+  [data-variant] { display: none; height: 100vh; width: 100vw; }
+  body[data-v=a] [data-variant="a"] { display: block; }
+  body[data-v=b] [data-variant="b"] { display: block; }
+  body[data-v=c] [data-variant="c"] { display: block; }
+
+  /* ---------- 示例数据的小字辅助类 ---------- */
+  .mono { font-family: var(--font-mono); }
+  .s-tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; }
+
+  /* =================================================================
+     VARIANT A — 工业示教器风（FlexPendant）
+     结构：紧凑三栏，顶部窄命令条，扁平深灰底，高密度、大量等宽字体，
+     主操作醒目单一（RUN 实体键）。拟"移动为一体"，硬要窄也要可读。
+     ================================================================= */
+  body[data-v=a] { background:#1b1d22; color:#d7d9de; }
+  body[data-v=a] .vp-root {
+    --a-bg:#1b1d22; --a-panel:#24272e; --a-panel2:#2b2f37; --a-line:#343942;
+    --a-text:#dfe1e6; --a-dim:#9aa0ab; --a-faint:#6b7280;
+    --a-brand:#2eaa5c; --a-brand-ink:#eafff3; --a-warn:#e6a23c; --a-danger:#e5484d;
+    display:grid; grid-template-rows:44px 1fr 34px; height:100vh; background:var(--a-bg); color:var(--a-text);
+  }
+  body[data-v=a] .vp-a-top { display:flex; align-items:center; gap:18px; padding:0 16px; background:#141519; border-bottom:1px solid var(--a-line); }
+  body[data-v=a] .vp-a-top .brand { font-weight:800; letter-spacing:.06em; font-size:14px; color:#fff; }
+  body[data-v=a] .vp-a-top .crumb { color:var(--a-dim); font-size:12px; }
+  body[data-v=a] .vp-a-top .spacer { flex:1; }
+  body[data-v=a] .vp-a-top .mainsel { font-size:12px; color:var(--a-dim); }
+  body[data-v=a] .vp-a-main { display:grid; grid-template-columns:250px 1fr 300px; gap:1px; min-height:0; background:var(--a-line); }
+  body[data-v=a] .vp-a-col { background:var(--a-bg); min-width:0; overflow:hidden; display:flex; flex-direction:column; }
+  body[data-v=a] .vp-a-side { padding:12px; gap:12px; }
+  body[data-v=a] .vp-a-side h4, body[data-v=a] .vp-a-tabbar h4 { font-size:11px; letter-spacing:.12em; color:var(--a-faint); margin-bottom:8px; font-weight:700; }
+  body[data-v=a] .vp-a-tabs { display:flex; gap:2px; background:var(--a-panel); padding:3px; border-radius:6px; margin-bottom:12px; }
+  body[data-v=a] .vp-a-tabs button { flex:1; padding:6px 0; background:transparent; border:0; color:var(--a-dim); font-size:12px; cursor:pointer; border-radius:4px; }
+  body[data-v=a] .vp-a-tabs button.on { background:var(--a-brand); color:var(--a-brand-ink); font-weight:700; }
+  body[data-v=a] .jrow { display:grid; grid-template-columns:26px 26px 1fr 26px; gap:6px; align-items:center; margin-bottom:8px; }
+  body[data-v=a] .jname { font-family:var(--font-mono); color:var(--a-brand); font-weight:700; font-size:12px; }
+  body[data-v=a] .step-btn { width:26px; height:26px; border-radius:4px; border:1px solid var(--a-line); background:var(--a-panel2); color:var(--a-text); font-size:15px; cursor:pointer; }
+  body[data-v=a] .jval { text-align:center; font-family:var(--font-mono); font-size:13px; background:var(--a-panel); border:1px solid var(--a-line); border-radius:4px; padding:4px 2px; color:#fff; }
+  body[data-v=a] .slider { grid-column:1 / -1; height:6px; margin:-2px 0 6px; accent-color:var(--a-brand); width:100%; }
+  body[data-v=a] .a-po { border-top:1px solid var(--a-line); margin-top:4px; padding-top:10px; font-family:var(--font-mono); font-size:12px; color:var(--a-dim); display:grid; grid-template-columns:1fr 1fr; gap:4px 8px; }
+  body[data-v=a] .a-po b { color:#eef0f4; font-weight:600; }
+  body[data-v=a] .vp-a-center { display:flex; flex-direction:column; }
+  body[data-v=a] .vp-a-stage { flex:1; min-height:0; position:relative; background:radial-gradient(120% 90% at 50% 30%, #2a2f38 0%, #1c1f25 60%, #14161b 100%); }
+  body[data-v=a] .vp-a-stage .stage-lbl { position:absolute; left:12px; top:10px; font-size:11px; color:var(--a-faint); letter-spacing:.08em; }
+  body[data-v=a] .robot-glyph { position:absolute; inset:0; display:grid; place-items:center; }
+  body[data-v=a] .robot-glyph svg { width:58%; height:58%; opacity:.9; }
+  body[data-v=a] .vp-a-tabbar { border-top:1px solid var(--a-line); background:#141519; padding:8px 12px; display:flex; gap:6px; align-items:center; }
+  body[data-v=a] .vp-a-tabbar .t { font-size:11px; color:var(--a-dim); padding:4px 10px; cursor:pointer; border-radius:4px; }
+  body[data-v=a] .vp-a-tabbar .t.on { background:var(--a-panel2); color:#fff; }
+  body[data-v=a] .vp-a-actions { display:flex; gap:6px; }
+  body[data-v=a] .run-key { background:var(--a-brand); color:var(--a-brand-ink); border:0; border-radius:4px; padding:6px 14px; font-weight:800; font-size:12px; cursor:pointer; }
+  body[data-v=a] .soft-key { background:var(--a-panel2); color:var(--a-text); border:1px solid var(--a-line); border-radius:4px; padding:6px 12px; font-size:12px; cursor:pointer; }
+  body[data-v=a] .vp-a-tail { display:flex; align-items:center; justify-content:space-between; padding:0 16px; font-size:11px; color:var(--a-faint); background:#141519; border-top:1px solid var(--a-line); font-family:var(--font-mono); }
+  body[data-v=a] .a-rapid { padding:12px; overflow:auto; }
+  body[data-v=a] .a-rapid pre { font:12px/1.7 var(--font-mono); color:#cdd3dc; white-space:pre; }
+  body[data-v=a] .a-rapid .hl { background:#3a1f20; color:#ffd8da; }
+  body[data-v=a] .a-rapid .ln { color:var(--a-faint); margin-right:8px; }
+  body[data-v=a] .a-rapidhead { font-size:11px; letter-spacing:.1em; color:var(--a-dim); margin-bottom:6px; font-weight:700; }
+
+  /* =================================================================
+     VARIANT B — 现代教学 / 轻量明亮
+     结构：亮底白卡、左侧主导航列表 + 中央大画布 + 右侧参数抽屉，
+     大字号、强留白、少边框多阴影，主操作高对比。
+     ================================================================= */
+  body[data-v=b] { background:#eef1f6; color:#1a2233; }
+  body[data-v=b] .vp-root {
+    --b-bg:#eef1f6; --b-card:#ffffff; --b-ink:#1a2233; --b-mut:#5b6476; --b-faint:#94a0b5;
+    --b-line:#e3e8f0; --b-brand:#1f6bff; --b-brand-soft:#e8f0ff; --b-ok:#0e9f6e; --b-side:#f6f8fc;
+    display:grid; grid-template-columns:220px 1fr 320px; height:100vh; background:var(--b-bg); color:var(--b-ink); gap:0;
+  }
+  body[data-v=b] .vp-b-side { background:var(--b-side); border-right:1px solid var(--b-line); padding:22px 14px; display:flex; flex-direction:column; gap:6px; }
+  body[data-v=b] .vp-b-brand { font-size:16px; font-weight:800; letter-spacing:-.01em; padding:0 10px 18px; }
+  body[data-v=b] .vp-b-brand small { display:block; font-weight:500; color:var(--b-faint); font-size:11px; margin-top:2px; letter-spacing:.04em; }
+  body[data-v=b] .nav-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; color:var(--b-mut); font-size:14px; cursor:pointer; }
+  body[data-v=b] .nav-item.on { background:var(--b-brand-soft); color:var(--b-brand); font-weight:600; }
+  body[data-v=b] .nav-item .ic { width:18px; text-align:center; font-size:16px; }
+  body[data-v=b] .vp-b-main { display:flex; flex-direction:column; min-width:0; padding:22px 26px; gap:18px; overflow:auto; }
+  body[data-v=b] .vp-b-hero { }
+  body[data-v=b] .vp-b-hero h1 { font-size:24px; letter-spacing:-.02em; }
+  body[data-v=b] .vp-b-hero p { color:var(--b-mut); font-size:14px; margin-top:4px; }
+  body[data-v=b] .vp-b-cards { display:grid; grid-template-columns:1fr; gap:16px; }
+  body[data-v=b] .vp-b-stage { border-radius:18px; background:var(--b-card); box-shadow:0 18px 40px rgba(30,42,80,.08); padding:18px; min-height:300px; position:relative; }
+  body[data-v=b] .vp-b-stage .cap { position:absolute; left:18px; bottom:14px; font-size:11px; color:var(--b-faint); letter-spacing:.06em; }
+  body[data-v=b] .vp-b-demo { display:flex; gap:16px; }
+  body[data-v=b] .vp-b-panel { background:var(--b-card); border-radius:16px; box-shadow:0 12px 30px rgba(30,42,80,.06); padding:18px; }
+  body[data-v=b] .vp-b-panel h4 { font-size:12px; color:var(--b-faint); letter-spacing:.07em; font-weight:700; margin-bottom:14px; }
+  body[data-v=b] .b-field { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--b-line); font-size:13px; }
+  body[data-v=b] .b-field:last-child { border-bottom:0; }
+  body[data-v=b] .b-field b { font-family:var(--font-mono); font-size:13px; }
+  body[data-v=b] .b-num { display:flex; align-items:center; gap:8px; }
+  body[data-v=b] .b-step { width:28px; height:28px; border-radius:8px; border:1px solid var(--b-line); background:#fff; color:var(--b-mut); font-size:16px; cursor:pointer; }
+  body[data-v=b] .b-step:hover { border-color:var(--b-brand); color:var(--b-brand); }
+  body[data-v=b] .b-in { text-align:center; font-family:var(--font-mono); font-size:14px; border:1px solid var(--b-line); border-radius:8px; padding:6px 4px; width:64px; color:var(--b-ink); }
+  body[data-v=b] .b-btn { border-radius:9px; padding:8px 14px; font-size:13px; border:1px solid var(--b-line); background:#fff; color:var(--b-mut); cursor:pointer; }
+  body[data-v=b] .b-btn.primary { background:var(--b-brand); border-color:var(--b-brand); color:#fff; font-weight:600; }
+  body[data-v=b] .vp-b-right { background:var(--b-card); border-left:1px solid var(--b-line); padding:22px 18px; display:flex; flex-direction:column; gap:16px; overflow:auto; }
+  body[data-v=b] .b-rapid .b-line { display:flex; gap:10px; font:13px/1.85 var(--font-mono); color:#333c4d; }
+  body[data-v=b] .b-rapid b { color:var(--b-faint); font-weight:500; }
+  body[data-v=b] .b-rapid .b-hl { background:#fff4d6; border-radius:4px; }
+
+  /* =================================================================
+     VARIANT C — 深色专业工具台（保留深色、重做层级）
+     结构：顶栏 + 中部三段式（紧凑左栏 / 大3D / 右侧编程区），
+     保留深色气质，但升级字号、减少阴影、加大留白、主操作实体化，
+     让 3D 成为绝对主体。
+     ================================================================= */
+  body[data-v=c] { background:#0a0d14; color:#e6eaf2; }
+  body[data-v=c] .vp-root {
+    --c-bg:#0a0d14; --c-panel:#0f141f; --c-panel2:#131a27; --c-line:#1e2736; --c-line2:#26324a;
+    --c-text:#e6eaf2; --c-dim:#8b98ad; --c-faint:#5c6a80;
+    --c-brand:#3d8bff; --c-brand-glow:rgba(61,139,255,.35); --c-ok:#34d399; --c-warn:#fbbf24; --c-danger:#fb7185;
+    display:grid; grid-template-rows:60px 1fr auto; height:100vh; background:var(--c-bg); color:var(--c-text);
+  }
+  body[data-v=c] .vp-c-top { display:flex; align-items:center; gap:16px; padding:0 20px; background:var(--c-panel); border-bottom:1px solid var(--c-line); }
+  body[data-v=c] .vp-c-brand { font-weight:800; font-size:15px; letter-spacing:-.01em; }
+  body[data-v=c] .vp-c-brand small { color:var(--c-faint); font-weight:500; font-size:11px; margin-left:8px; }
+  body[data-v=c] .vp-c-status { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  body[data-v=c] .c-pill { display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--c-dim); padding:7px 12px; border:1px solid var(--c-line); border-radius:999px; background:var(--c-panel2); }
+  body[data-v=c] .c-dot { width:9px; height:9px; border-radius:50%; background:var(--c-ok); box-shadow:0 0 10px var(--c-ok); }
+  body[data-v=c] .vp-c-main { display:grid; grid-template-columns:320px minmax(0,1fr) 360px; gap:14px; min-height:0; padding:14px 18px; }
+  body[data-v=c] .vp-c-col { background:var(--c-panel); border:1px solid var(--c-line); border-radius:14px; min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+  body[data-v=c] .vp-c-side { padding:16px; gap:14px; }
+  body[data-v=c] .c-panelhead { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; }
+  body[data-v=c] .c-panelhead h4 { font-size:15px; font-weight:700; letter-spacing:-.01em; }
+  body[data-v=c] .c-panelhead .k { font-size:10px; color:var(--c-faint); letter-spacing:.14em; margin-bottom:2px; }
+  body[data-v=c] .c-tabs { display:flex; gap:6px; background:var(--c-panel2); padding:4px; border-radius:10px; margin-bottom:14px; }
+  body[data-v=c] .c-tabs button { flex:1; padding:7px 0; background:transparent; border:0; color:var(--c-dim); font-size:13px; cursor:pointer; border-radius:7px; }
+  body[data-v=c] .c-tabs button.on { background:var(--c-brand); color:#061224; font-weight:700; }
+  body[data-v=c] .c-row { display:grid; grid-template-columns:26px 28px 1fr 28px; gap:8px; align-items:center; margin-bottom:10px; }
+  body[data-v=c] .c-name { font-family:var(--font-mono); color:var(--c-brand); font-size:13px; font-weight:700; }
+  body[data-v=c] .c-btn { width:28px; height:28px; border-radius:8px; border:1px solid var(--c-line2); background:var(--c-panel2); color:var(--c-text); font-size:16px; cursor:pointer; }
+  body[data-v=c] .c-btn:hover { border-color:var(--c-brand); color:var(--c-brand); }
+  body[data-v=c] .c-in { text-align:center; font-family:var(--font-mono); font-size:14px; border:1px solid var(--c-line2); border-radius:8px; background:var(--c-panel2); color:#fff; padding:6px 4px; }
+  body[data-v=c] .c-slider { grid-column:1 / -1; width:100%; height:5px; accent-color:var(--c-brand); }
+  body[data-v=c] .c-pose { font-family:var(--font-mono); font-size:12px; color:var(--c-dim); display:grid; grid-template-columns:1fr 1fr; gap:5px 10px; padding:12px; border:1px solid var(--c-line); border-radius:10px; background:var(--c-panel2); }
+  body[data-v=c] .c-pose b { color:var(--c-text); font-weight:600; }
+  body[data-v=c] .vp-c-stage { position:relative; }
+  body[data-v=c] .vp-c-stage .sGrad { position:absolute; inset:0; background:radial-gradient(130% 110% at 50% 28%, #16203a 0%, #0d1424 55%, #080c15 100%); }
+  body[data-v=c] .robot-glyph { position:absolute; inset:0; display:grid; place-items:center; }
+  body[data-v=c] .c-stage-tools { position:absolute; left:14px; top:14px; display:flex; gap:6px; z-index:2; }
+  body[data-v=c] .c-stage-tools button { font-size:12px; color:var(--c-dim); background:rgba(15,20,31,.8); border:1px solid var(--c-line2); border-radius:8px; padding:6px 10px; cursor:pointer; }
+  body[data-v=c] .c-stage-tools button.on { color:var(--c-brand); border-color:var(--c-brand); }
+  body[data-v=c] .c-stage-cap { position:absolute; right:16px; bottom:14px; left:16px; display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:11px; color:var(--c-faint); letter-spacing:.06em; z-index:2; }
+  body[data-v=c] .vp-c-actions { display:flex; gap:8px; padding:14px 16px; border-top:1px solid var(--c-line); background:var(--c-panel2); }
+  body[data-v=c] .c-btn.big { flex:1; padding:9px 0; border-radius:9px; font-size:13px; border:0; cursor:pointer; }
+  body[data-v=c] .c-btn.big.run { background:var(--c-brand); color:#061224; font-weight:800; }
+  body[data-v=c] .c-btn.big.step { background:var(--c-panel2); color:var(--c-text); border:1px solid var(--c-line2); }
+  body[data-v=c] .c-btn.big.stop { background:rgba(251,113,133,.12); color:var(--c-danger); border:1px solid rgba(251,113,133,.4); }
+  body[data-v=c] .c-btn.big.pp { background:var(--c-panel2); color:var(--c-text); border:1px solid var(--c-line2); }
+  body[data-v=c] .vp-c-code { padding:14px; overflow:auto; }
+  body[data-v=c] .vp-c-code pre { font:13px/1.8 var(--font-mono); color:#cfd8e6; white-space:pre; }
+  body[data-v=c] .vp-c-code .hl { background:rgba(251,191,36,.12); color:#ffdfa0; border-radius:4px; }
+  body[data-v=c] .vp-c-code .ln { color:var(--c-faint); margin-right:10px; }
+  body[data-v=c] .vp-c-footer { display:flex; justify-content:space-between; padding:9px 18px; font-size:12px; color:var(--c-faint); border-top:1px solid var(--c-line); font-family:var(--font-mono); }
+
+  /* =================================================================
+     顶部“方向标签”条（原型辅助，明确不属于设计本身）
+     ================================================================= */
+  .dirbar { position:fixed; top:0; left:0; right:0; z-index:50; padding:4px; display:flex; justify-content:center; gap:6px; background:rgba(0,0,0,.28); }
+  .dirbar button { font-size:12px; padding:3px 14px; border-radius:999px; border:1px solid rgba(255,255,255,.4); background:transparent; color:#fff; cursor:pointer; backdrop-filter:blur(4px); }
+  body[data-v=a] .dirbar button[data-d=a],
+  body[data-v=b] .dirbar button[data-d=b],
+  body[data-v=c] .dirbar button[data-d=c] { background:#fff; color:#111; border-color:#fff; }
+
+  /* =================================================================
+     浮动切换条（原型控制，视觉上与页面区分，生产不出现）
+     ================================================================= */
+  .proto-bar { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:100;
+    display:flex; align-items:center; gap:12px; padding:8px 14px; border-radius:999px;
+    background:#0a0d14; box-shadow:0 10px 30px rgba(0,0,0,.4); border:1px solid #26324a; }
+  .proto-bar .lab { color:#cdd6e4; font-size:13px; font-weight:600; min-width:150px; text-align:center; }
+  .proto-bar .lab small { display:block; color:#7b879d; font-weight:400; font-size:11px; margin-top:2px; }
+  .proto-bar button { width:34px; height:34px; border-radius:50%; border:1px solid #2c3a52; background:#131a27; color:#e6eaf2; font-size:18px; cursor:pointer; }
+  .proto-bar button:hover { border-color:#3d8bff; color:#3d8bff; }
+  .proto-bar .kbd { color:#5c6a80; font-size:10px; font-family:var(--font-mono); }
+</style>
+</head>
+<body data-v="a">
+
+<div class="dirbar" aria-hidden="true">
+  <button data-d="a">A · 工业示教器</button>
+  <button data-d="b">B · 现代教学/明亮</button>
+  <button data-d="c">C · 深色专业工具台</button>
+</div>
+
+<!-- ============================= VARIANT A ============================= -->
+<div class="vp-root" data-variant="a">
+  <header class="vp-a-top">
+    <span class="brand">ABB IRB 1200</span>
+    <span class="crumb">教学工作台</span>
+    <span class="mainsel">MODULE: main</span>
+    <div class="spacer"></div>
+    <span class="mainsel mono">TP 模式 · 手动</span>
+  </header>
+
+  <main class="vp-a-main">
+    <!-- 左：Jog -->
+    <aside class="vp-a-col vp-a-side">
+      <h4>JOINT MOVEMENT</h4>
+      <div class="vp-a-tabs"><button class="on">关节</button><button>笛卡尔</button></div>
+      <div class="jrow"><span class="jname">J1</span><button class="step-btn">−</button><div class="jval">0.0</div><button class="step-btn">+</button></div>
+      <input class="slider" type="range" value="0" min="-170" max="170" />
+      <div class="jrow"><span class="jname">J2</span><button class="step-btn">−</button><div class="jval">-30.0</div><button class="step-btn">+</button></div>
+      <input class="slider" type="range" value="-30" min="-110" max="110" />
+      <div class="jrow"><span class="jname">J3</span><button class="step-btn">−</button><div class="jval">90.0</div><button class="step-btn">+</button></div>
+      <input class="slider" type="range" value="90" min="-220" max="70" />
+      <div class="jrow"><span class="jname">J4</span><button class="step-btn">−</button><div class="jval">0.0</div><button class="step-btn">+</button></div>
+      <input class="slider" type="range" value="0" min="-200" max="200" />
+      <div class="a-po">
+        <span>P X <b>241.4</b></span><span>R X <b>180.0</b></span>
+        <span>P Y <b>0.0</b></span><span>R Y <b>0.0</b></span>
+        <span>P Z <b>600.2</b></span><span>R Z <b>0.0</b></span>
+      </div>
+    </aside>
+
+    <!-- 中：3D stage + tabbar -->
+    <section class="vp-a-col vp-a-center">
+      <div class="vp-a-stage">
+        <span class="stage-lbl">WORLD / BASE FRAME</span>
+        <div class="robot-glyph">
+          <svg viewBox="0 0 200 200" width="180" height="180">
+            <rect x="70" y="150" width="60" height="40" rx="6" fill="#3a3f47"/>
+            <circle cx="100" cy="150" r="14" fill="#2eaa5c"/>
+            <rect x="97" y="92" width="6" height="60" fill="#4a505a"/>
+            <circle cx="100" cy="92" r="10" fill="#2eaa5c"/>
+            <rect x="97" y="58" width="6" height="36" fill="#4a505a"/>
+            <circle cx="100" cy="58" r="10" fill="#2eaa5c"/>
+          </svg>
+        </div>
+      </div>
+      <div class="vp-a-tabbar">
+        <div class="vp-a-tabs" style="margin:0;flex:1">
+          <span class="t on">RAPID</span><span class="t">Program Data</span>
+        </div>
+        <div class="vp-a-actions">
+          <button class="soft-key">PP to Main</button>
+          <button class="soft-key">单步</button>
+          <button class="run-key">▶ 运行</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右：RAPID 源码 -->
+    <aside class="vp-a-col vp-a-rapid">
+      <div class="a-rapidhead">RAPID SOURCE</div>
+      <pre><span class="ln">1</span>MODULE MainModule
+<span class="ln">2</span>  CONST robtarget pInit := [[241.4,0,600.2],[1,0,0,0],[0,0,0,0],[9E+9,9E+9,9E+9]];
+<span class="ln">3</span>  CONST robtarget pPick := [[150,0,300],[1,0,0,0],[0,0,0,0],[9E+9,9E+9,9E+9]];
+<span class="ln">4</span><span class="hl">  MoveL pPick, v500, fine, tool0 \WObj:=wobj1;</span>
+<span class="ln">5</span>  MoveL pPlace, v500, fine, tool0 \WObj:=wobj1;
+<span class="ln">6</span>ENDMODULE</pre>
+    </aside>
+  </main>
+
+  <footer class="vp-a-tail"><span>PP: 4 / MP: 4</span><span>状态: 就绪</span><span>Jog · RAPID · Program Data</span></footer>
+</div>
+
+<!-- ============================= VARIANT B ============================= -->
+<div class="vp-root" data-variant="b">
+  <!-- 左：主导航 -->
+  <nav class="vp-b-side">
+    <div class="vp-b-brand">ABB 机器人教学<small>IRB 1200 · 5/0.9</small></div>
+    <div class="nav-item on"><span class="ic">🎯</span> 点位示教</div>
+    <div class="nav-item"><span class="ic">🧭</span> 手动作业</div>
+    <div class="nav-item"><span class="ic">📄</span> RAPID 程序</div>
+    <div class="nav-item"><span class="ic">⚙️</span> 程序数据</div>
+    <div class="nav-item"><span class="ic">📐</span> 坐标查看</div>
+    <div style="flex:1"></div>
+    <div class="nav-item"><span class="ic">✅</span> 场景就绪</div>
+  </nav>
+
+  <!-- 中：内容 -->
+  <main class="vp-b-main">
+    <div class="vp-b-hero">
+      <h1>点位示教</h1>
+      <p>以当前机器人 TCP 为基准，新建、更新并插入运动指令。</p>
+    </div>
+
+    <div class="vp-b-cards">
+      <section class="vp-b-stage">
+        <div class="robot-glyph">
+          <svg viewBox="0 0 200 200" width="240" height="240">
+            <rect x="56" y="150" width="88" height="42" rx="10" fill="#d8e0ee"/>
+            <circle cx="100" cy="150" r="16" fill="#1f6bff"/>
+            <rect x="95" y="86" width="10" height="66" fill="#9aa7c0" rx="3"/>
+            <circle cx="100" cy="86" r="12" fill="#1f6bff"/>
+            <rect x="95" y="48" width="10" height="40" fill="#9aa7c0" rx="3"/>
+            <circle cx="100" cy="48" r="12" fill="#1f6bff"/>
+          </svg>
+        </div>
+        <span class="cap">WORLD / BASE FRAME</span>
+      </section>
+
+      <div class="vp-b-demo">
+        <section class="vp-b-panel" style="flex:1.2">
+          <h4>手动 Jog · 关节</h4>
+          <div class="b-field"><span>机器人工作正常，可使用滑块与步进按钮调节各关节。</span></div>
+          <div class="b-num" style="justify-content:flex-start;margin-top:10px">
+            <button class="b-step">−</button>
+            <input class="b-in" value="0.0" />
+            <button class="b-step">+</button>
+            <span style="font-size:13px;color:var(--b-mut);margin-left:6px">步进 1°</span>
+          </div>
+        </section>
+        <section class="vp-b-panel" style="flex:1">
+          <h4>当前位姿</h4>
+          <div class="b-field"><span>P X</span><b>241.4</b></div>
+          <div class="b-field"><span>P Y</span><b>0.0</b></div>
+          <div class="b-field"><span>P Z</span><b>600.2</b></div>
+          <div class="b-field"><span>R X</span><b>180.0</b></div>
+          <div class="b-field"><span>R Y</span><b>0.0</b></div>
+          <div class="b-field"><span>R Z</span><b>0.0</b></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- 右：RAPID -->
+  <aside class="vp-b-right">
+    <section class="vp-b-panel b-rapid" style="box-shadow:none;border-radius:14px;border:1px solid var(--b-line)">
+      <h4>RAPID 源码</h4>
+      <div class="b-line"><b>1</b><span>MODULE MainModule</span></div>
+      <div class="b-line"><b>2</b><span>CONST robtarget pInit := [[241.4,0,600.2],...]</span></div>
+      <div class="b-line b-hl"><b>4</b><span style="color:var(--b-brand);font-weight:700">MoveL pPick, v500, fine, tool0 \WObj:=wobj1;</span></div>
+      <div class="b-line"><b>5</b><span>MoveL pPlace, v500, fine, tool0 \WObj:=wobj1;</span></div>
+      <div class="b-line"><b>6</b><span>ENDMODULE</span></div>
+    </section>
+    <div style="display:flex;gap:8px;margin-top:auto">
+      <button class="b-btn primary" style="flex:1">▶ 运行</button>
+      <button class="b-btn">单步</button>
+      <button class="b-btn">PP to Main</button>
+    </div>
+  </aside>
+</div>
+
+<!-- ============================= VARIANT C ============================= -->
+<div class="vp-root" data-variant="c">
+  <header class="vp-c-top">
+    <span class="vp-c-brand">ABB 教学工作台<small>IRB 1200-5/0.9 · 教学仿真</small></span>
+    <div class="vp-c-status">
+      <span class="c-pill"><span class="c-dot"></span>场景已就绪</span>
+      <span class="c-pill">PP: 4 · MP: 4</span>
+    </div>
+  </header>
+
+  <main class="vp-c-main">
+    <!-- 左：Jog -->
+    <aside class="vp-c-col vp-c-side">
+      <div class="c-panelhead"><div><div class="k">MANUAL JOG</div><h4>手动控制</h4></div><span class="mono" style="font-size:12px;color:var(--c-ok)">FK READY</span></div>
+      <div class="c-tabs"><button class="on">关节</button><button>笛卡尔</button></div>
+      <div class="c-row"><span class="c-name">J1</span><button class="c-btn">−</button><input class="c-in" value="0.0"/><button class="c-btn">+</button></div>
+      <input class="c-slider" type="range" value="0" min="-170" max="170"/>
+      <div class="c-row"><span class="c-name">J2</span><button class="c-btn">−</button><input class="c-in" value="-30.0"/><button class="c-btn">+</button></div>
+      <input class="c-slider" type="range" value="-30" min="-110" max="110"/>
+      <div class="c-row"><span class="c-name">J3</span><button class="c-btn">−</button><input class="c-in" value="90.0"/><button class="c-btn">+</button></div>
+      <input class="c-slider" type="range" value="90" min="-220" max="70"/>
+      <div class="c-pose">
+        <span>P X <b>241.4</b></span><span>R X <b>180.0</b></span>
+        <span>P Y <b>0.0</b></span><span>R Y <b>0.0</b></span>
+        <span>P Z <b>600.2</b></span><span>R Z <b>0.0</b></span>
+      </div>
+    </aside>
+
+    <!-- 中：3D 大画布 -->
+    <section class="vp-c-col vp-c-stage">
+      <div class="sGrad"></div>
+      <div class="c-stage-tools"><button class="on">网格</button><button>坐标</button><button>轨迹</button></div>
+      <div class="robot-glyph">
+        <svg viewBox="0 0 200 200" width="300" height="300">
+          <rect x="40" y="150" width="120" height="44" rx="8" fill="#1c2740"/>
+          <circle cx="100" cy="150" r="18" fill="#3d8bff"/>
+          <rect x="92" y="80" width="16" height="72" fill="#33415c" rx="4"/>
+          <circle cx="100" cy="80" r="14" fill="#3d8bff"/>
+          <rect x="92" y="38" width="16" height="44" fill="#33415c" rx="4"/>
+          <circle cx="100" cy="38" r="14" fill="#3d8bff"/>
+        </svg>
+      </div>
+      <div class="c-stage-cap"><span>WORLD / BASE FRAME</span><span>OrbitControls</span></div>
+    </section>
+
+    <!-- 右：编程区 -->
+    <aside class="vp-c-col">
+      <div class="c-panelhead" style="padding:14px 16px 0"><div><div class="k">PROGRAM</div><h4>RAPID 程序</h4></div><span class="c-pill" style="font-size:11px;padding:4px 9px">就绪</span></div>
+      <div class="c-tabs" style="margin:12px 14px"><button class="on">RAPID</button><button>Program Data</button></div>
+      <div class="vp-c-code">
+        <pre><span class="ln">1</span>MODULE MainModule
+<span class="ln">2</span>  CONST robtarget pInit := [[241.4,0,600.2],[1,0,0,0],[0,0,0,0],[9E+9,9E+9,9E+9]];
+<span class="ln">3</span>  CONST robtarget pPick := [[150,0,300],[1,0,0,0],[0,0,0,0],[9E+9,9E+9,9E+9]];
+<span class="ln">4</span><span class="hl">  MoveL pPick, v500, fine, tool0 \WObj:=wobj1;</span>
+<span class="ln">5</span>  MoveL pPlace, v500, fine, tool0 \WObj:=wobj1;
+<span class="ln">6</span>ENDMODULE</pre>
+      </div>
+      <div class="vp-c-actions">
+        <button class="c-btn big pp">PP to Main</button>
+        <button class="c-btn big step">单步</button>
+        <button class="c-btn big run">▶ 运行</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="vp-c-footer"><span>Jog · RAPID · Program Data</span><span>建议窗口 ≥ 1366×768</span></footer>
+</div>
+
+<!-- ============================= 浮动切换条 ============================= -->
+<div class="proto-bar" role="navigation" aria-label="原型方向切换">
+  <button id="prev" aria-label="上一个方向">‹</button>
+  <span class="lab" id="lab">A · 工业示教器<small>方向原型 — PROTOTYPE</small></span>
+  <button id="next" aria-label="下一个方向">›</button>
+</div>
+
+<script>
+(function () {
+  var VARIANTS = [
+    { key: 'a', name: 'A · 工业示教器 / FlexPendant' },
+    { key: 'b', name: 'B · 现代教学 / 明亮轻量' },
+    { key: 'c', name: 'C · 深色专业工具台 / 重做层级' },
+  ];
+  var params = new URLSearchParams(window.location.search);
+  var current = params.get('variant');
+  if (!VARIANTS.some(function (v) { return v.key === current; })) current = 'a';
+
+  function apply(key) {
+    document.body.setAttribute('data-v', key);
+    document.querySelectorAll('.dirbar button').forEach(function (b) {
+      b.style.opacity = b.getAttribute('data-d') === key ? '1' : '.55';
+    });
+    var meta = VARIANTS.filter(function (v) { return v.key === key; })[0];
+    document.getElementById('lab').innerHTML = meta.name + '<small>方向原型 — ' + key.toUpperCase() + ' · PROTOTYPE</small>';
+    // 更新 URL（shareable + reload-stable）
+    var url = new URL(window.location.href);
+    url.searchParams.set('variant', key);
+    window.history.replaceState({}, '', url);
+  }
+  function cycle(dir) {
+    var idx = VARIANTS.findIndex(function (v) { return v.key === current; });
+    idx = (idx + dir + VARIANTS.length) % VARIANTS.length;
+    current = VARIANTS[idx].key;
+    apply(current);
+  }
+
+  // 顶部方向标签点击同理
+  document.querySelectorAll('.dirbar button').forEach(function (b, i) {
+    b.addEventListener('click', function () { current = VARIANTS[i].key; apply(current); });
+  });
+  document.getElementById('prev').addEventListener('click', function () { cycle(-1); });
+  document.getElementById('next').addEventListener('click', function () { cycle(1); });
+
+  // 键盘 ← / → 切换；在输入框聚焦时忽略
+  document.addEventListener('keydown', function (e) {
+    var t = document.activeElement;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.key === 'ArrowRight') { cycle(1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { cycle(-1); e.preventDefault(); }
+  });
+
+  apply(current);
+})();
+</script>
+</body>
+</html>
