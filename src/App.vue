@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import JogControlTabs from '@/components/JogControlTabs.vue'
+import PoseReadout from '@/components/PoseReadout.vue'
+import ProgramControlPanel from '@/components/ProgramControlPanel.vue'
 import ProgramWorkspace from '@/components/ProgramWorkspace.vue'
+import RunLogPanel from '@/components/RunLogPanel.vue'
 import SceneViewport from '@/components/SceneViewport.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
 import type { JointAngles } from '@/robotics/types.ts'
@@ -14,10 +17,10 @@ import {
 import { useMotion } from '@/application/motion-control.ts'
 import { useProgramController } from '@/application/program-control.ts'
 import { createBuiltinRapidSource } from '@/application/builtin-program.ts'
-import { flangeToWorldTcpPose } from '@/rapid/coordinate-transform.ts'
-import type { AbbSceneStatus } from '@/scene/abb-scene.ts'
+import { useRunLog } from '@/application/run-log.ts'
+import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
-import { isRapidMotionInstruction } from '@/rapid/rapid-parser.ts'
+import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
 import {
   provideProgramPanelController,
 } from '@/application/use-program-panel-controller.ts'
@@ -29,6 +32,7 @@ const showGrid = ref(true)
 const showCoordinateSystems = ref(true)
 const showDhDebug = ref(true)
 const showTrajectory = ref(false)
+const showRobtargets = ref(true)
 const trajectoryCount = ref(0)
 const {
   joints,
@@ -46,7 +50,7 @@ const { startEasedAnimation, startSpeedLimitedAnimation, startCartesianTrajector
     setJoints: setJointsImmediate,
   })
 
-/** 滑块输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
+/** 数值输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
 function setJoint(index: number, value: number): void {
   programControl.stopActiveProgram()
   stopAnimation()
@@ -101,6 +105,9 @@ const programSnapshot = programControl.snapshot
 /** off-path Clear 确认的等待模式；作为本地 setup ref 以便模板自动解包传给面板。 */
 const pendingClearState = programControl.pendingClear
 
+/** 底部日志：程序状态迁移 / 诊断 / 运行时错误的派生记录。 */
+const runLog = useRunLog(programSnapshot)
+
 /**
  * Program Data 派生视图：声明来自同一次解析，标量当前值来自同一 ProgramExecutor 快照。
  * 面板按数据类型浏览六类运动记录与 num/bool 标量；不建立第二份变量状态。
@@ -113,33 +120,16 @@ const activeInstructionIndex = computed(() => {
   return snapshot.motionPointer ?? snapshot.programPointer
 })
 
+/** 3D 场景的 robtarget 空间标记：与 Program Data 同源（同一次解析）。 */
+const robtargets = computed<readonly AbbRobTargetMarker[]>(() =>
+  programData.value.filter(isRobtargetProgramData).map((entry) => ({
+    name: entry.name,
+    position: [entry.target.trans[0], entry.target.trans[1], entry.target.trans[2]],
+  })),
+)
+
 /** 当前 ABB 基座 tool0 TCP（Pose：位置 + 旋转矩阵）；由 FK 派生，供点位示教使用。 */
 const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
-
-/** 当前活动指令（可能为 null）。 */
-const activeInstruction = computed(() => {
-  const index = activeInstructionIndex.value
-  if (index === null || index === undefined) return null
-  const instruction = programControl.parsed.value.program[index] ?? null
-  return instruction && isRapidMotionInstruction(instruction) ? instruction : null
-})
-
-/**
- * 场景坐标为米；本平台采用“域 mm → 场景 m = /1000”的近似约定（仅用于视觉效果指示，
- * 不参与任何轨迹/坐标求值）。活动工具/工件坐标系框的位置由领域层计算，场景只负责显示。
- */
-const activeToolFrameMm = computed<[number, number, number] | null>(() => {
-  const instruction = activeInstruction.value
-  if (!instruction || !toolPose.value) return null
-  const tcp = flangeToWorldTcpPose(toolPose.value, instruction.tool)
-  return [tcp.position[0] / 1000, tcp.position[1] / 1000, tcp.position[2] / 1000]
-})
-const activeWobjFrameMm = computed<[number, number, number] | null>(() => {
-  const instruction = activeInstruction.value
-  if (!instruction) return null
-  const trans = instruction.wobj.uframe.trans
-  return [trans[0] / 1000, trans[1] / 1000, trans[2] / 1000]
-})
 
 const {
   coordinateSystem,
@@ -165,7 +155,9 @@ const statusLabel = computed(() => {
   return '正在加载模型'
 })
 
-/** 左侧 Jog 工作区共享控制器：App 保持编排所有权（setJoint 先停程序/动画再运动）。 */
+const motionPointerText = computed(() => programSnapshot.value.motionPointer?.toString() ?? '—')
+
+/** Jog 工作区共享控制器：App 保持编排所有权（setJoint 先停程序/动画再运动）。 */
 provideRobotController({
   joints,
   jointRanges,
@@ -188,7 +180,7 @@ provideRobotController({
   setOrientationStep,
 })
 
-/** 右侧 ProgramWorkspace 共享控制器：Program Data 全部派生自同一次 parseRapidProgram。 */
+/** ProgramWorkspace 共享控制器：Program Data 全部派生自同一次 parseRapidProgram。 */
 provideProgramPanelController({
   snapshot: programSnapshot,
   source: computed(() => rapidSource.value),
@@ -214,39 +206,35 @@ provideProgramPanelController({
 </script>
 
 <template>
-  <main class="app-shell">
-    <header class="app-header">
-      <div>
-        <p class="eyebrow">ABB TEACHING WORKBENCH</p>
-        <h1>ABB IRB 1200-5/0.9 教学场景</h1>
-        <p class="subtitle">Jog · RAPID · Program Data</p>
-      </div>
-      <div class="app-header-status">
-        <span class="status-pill" :class="`status-${sceneStatus}`">
-          <span class="status-dot" aria-hidden="true" />
-          {{ statusLabel }}
-        </span>
-        <p class="viewport-size-warning" role="status">建议使用至少 1366×768 的窗口尺寸。</p>
-      </div>
+  <main class="shell">
+    <header class="topbar">
+      <span class="mark" aria-hidden="true">A</span>
+      <h1>ABB IRB 1200-5/0.9 教学场景</h1>
+      <div class="topbar-spacer"></div>
+      <ProgramControlPanel
+        display="transport"
+        :snapshot="programSnapshot"
+        :source="rapidSource"
+        :program="programControl.parsed.value.program"
+        :pending-clear="pendingClearState"
+        @run="programControl.run()"
+        @step="programControl.step()"
+        @stop="programControl.stop()"
+        @pp="programControl.ppToMain()"
+        @confirm-clear="programControl.confirmClearToNext()"
+        @cancel-clear="programControl.cancelClearToNext()"
+      />
+      <span class="pill pill-mono" title="程序指针 / 运动指针"
+        >PP {{ programSnapshot.programPointer }} · MP {{ motionPointerText }}</span
+      >
+      <span class="pill status-pill" :class="`status-${sceneStatus}`" title="场景状态">
+        <span class="pill-dot status-dot" aria-hidden="true"></span>{{ statusLabel }}
+      </span>
     </header>
 
     <WorkbenchLayout>
-      <template #left>
-        <div class="left-workbench-content">
-          <div class="left-model-summary">
-            <div>
-              <p class="panel-kicker">MODEL</p>
-              <h2>IRB 1200-5/0.9</h2>
-            </div>
-            <p class="panel-hint">左键旋转 · 滚轮缩放 · 右键平移</p>
-          </div>
-
-          <JogControlTabs />
-        </div>
-      </template>
-
       <template #center>
-        <div class="viewport-card">
+        <div class="viewport-stage">
           <SceneViewport
             :joints="joints"
             :show-grid="showGrid"
@@ -254,14 +242,15 @@ provideProgramPanelController({
             :show-dh-debug="showDhDebug"
             :show-trajectory="showTrajectory"
             :trajectory-count="trajectoryCount"
-            :active-tool-frame="activeToolFrameMm"
-            :active-wobj-frame="activeWobjFrameMm"
+            :robtargets="robtargets"
+            :show-robtargets="showRobtargets"
             @status="sceneStatus = $event"
             @grid-change="showGrid = $event"
             @coordinates-change="showCoordinateSystems = $event"
             @dh-debug-change="showDhDebug = $event"
             @trajectory-change="showTrajectory = $event"
             @trajectory-count="trajectoryCount = $event"
+            @robtargets-change="showRobtargets = $event"
           />
           <div class="viewport-caption">
             <span>WORLD / BASE FRAME</span>
@@ -270,177 +259,103 @@ provideProgramPanelController({
         </div>
       </template>
 
-      <template #right>
-        <ProgramWorkspace />
+      <template #panel="{ activeFunction, select }">
+        <ProgramWorkspace
+          v-show="activeFunction !== 'jog'"
+          :view="activeFunction === 'data' ? 'data' : 'rapid'"
+          @update:view="select"
+        />
+        <JogControlTabs v-show="activeFunction === 'jog'" />
+      </template>
+
+      <template #pose>
+        <PoseReadout />
       </template>
     </WorkbenchLayout>
+
+    <RunLogPanel :entries="runLog.entries.value" />
   </main>
 </template>
 
 <style scoped>
-/* App shell: fixed full-screen single view, vertical flex. */
-.app-shell {
-  display: flex;
-  flex-direction: column;
+/* 骨架：56px 顶栏 + 主区 + 底部日志栏。 */
+.shell {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) auto;
   width: 100%;
   height: 100dvh;
   min-height: 0;
-  padding: 14px clamp(12px, 2vw, 32px);
   overflow: hidden;
-  background:
-    radial-gradient(circle at 76% 14%, rgba(37, 99, 235, 0.15), transparent 30rem), var(--color-bg);
+  background: var(--color-bg);
 }
 
-.app-header {
+.topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex: 0 0 auto;
-  gap: 16px;
-  width: 100%;
-  max-width: none;
-  margin: 0 auto 10px;
+  gap: 14px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-deep);
 }
 
-.app-header h1 {
-  color: var(--color-text-strong);
-  font-size: clamp(18px, 1.8vw, 26px);
-  line-height: 1.1;
-  letter-spacing: -0.035em;
-}
-
-.app-header .subtitle {
-  margin-top: 4px;
-  color: var(--color-text-faint);
-  font-size: 11px;
-}
-
-.app-header-status {
+.mark {
   display: grid;
-  justify-items: end;
-  gap: 5px;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--color-on-brand);
+  background: linear-gradient(135deg, var(--color-brand), #ff9a55);
+  font-size: 12px;
+  font-weight: 900;
 }
 
-.viewport-size-warning {
-  display: none;
-  margin: 0;
-  color: var(--color-warning);
-  font-size: 10px;
+.topbar h1 {
+  color: var(--color-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
-/* Scene status pill (only shown in the app header). */
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  padding: 9px 13px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-pill);
-  color: var(--color-text-muted);
-  background: rgba(15, 23, 42, 0.74);
-  font-size: 12px;
-  font-weight: 600;
+.topbar-spacer {
+  flex: 1;
 }
 
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+/* 场景状态丸的圆点随状态变色（默认加载中为警告色）。 */
+.status-loading .pill-dot {
   background: var(--color-warning-strong);
-  box-shadow: 0 0 12px currentColor;
+  box-shadow: 0 0 8px var(--color-warning-strong);
 }
 
-.status-ready .status-dot {
-  color: var(--color-success);
-  background: var(--color-success);
-}
-
-.status-error .status-dot {
-  color: var(--color-danger);
+.status-error .pill-dot {
   background: var(--color-danger);
+  box-shadow: 0 0 8px var(--color-danger);
 }
 
-/* Left slot scaffold (model summary + jog tabs). */
-.left-workbench-content {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
-  gap: 10px;
-}
-
-.left-model-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-bottom: 9px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.left-model-summary h2 {
-  color: var(--color-text-strong);
-  font-size: 17px;
-  letter-spacing: -0.03em;
-}
-
-.left-model-summary .panel-hint {
-  max-width: 150px;
-  text-align: right;
-}
-
-/* Central viewport card hosts the 3D scene + caption. */
-.viewport-card {
+/* 中央 3D 视口：满幅铺底，caption 浮在底部。 */
+.viewport-stage {
   position: relative;
-  min-width: 0;
-  min-height: 0;
   width: 100%;
   height: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.8);
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.22);
-  overflow: hidden;
-}
-
-.viewport-card .scene-viewport {
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  background: radial-gradient(130% 100% at 50% 24%, #171d27 0%, #10141b 52%, #0b0e13 100%);
 }
 
 .viewport-caption {
   position: absolute;
   right: 16px;
-  bottom: 14px;
+  bottom: 12px;
   left: 16px;
   display: flex;
   justify-content: space-between;
   pointer-events: none;
-  color: var(--color-text-faint);
+  color: var(--color-text-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 10.5px;
   letter-spacing: 0.08em;
-}
-
-@media (max-width: 1365px), (max-height: 767px) {
-  .viewport-size-warning {
-    display: block;
-  }
-}
-
-@media (max-width: 820px) {
-  .app-shell {
-    padding: 20px 14px 16px;
-  }
-
-  .app-header {
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .viewport-card {
-    min-height: 58vh;
-  }
 }
 </style>

@@ -6,54 +6,69 @@ import WorkbenchLayout from './WorkbenchLayout.vue'
 function mountLayout() {
   return mount(WorkbenchLayout, {
     slots: {
-      left: '<div data-testid="left-content">左侧控制</div>',
       center: '<div data-testid="center-content">Three.js 场景</div>',
-      right: '<div data-testid="right-content">右侧编程</div>',
+      panel: `<template #panel="{ activeFunction }"><div data-testid="panel-content">当前功能：{{ activeFunction }}</div></template>`,
+      pose: '<div data-testid="pose-content">位姿读数</div>',
     },
   })
 }
 
-describe('WorkbenchLayout 三栏折叠壳层', () => {
-  it('默认显示左右内容与中间场景，并提供两个收起入口', () => {
+describe('WorkbenchLayout 边栏驱动的面板壳层', () => {
+  it('默认展开 RAPID 面板，提供三个功能页签与收起入口', () => {
     const wrapper = mountLayout()
 
-    expect(wrapper.get('[data-testid="left-content"]').text()).toBe('左侧控制')
     expect(wrapper.get('[data-testid="center-content"]').text()).toBe('Three.js 场景')
-    expect(wrapper.get('[data-testid="right-content"]').text()).toBe('右侧编程')
-    expect(wrapper.get('[aria-label="收起左侧面板"]')).toBeTruthy()
-    expect(wrapper.get('[aria-label="收起右侧面板"]')).toBeTruthy()
-    expect(wrapper.get('[aria-label="收起左侧面板"]').attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('[aria-label="收起右侧面板"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-testid="panel-content"]').text()).toBe('当前功能：rapid')
+    expect(wrapper.get('[data-testid="pose-content"]').text()).toBe('位姿读数')
+    expect(wrapper.get('.workbench-layout').classes()).toContain('view-rapid')
+    expect(wrapper.get('.workbench-layout').classes()).not.toContain('panel-closed')
+
+    const rapidTab = wrapper.get('[aria-label="RAPID 程序"]')
+    expect(rapidTab.attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[aria-label="程序数据 Program Data"]').attributes('aria-selected')).toBe(
+      'false',
+    )
+    expect(wrapper.get('[aria-label="手动 Jog"]')).toBeTruthy()
+    expect(wrapper.get('[aria-label="收起面板"]')).toBeTruthy()
   })
 
-  it('左右栏可以独立收起并从窄轨道重新展开', async () => {
+  it('边栏切换功能驱动面板内容，点击当前功能或收起只留窄边栏', async () => {
     const wrapper = mountLayout()
 
-    await wrapper.get('[aria-label="收起左侧面板"]').trigger('click')
-    expect(
-      wrapper
-        .get('[data-testid="left-content"]')
-        .element.parentElement?.parentElement?.getAttribute('style'),
-    ).toContain('display: none')
-    expect(wrapper.get('.workbench-layout').classes()).toContain('left-collapsed')
-    expect(wrapper.get('[aria-label="展开左侧面板"]')).toBeTruthy()
-    expect(wrapper.get('[aria-label="展开左侧面板"]').attributes('aria-expanded')).toBe('false')
-    expect(wrapper.findAll('[data-testid="right-content"]')).toHaveLength(1)
+    await wrapper.get('[aria-label="程序数据 Program Data"]').trigger('click')
+    expect(wrapper.get('[data-testid="panel-content"]').text()).toBe('当前功能：data')
+    expect(wrapper.get('.workbench-layout').classes()).toContain('view-data')
+    expect(wrapper.get('[aria-label="程序数据 Program Data"]').attributes('aria-selected')).toBe(
+      'true',
+    )
 
-    await wrapper.get('[aria-label="收起右侧面板"]').trigger('click')
-    expect(
-      wrapper
-        .get('[data-testid="right-content"]')
-        .element.parentElement?.parentElement?.getAttribute('style'),
-    ).toContain('display: none')
-    expect(wrapper.get('.workbench-layout').classes()).toContain('right-collapsed')
-    expect(wrapper.get('[aria-label="展开右侧面板"]').attributes('aria-expanded')).toBe('false')
+    // 点击当前功能页签 → 收起面板，3D 占满（dock 隐藏）。
+    await wrapper.get('[aria-label="程序数据 Program Data"]').trigger('click')
+    expect(wrapper.get('.workbench-layout').classes()).toContain('panel-closed')
+    expect(wrapper.get('.workbench-dock').attributes('style')).toContain('display: none')
+    expect(wrapper.get('[aria-label="程序数据 Program Data"]').attributes('aria-selected')).toBe(
+      'false',
+    )
 
-    await wrapper.get('[aria-label="展开左侧面板"]').trigger('click')
-    await wrapper.get('[aria-label="展开右侧面板"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="left-content"]')).toHaveLength(1)
-    expect(wrapper.findAll('[data-testid="right-content"]')).toHaveLength(1)
-    expect(wrapper.get('.workbench-layout').classes()).not.toContain('left-collapsed')
-    expect(wrapper.get('.workbench-layout').classes()).not.toContain('right-collapsed')
+    // 重新点开 Jog。
+    await wrapper.get('[aria-label="手动 Jog"]').trigger('click')
+    expect(wrapper.get('.workbench-layout').classes()).not.toContain('panel-closed')
+    expect(wrapper.get('[data-testid="panel-content"]').text()).toBe('当前功能：jog')
+
+    // 边栏“收起”按钮同样收起面板。
+    await wrapper.get('.workbench-rail [aria-label="收起面板"]').trigger('click')
+    expect(wrapper.get('.workbench-layout').classes()).toContain('panel-closed')
+  })
+
+  it('面板头部的 ⤢ 切换半屏加宽，✕ 收起面板', async () => {
+    const wrapper = mountLayout()
+
+    await wrapper.get('[aria-label="展开/收起半屏宽度"]').trigger('click')
+    expect(wrapper.get('.workbench-layout').classes()).toContain('panel-wide')
+    await wrapper.get('[aria-label="展开/收起半屏宽度"]').trigger('click')
+    expect(wrapper.get('.workbench-layout').classes()).not.toContain('panel-wide')
+
+    await wrapper.get('.dock-head [aria-label="收起面板"]').trigger('click')
+    expect(wrapper.get('.workbench-layout').classes()).toContain('panel-closed')
   })
 })

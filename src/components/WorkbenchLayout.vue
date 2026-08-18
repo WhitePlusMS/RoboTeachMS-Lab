@@ -1,182 +1,253 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
-const leftExpanded = ref(true)
-const rightExpanded = ref(true)
+/** 右侧功能面板可切换的功能集合；由窄图标边栏驱动。 */
+type WorkbenchFunction = 'rapid' | 'data' | 'jog'
+
+const RAIL_ITEMS: ReadonlyArray<{
+  fn: WorkbenchFunction
+  icon: string
+  text: string
+  label: string
+}> = [
+  { fn: 'rapid', icon: '⌨', text: 'RAPID', label: 'RAPID 程序' },
+  { fn: 'data', icon: '▦', text: '数据', label: '程序数据 Program Data' },
+  { fn: 'jog', icon: '✥', text: 'Jog', label: '手动 Jog' },
+]
+
+const TITLES: Record<WorkbenchFunction, string> = {
+  rapid: 'RAPID 程序',
+  data: '程序数据',
+  jog: '手动控制',
+}
+
+const activeFunction = ref<WorkbenchFunction>('rapid')
+const panelOpen = ref(true)
+/** ⤢ 半屏加宽：RAPID 默认已 50vw，其余功能可临时加宽到同一上限。 */
+const panelWide = ref(false)
+
+const dockTitle = computed(() => TITLES[activeFunction.value])
+
+/** 边栏选中某个功能：已展开且为当前功能时收起，否则切换并展开。 */
+function selectFunction(fn: WorkbenchFunction): void {
+  if (panelOpen.value && activeFunction.value === fn) {
+    panelOpen.value = false
+    return
+  }
+  activeFunction.value = fn
+  panelOpen.value = true
+}
+
+function collapsePanel(): void {
+  panelOpen.value = false
+}
 </script>
 
 <template>
   <section
     class="workbench-layout"
-    :class="{ 'left-collapsed': !leftExpanded, 'right-collapsed': !rightExpanded }"
+    :class="[`view-${activeFunction}`, { 'panel-closed': !panelOpen, 'panel-wide': panelWide }]"
     aria-label="ABB 教学工作台"
   >
-    <aside v-show="leftExpanded" class="workbench-side workbench-left" aria-label="左侧控制区">
-      <button
-        type="button"
-        class="workbench-collapse-button workbench-collapse-left"
-        aria-label="收起左侧面板"
-        aria-controls="workbench-left-panel"
-        aria-expanded="true"
-        @click="leftExpanded = false"
-      >
-        ‹
-      </button>
-      <div id="workbench-left-panel" class="workbench-side-content">
-        <slot name="left" />
-      </div>
-    </aside>
-    <div
-      v-show="!leftExpanded"
-      class="workbench-collapsed-rail workbench-collapsed-left"
-      aria-label="左侧面板已收起"
-    >
-      <button
-        type="button"
-        class="workbench-expand-button"
-        aria-label="展开左侧面板"
-        aria-controls="workbench-left-panel"
-        aria-expanded="false"
-        @click="leftExpanded = true"
-      >
-        ›
-      </button>
-    </div>
-
     <div class="workbench-center">
       <slot name="center" />
     </div>
 
-    <aside v-show="rightExpanded" class="workbench-side workbench-right" aria-label="右侧编程区">
-      <button
-        type="button"
-        class="workbench-collapse-button workbench-collapse-right"
-        aria-label="收起右侧面板"
-        aria-controls="workbench-right-panel"
-        aria-expanded="true"
-        @click="rightExpanded = false"
-      >
-        ›
-      </button>
-      <div id="workbench-right-panel" class="workbench-side-content">
-        <slot name="right" />
+    <aside v-show="panelOpen" class="workbench-dock" aria-label="工作区面板">
+      <div class="dock-head">
+        <div>
+          <div class="dock-kicker">WORKBENCH</div>
+          <h2 class="dock-title">{{ dockTitle }}</h2>
+        </div>
+        <div class="dock-head-actions">
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="展开/收起半屏宽度"
+            :aria-pressed="panelWide"
+            title="展开到半屏"
+            @click="panelWide = !panelWide"
+          >
+            ⤢
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="收起面板"
+            title="收起面板"
+            @click="collapsePanel"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div class="dock-body">
+        <slot name="panel" :active-function="activeFunction" :select="selectFunction" />
+      </div>
+
+      <div class="dock-pose">
+        <slot name="pose" />
       </div>
     </aside>
-    <div
-      v-show="!rightExpanded"
-      class="workbench-collapsed-rail workbench-collapsed-right"
-      aria-label="右侧面板已收起"
-    >
+
+    <nav class="workbench-rail" role="tablist" aria-label="功能边栏">
       <button
+        v-for="item in RAIL_ITEMS"
+        :key="item.fn"
         type="button"
-        class="workbench-expand-button"
-        aria-label="展开右侧面板"
-        aria-controls="workbench-right-panel"
-        aria-expanded="false"
-        @click="rightExpanded = true"
+        role="tab"
+        class="rail-btn"
+        :class="{ on: panelOpen && activeFunction === item.fn }"
+        :aria-label="item.label"
+        :aria-selected="panelOpen && activeFunction === item.fn"
+        @click="selectFunction(item.fn)"
       >
-        ‹
+        <span class="rail-icon" aria-hidden="true">{{ item.icon }}</span>
+        {{ item.text }}
       </button>
-    </div>
+      <div class="rail-sep" aria-hidden="true"></div>
+      <button type="button" class="rail-btn" aria-label="收起面板" @click="collapsePanel">
+        <span class="rail-icon" aria-hidden="true">⇥</span>
+        收起
+      </button>
+    </nav>
   </section>
 </template>
 
 <style scoped>
+/* 主区：满幅 3D 视口 + 可收放功能面板 + 最右 52px 窄图标边栏。 */
 .workbench-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(340px, 420px);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto 52px;
   flex: 1 1 auto;
   width: 100%;
-  max-width: none;
   min-height: 0;
   margin: 0 auto;
 }
 
-.workbench-layout.left-collapsed {
-  grid-template-columns: 30px minmax(0, 1fr) minmax(340px, 420px);
-}
-
-.workbench-layout.right-collapsed {
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) 30px;
-}
-
-.workbench-layout.left-collapsed.right-collapsed {
-  grid-template-columns: 30px minmax(0, 1fr) 30px;
-}
-
-.workbench-side,
-.workbench-collapsed-rail {
-  min-width: 0;
-  min-height: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.8);
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.22);
-}
-
-.workbench-side {
-  position: relative;
-  overflow: hidden;
-}
-
-.workbench-side-content {
-  height: 100%;
-  min-height: 0;
-  padding: 14px;
-  overflow: hidden;
-}
-
-.workbench-collapsed-rail {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.66);
-}
-
-.workbench-collapse-button,
-.workbench-expand-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--color-border-soft);
-  border-radius: 6px;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-  cursor: pointer;
-  font-size: 20px;
-  line-height: 1;
-  z-index: 3;
-}
-
-.workbench-collapse-button:hover,
-.workbench-expand-button:hover {
-  border-color: var(--color-brand-strong);
-  color: var(--color-text-strong);
-  background: var(--color-surface-hover);
-}
-
-.workbench-collapse-button {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.workbench-collapse-left {
-  right: 4px;
-}
-
-.workbench-collapse-right {
-  left: 4px;
-}
-
 .workbench-center {
+  grid-column: 1;
   position: relative;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+.workbench-dock {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  min-height: 0;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface-deep);
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+/* RAPID 功能（源码编辑器）默认半屏宽，上限 860px。 */
+.workbench-layout.view-rapid .workbench-dock,
+.workbench-layout.panel-wide .workbench-dock {
+  width: min(860px, 50vw);
+}
+
+.dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dock-kicker {
+  color: var(--color-text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.dock-title {
+  margin: 1px 0 0;
+  color: var(--color-text-strong);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.dock-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dock-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 位姿读数：钉在面板底部，跨功能共享。 */
+.dock-pose {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+/* 窄图标边栏（常驻，KUKA iiQKA 右边缘操作栏式）。 */
+.workbench-rail {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface-deep);
+}
+
+.rail-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 42px;
+  padding: 8px 0 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--color-text-faint);
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.rail-btn .rail-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rail-btn:hover {
+  color: var(--color-text);
+}
+
+.rail-btn.on {
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+  background: var(--color-brand-dim);
+}
+
+.rail-sep {
+  width: 26px;
+  margin: 4px 0;
+  border-top: 1px solid var(--color-border);
 }
 </style>

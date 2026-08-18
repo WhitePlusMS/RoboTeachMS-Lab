@@ -34,88 +34,56 @@ const snapshot: ProgramControllerSnapshot = {
   offPath: false,
 }
 
-describe('ProgramWorkspace 右侧 RAPID/Program Data 工作区', () => {
-  it('默认显示 RAPID，切换 Program Data 时保留源码编辑器实例和固定程序控制栏', async () => {
-    const wrapper = mount(ProgramWorkspace, {
-      attachTo: document.body,
-      props: {
-        snapshot,
-        source: SOURCE,
-        program: parsed.program,
-        pendingClear: null,
-        data: parsed.data,
-        activeIndex: null,
-        canExecute: true,
-        insertionPoints: parsed.motionInsertionPoints,
-        pose,
-        applyEdit: () => ({ ok: true, result: { source: SOURCE } }),
-      },
-    })
+function mountWorkspace(view: 'rapid' | 'data') {
+  return mount(ProgramWorkspace, {
+    attachTo: document.body,
+    props: {
+      view,
+      snapshot,
+      source: SOURCE,
+      program: parsed.program,
+      pendingClear: null,
+      data: parsed.data,
+      activeIndex: null,
+      canExecute: true,
+      insertionPoints: parsed.motionInsertionPoints,
+      pose,
+      applyEdit: () => ({ ok: true, result: { source: SOURCE } }),
+    },
+  })
+}
+
+describe('ProgramWorkspace 受控视图的 RAPID/Program Data 工作区', () => {
+  it('由 view prop 驱动切换，切换时保留源码编辑器实例，且无内部页签与固定控制栏', async () => {
+    const wrapper = mountWorkspace('rapid')
 
     const editor = wrapper.get('textarea').element
-    expect(wrapper.get('#program-tab-rapid').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('#program-panel-rapid').attributes('hidden')).toBeUndefined()
-    expect(wrapper.get('[aria-label="程序控制栏"]')).toBeTruthy()
+    expect(wrapper.get('#program-panel-data').attributes('hidden')).toBeDefined()
+    // 内部 tab strip 与固定 actions 实例已移除（运行控制移到顶栏 transport）。
+    expect(wrapper.find('#program-tab-rapid').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="程序控制栏"]').exists()).toBe(false)
 
-    await wrapper.get('#program-tab-data').trigger('click')
-    expect(wrapper.get('#program-tab-data').attributes('aria-selected')).toBe('true')
+    await wrapper.setProps({ view: 'data' })
     expect(wrapper.get('#program-panel-rapid').attributes('hidden')).toBeDefined()
     expect(wrapper.get('#program-panel-data').attributes('hidden')).toBeUndefined()
     expect(wrapper.get('textarea').element).toBe(editor)
-    expect(wrapper.get('[aria-label="程序控制栏"]')).toBeTruthy()
   })
 
-  it('重复查看同一引用也会生成新的源码定位请求', async () => {
-    const wrapper = mount(ProgramWorkspace, {
-      attachTo: document.body,
-      props: {
-        snapshot,
-        source: SOURCE,
-        program: parsed.program,
-        pendingClear: null,
-        data: parsed.data,
-        activeIndex: null,
-        canExecute: true,
-        insertionPoints: parsed.motionInsertionPoints,
-        pose,
-        applyEdit: () => ({ ok: true, result: { source: SOURCE } }),
-      },
-    })
+  it('查看引用会请求切回 RAPID 视图并生成新的源码定位请求', async () => {
+    const wrapper = mountWorkspace('data')
 
-    await wrapper.get('#program-tab-data').trigger('click')
-    await wrapper.get('[aria-label="选择点位 p1"]').trigger('click')
-    const reference = wrapper.get('.program-data-reference-link')
-    await reference.trigger('click')
-    await wrapper.get('#program-tab-data').trigger('click')
     await wrapper.get('[aria-label="选择点位 p1"]').trigger('click')
     await wrapper.get('.program-data-reference-link').trigger('click')
 
+    expect(wrapper.emitted('update:view')).toEqual([['rapid']])
     const rapidPanel = wrapper.get('#program-panel-rapid')
-    expect(rapidPanel.attributes('hidden')).toBeUndefined()
+    expect(rapidPanel.findComponent({ name: 'RapidSourceEditor' }).props('focusRequestId')).toBe(1)
+
+    // 重复查看同一引用也会生成新的定位请求。
+    await wrapper.get('[aria-label="选择点位 p1"]').trigger('click')
+    await wrapper.get('.program-data-reference-link').trigger('click')
+    expect(wrapper.emitted('update:view')).toEqual([['rapid'], ['rapid']])
     expect(rapidPanel.findComponent({ name: 'RapidSourceEditor' }).props('focusRequestId')).toBe(2)
-  })
-
-  it('方向键切换程序 Tab 后焦点跟随新 Tab', async () => {
-    const wrapper = mount(ProgramWorkspace, {
-      attachTo: document.body,
-      props: {
-        snapshot,
-        source: SOURCE,
-        program: parsed.program,
-        pendingClear: null,
-        data: parsed.data,
-        activeIndex: null,
-        canExecute: true,
-        insertionPoints: parsed.motionInsertionPoints,
-        pose,
-        applyEdit: () => ({ ok: true, result: { source: SOURCE } }),
-      },
-    })
-
-    const rapidTab = wrapper.get('#program-tab-rapid')
-    await rapidTab.trigger('keydown', { key: 'ArrowRight' })
-    expect(document.activeElement).toBe(wrapper.get('#program-tab-data').element)
-    await wrapper.get('#program-tab-data').trigger('keydown', { key: 'ArrowLeft' })
-    expect(document.activeElement).toBe(rapidTab.element)
   })
 })

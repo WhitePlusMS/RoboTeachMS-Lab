@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, ref } from 'vue'
 import ProgramControlPanel from './ProgramControlPanel.vue'
 import ProgramDataPanel from './ProgramDataPanel.vue'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
@@ -17,7 +17,12 @@ import {
   type ProgramPanelController,
 } from '@/application/use-program-panel-controller.ts'
 
+/** 工作区视图：由右侧窄图标边栏驱动（受控），RAPID 与 Program Data 二选一。 */
+type WorkspaceView = 'rapid' | 'data'
+
 interface Props {
+  /** 当前视图（受控）；从 Program Data 查看引用时通过 update:view 请求切回 RAPID。 */
+  view?: WorkspaceView
   snapshot?: ProgramControllerSnapshot
   source?: string
   program?: readonly RapidExecutableInstruction[]
@@ -37,6 +42,7 @@ interface Props {
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
+  'update:view': [view: WorkspaceView]
   run: []
   step: []
   stop: []
@@ -90,93 +96,25 @@ const controller: ProgramPanelController =
     setSource: (source) => emit('source-change', source),
   }
 
-type ProgramTab = 'rapid' | 'data'
-const activeTab = ref<ProgramTab>('rapid')
+const activeView = computed(() => props.view ?? 'rapid')
 const focusRange = ref<RapidSourceRange | null>(null)
 const focusRequestId = ref(0)
-const rapidTabButton = ref<HTMLButtonElement | null>(null)
-const dataTabButton = ref<HTMLButtonElement | null>(null)
 
-function selectTab(tab: ProgramTab): void {
-  activeTab.value = tab
-}
-
-function focusActiveTab(): void {
-  void nextTick(() => {
-    const button = activeTab.value === 'rapid' ? rapidTabButton.value : dataTabButton.value
-    button?.focus()
-  })
-}
-
+/** Program Data 查看引用：定位源码编辑器并请求父级切回 RAPID 视图。 */
 function focusRapidReference(range: RapidSourceRange): void {
   focusRange.value = range
   focusRequestId.value += 1
-  activeTab.value = 'rapid'
-}
-
-function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-    event.preventDefault()
-    selectTab(tab === 'rapid' ? 'data' : 'rapid')
-    focusActiveTab()
-  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-    event.preventDefault()
-    selectTab(tab === 'data' ? 'rapid' : 'data')
-    focusActiveTab()
-  } else if (event.key === 'Home') {
-    event.preventDefault()
-    selectTab('rapid')
-    focusActiveTab()
-  } else if (event.key === 'End') {
-    event.preventDefault()
-    selectTab('data')
-    focusActiveTab()
-  }
+  emit('update:view', 'rapid')
 }
 </script>
 
 <template>
   <section class="program-workspace" aria-label="RAPID 与程序数据工作区">
-    <div class="workbench-tabs program-workspace-tabs" role="tablist" aria-label="程序工作区">
-      <button
-        id="program-tab-rapid"
-        ref="rapidTabButton"
-        type="button"
-        role="tab"
-        class="workbench-tab"
-        :class="{ active: activeTab === 'rapid' }"
-        :aria-selected="activeTab === 'rapid'"
-        aria-controls="program-panel-rapid"
-        :tabindex="activeTab === 'rapid' ? 0 : -1"
-        @click="selectTab('rapid')"
-        @keydown="handleTabKeydown($event, 'rapid')"
-      >
-        RAPID
-      </button>
-      <button
-        id="program-tab-data"
-        ref="dataTabButton"
-        type="button"
-        role="tab"
-        class="workbench-tab"
-        :class="{ active: activeTab === 'data' }"
-        :aria-selected="activeTab === 'data'"
-        aria-controls="program-panel-data"
-        :tabindex="activeTab === 'data' ? 0 : -1"
-        @click="selectTab('data')"
-        @keydown="handleTabKeydown($event, 'data')"
-      >
-        Program Data
-      </button>
-    </div>
-
     <div class="program-workspace-content">
       <div
         id="program-panel-rapid"
         class="program-workspace-tabpanel"
-        role="tabpanel"
-        aria-labelledby="program-tab-rapid"
-        :hidden="activeTab !== 'rapid'"
+        :hidden="activeView !== 'rapid'"
       >
         <ProgramControlPanel
           display="content"
@@ -192,11 +130,10 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
       <div
         id="program-panel-data"
         class="program-workspace-tabpanel"
-        role="tabpanel"
-        aria-labelledby="program-tab-data"
-        :hidden="activeTab !== 'data'"
+        :hidden="activeView !== 'data'"
       >
         <ProgramDataPanel
+          display="content"
           :data="controller.data.value"
           :active-index="controller.activeIndex.value"
           :can-execute="controller.canExecute.value"
@@ -209,37 +146,16 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
         />
       </div>
     </div>
-
-    <div class="program-workspace-actions">
-      <ProgramControlPanel
-        display="actions"
-        :snapshot="controller.snapshot.value"
-        :source="controller.source.value"
-        :program="controller.program.value"
-        :pending-clear="controller.pendingClear.value"
-        @run="controller.run"
-        @step="controller.step"
-        @stop="controller.stop"
-        @pp="controller.ppToMain"
-        @confirm-clear="controller.confirmClearToNext"
-        @cancel-clear="controller.cancelClearToNext"
-      />
-    </div>
   </section>
 </template>
 
 <style scoped>
 .program-workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  gap: 8px;
   overflow: hidden;
-}
-
-.program-workspace-tabs {
-  flex: 0 0 auto;
 }
 
 .program-workspace-content {
@@ -250,14 +166,8 @@ function handleTabKeydown(event: KeyboardEvent, tab: ProgramTab): void {
 .program-workspace-tabpanel {
   height: 100%;
   min-height: 0;
-  overflow: hidden;
+  overflow: hidden auto;
   scrollbar-gutter: stable;
-}
-
-.program-workspace-actions {
-  min-height: 0;
-  border-top: 1px solid var(--color-border);
-  background: rgba(11, 18, 32, 0.94);
 }
 
 .program-workspace-tabpanel > .program-data-panel {

@@ -5,8 +5,9 @@
 :root {
   /* Fonts */
   --font-sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, 'JetBrains Mono', monospace;
 
   /* Radius */
   --radius-xs: 4px;
@@ -16,61 +17,65 @@
   --radius-pill: 999px;
 
   /* Ambient background & default text (root page) */
-  --color-bg: #070b13;
-  --color-text-base: #e5e7eb;
+  --color-bg: #0c0d10;
+  --color-text-base: #e8eaee;
 
-  /* Surfaces */
-  --color-surface: #0f172a; /* inputs, base surfaces (slate-900) */
-  --color-surface-deep: #0b1220; /* panels, tab strips */
-  --color-surface-raised: #0d1526; /* items, details, stats */
-  --color-surface-hover: #243b59;
-  --color-editor: #020617; /* code editors (slate-950) */
-  --color-scene-bg: #101827;
+  /* Surfaces（graphite 工业深色，三级明度拉开层次） */
+  --color-surface: #1d2129; /* inputs, base surfaces (dock-raised) */
+  --color-surface-deep: #14161b; /* panels, tab strips (dock) */
+  --color-surface-raised: #1d2129; /* items, details, stats */
+  --color-surface-hover: #272c36;
+  --color-editor: #0e1013; /* code editors (inset) */
+  --color-scene-bg: #08090d;
 
   /* Borders */
-  --color-border: #1e293b; /* default borders (slate-800) */
-  --color-border-strong: #1f2937; /* stronger borders (gray-800) */
-  --color-border-soft: #334155; /* input / button borders (slate-600) */
-  --color-border-special: #1e3a5f;
-  --color-border-kind: #2b3140;
+  --color-border: #262a32; /* default borders */
+  --color-border-strong: #323842; /* stronger borders */
+  --color-border-soft: #323842; /* input / button borders */
+  --color-border-special: #323842;
+  --color-border-kind: #323842;
 
   /* Text */
-  --color-text-strong: #f8fafc; /* slate-50 */
-  --color-text: #e2e8f0; /* slate-200 */
-  --color-text-muted: #cbd5e1; /* slate-300 */
-  --color-text-faint: #94a3b8; /* slate-400 */
-  --color-text-dim: #64748b; /* slate-500 */
-  --color-text-dim-deep: #475569; /* slate-600 */
-  --color-on-brand: #07111f; /* dark text placed on brand fills */
+  --color-text-strong: #f7f8fa;
+  --color-text: #e8eaee;
+  --color-text-muted: #c3c9d1;
+  --color-text-faint: #9aa2ae;
+  --color-text-dim: #646d79;
+  --color-text-dim-deep: #4a525d;
+  --color-on-brand: #1c0e04; /* dark text placed on brand fills */
 
-  /* Brand (sky) */
-  --color-brand: #7dd3fc; /* sky-300 */
-  --color-brand-strong: #38bdf8; /* sky-400 */
-  --color-brand-soft: #e0f2fe; /* sky-100 */
+  /* Brand (ABB 橙) */
+  --color-brand: #ff6a1a;
+  --color-brand-strong: #ff7d38;
+  --color-brand-soft: #ffb38a;
+  --color-brand-dim: rgba(255, 106, 26, 0.14);
 
   /* Accents */
-  --color-accent-orange: #f97316; /* tool coordinate */
+  --color-accent-orange: #ff6a1a; /* tool coordinate */
+  --color-info: #4aa8ff;
 
   /* Status */
-  --color-success: #34d399;
-  --color-success-soft: #6ee7b7;
-  --color-warning: #fcd34d; /* amber-300 */
-  --color-warning-strong: #fbbf24; /* amber-400 (dot) */
-  --color-warning-soft: #fde68a; /* amber-200 */
-  --color-danger: #fb7185; /* rose-400 */
-  --color-danger-strong: #f87171; /* red-400 */
-  --color-danger-soft: #fca5a5; /* red-300 */
-  --color-danger-faint: #fda4af; /* red-300 */
-  --color-error-bg: #b91c1c;
-  --color-error-edge: #fecaca;
-  --color-orange: #fb923c; /* MP line (orange-400) */
-  --color-orange-soft: #fed7aa; /* orange-200 */
-  --color-primary-hover-bg: #075985;
-  --color-danger-hover-bg: #7f1d1d;
+  --color-success: #3ecf8e;
+  --color-success-soft: #7fe0b4;
+  --color-warning: #f5c542;
+  --color-warning-strong: #f5c542; /* dot */
+  --color-warning-soft: #f8d87a;
+  --color-danger: #f26d6d;
+  --color-danger-strong: #f26d6d;
+  --color-danger-soft: #f59b9b;
+  --color-danger-faint: #f59b9b;
+  --color-error-bg: #7f1d1d;
+  --color-error-edge: #f26d6d;
+  --color-orange: #fb923c; /* MP line */
+  --color-orange-soft: #ffb38a;
+  --color-pp: #f5c542; /* PP line */
+  --color-primary-hover-bg: rgba(255, 106, 26, 0.16);
+  --color-danger-hover-bg: rgba(242, 109, 109, 0.14);
 
   /* Root page defaults */
   color: var(--color-text-base);
   background: var(--color-bg);
+  color-scheme: dark;
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -133,21 +138,22 @@ button:disabled {
 
 /* Shared status chip (FK READY / PATH OK / state pills). */
 .control-status {
-  padding: 5px 7px;
-  border: 1px solid rgba(52, 211, 153, 0.3);
+  padding: 5px 8px;
+  border: 1px solid rgba(62, 207, 142, 0.3);
   border-radius: 5px;
   color: var(--color-success-soft);
-  background: rgba(6, 78, 59, 0.25);
+  background: rgba(62, 207, 142, 0.1);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 /* Program runtime state pills shared by ProgramControlPanel & ProgramDataPanel. */
 .program-state-running {
-  border-color: rgba(56, 189, 248, 0.4);
-  color: var(--color-brand);
-  background: rgba(12, 74, 110, 0.3);
+  border-color: rgba(74, 168, 255, 0.4);
+  color: var(--color-info);
+  background: rgba(74, 168, 255, 0.12);
 }
 
 .program-state-error {
@@ -167,7 +173,7 @@ button:disabled {
 /* Small hint/caption text shared across panels & the header. */
 .panel-hint {
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -256,21 +262,22 @@ button:disabled {
 
 .step-selector > span {
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .step-choice {
-  min-width: 38px;
-  padding: 5px 7px;
+  min-width: 40px;
+  padding: 5px 8px;
   border-radius: var(--radius-xs);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .step-choice.active,
 .frame-choice.active {
-  border-color: var(--color-brand-strong);
-  color: var(--color-on-brand);
-  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+  background: var(--color-brand-dim);
+  font-weight: 700;
 }
 
 .frame-selector {
@@ -278,14 +285,14 @@ button:disabled {
   align-items: center;
   gap: 6px;
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .frame-choice {
-  padding: 5px 9px;
+  padding: 5px 10px;
   border-radius: var(--radius-xs);
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* Degree symbol + faint labels shared by joint & cartesian rows. */
@@ -299,7 +306,7 @@ button:disabled {
   padding: 12px;
   border: 1px solid var(--color-border-special);
   border-radius: var(--radius-md);
-  background: rgba(15, 38, 65, 0.55);
+  background: var(--color-surface-deep);
 }
 
 .pose-card-title {
@@ -315,7 +322,7 @@ button:disabled {
   gap: 7px 10px;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .pose-grid strong {
@@ -354,25 +361,214 @@ button:disabled {
 .workbench-tab {
   flex: 1;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .workbench-tab:hover,
 .workbench-tab:focus-visible {
   color: var(--color-brand-soft);
-  background: rgba(14, 116, 144, 0.3);
+  background: var(--color-brand-dim);
   outline: none;
 }
 
 .workbench-tab.active {
-  border-color: rgba(56, 189, 248, 0.5);
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+  background: var(--color-brand-dim);
+}
+
+/* ==========================================================================
+   重设计共享基元（顶栏 transport / 功能边栏 / 分段控件 / 日志 chips）。
+   配色全部引用 token；供多个组件复用，组件内只补充布局相关 scoped 样式。
+   ========================================================================== */
+
+/* 顶栏状态丸（程序状态 / PP·MP / 场景状态）。 */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-faint);
+  background: var(--color-surface);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pill-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+}
+
+/* 顶栏运行控制键组（示教器式 transport）。 */
+.tgroup {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tkey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.tkey .tkey-icon {
+  font-size: 13px;
+}
+
+.tkey:hover:not(:disabled) {
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+}
+
+.tkey-run {
+  border-color: var(--color-brand);
   color: var(--color-on-brand);
   background: var(--color-brand);
+}
+
+.tkey-run:hover:not(:disabled) {
+  color: var(--color-on-brand);
+  background: var(--color-brand-strong);
+}
+
+.tkey-stop {
+  border-color: rgba(242, 109, 109, 0.4);
+  color: var(--color-danger);
+}
+
+.tkey-stop:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: rgba(242, 109, 109, 0.12);
+}
+
+/* 分段控件（Jog 模式 / 坐标系 / 动作模式）。 */
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-editor);
+}
+
+.seg button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-faint);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.seg button:hover {
+  color: var(--color-text);
+}
+
+.seg button.on {
+  color: var(--color-brand-soft);
+  background: var(--color-brand-dim);
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+  font-weight: 700;
+}
+
+/* 小型选择 chip（步进选择、日志级别过滤）。 */
+.choice {
+  min-width: 42px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 5px;
+  color: var(--color-text-faint);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.choice:hover {
+  border-color: var(--color-brand);
+  color: var(--color-text);
+}
+
+.choice.on {
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+  background: var(--color-brand-dim);
+  font-weight: 700;
+}
+
+/* 小图标按钮（面板头部 ⤢ / ✕、日志收起）。 */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 5px;
+  color: var(--color-text-faint);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.icon-btn:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+}
+
+/* 表单字段小标题。 */
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-text-dim);
+  font-size: 11px;
 }
