@@ -10,6 +10,7 @@ import type { JointAngles, Pose } from './types.ts'
 const DEFAULT_LINEAR_STEP_MM = 1
 const DEFAULT_ANGULAR_STEP_RAD = Math.PI / 180
 const MAX_JOINT_STEP_DEG = 5
+/** waypoint 采样上限：仅作为「单条 MoveL 的采样点数」性能护栏，不再据此拒绝长距离轨迹。 */
 const MAX_WAYPOINTS = 200
 
 type Quaternion = [number, number, number, number]
@@ -76,12 +77,15 @@ export function planCartesianPath(
     startQuaternion.reduce((sum, value, index) => sum + value * targetQuaternion[index], 0),
   )
   const angularDistance = 2 * Math.acos(Math.max(-1, Math.min(1, quaternionDot)))
+  // 自适应步距：短路径用细步距保精度（连续直线/姿态采样），长路径自动放宽步距，
+  // 使 waypoint 数始终被 MAX_WAYPOINTS 钳制——不再存在「距离超过上限即 unreachable」的拒绝。
+  const linearStep = Math.max(DEFAULT_LINEAR_STEP_MM, distance / MAX_WAYPOINTS)
+  const angularStep = Math.max(DEFAULT_ANGULAR_STEP_RAD, angularDistance / MAX_WAYPOINTS)
   const segmentCount = Math.max(
     1,
-    Math.ceil(distance / DEFAULT_LINEAR_STEP_MM),
-    Math.ceil(angularDistance / DEFAULT_ANGULAR_STEP_RAD),
+    Math.ceil(distance / linearStep),
+    Math.ceil(angularDistance / angularStep),
   )
-  if (segmentCount > MAX_WAYPOINTS) return null
   const waypoints: JointAngles[] = []
   let previousJoints = [...initialJoints] as JointAngles
 
