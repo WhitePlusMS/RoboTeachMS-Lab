@@ -164,7 +164,6 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :joints="controller.joints.value"
         :joint-ranges="controller.jointRanges"
         :joint-step="controller.jointStep.value"
-        :pose="controller.pose.value"
         @set-joint="controller.setJoint"
         @adjust-joint="controller.adjustJoint"
         @step-change="controller.setStep"
@@ -202,12 +201,14 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
+  height: 100%;
+  padding: 12px 16px 0;
   overflow: hidden;
   min-height: 0;
 }
 
 .jog-tabpanel {
   min-height: 0;
-  overflow: hidden;
+  overflow: hidden auto;
 }
 </style>

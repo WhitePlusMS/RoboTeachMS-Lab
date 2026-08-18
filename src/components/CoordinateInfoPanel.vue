@@ -86,15 +86,15 @@ function formatValue(value: number): string {
   padding: 10px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(20, 22, 27, 0.7);
 }
 
 .coordinate-info-base {
-  border-color: rgba(125, 211, 252, 0.28);
+  border-color: rgba(74, 168, 255, 0.3);
 }
 
 .coordinate-info-tool {
-  border-color: rgba(249, 115, 22, 0.3);
+  border-color: rgba(255, 106, 26, 0.3);
 }
 
 .coordinate-info-heading {
@@ -118,13 +118,13 @@ function formatValue(value: number): string {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--color-brand-strong);
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+  background: var(--color-info);
+  box-shadow: 0 0 8px rgba(74, 168, 255, 0.55);
 }
 
 .coordinate-info-tool .coordinate-info-dot {
   background: var(--color-accent-orange);
-  box-shadow: 0 0 8px rgba(249, 115, 22, 0.8);
+  box-shadow: 0 0 8px rgba(255, 106, 26, 0.55);
 }
 
 .coordinate-info-values {

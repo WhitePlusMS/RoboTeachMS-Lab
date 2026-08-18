@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
+import type { JointAngles } from '@/robotics/types.ts'
 import type { JointRange } from '@/robotics/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'
 import { JOINT_STEPS } from '@/application/joint-control.ts'
@@ -9,7 +9,6 @@ interface Props {
   joints: JointAngles
   jointRanges: readonly JointRange[]
   jointStep: JointStep
-  pose: PoseDisplay
 }
 
 const props = defineProps<Props>()
@@ -71,10 +70,6 @@ function handleAngleChange(index: number, event: Event): void {
   emit('set-joint', index, Number(input.value))
 }
 
-function formatPoseValue(value: number): string {
-  return value.toFixed(1)
-}
-
 onBeforeUnmount(stopPress)
 </script>
 
@@ -88,57 +83,49 @@ onBeforeUnmount(stopPress)
       <span class="control-status">FK READY</span>
     </div>
 
+    <div class="panel-actions">
+      <button type="button" class="secondary-action" @click="emit('reset')">⌂ 回零</button>
+      <button type="button" class="secondary-action" @click="emit('random')">随机姿态</button>
+    </div>
+
     <div class="joint-list">
       <article v-for="(angle, index) in props.joints" :key="index" class="joint-row">
-        <div class="joint-row-head">
-          <span class="joint-name">J{{ index + 1 }}</span>
-          <button
-            type="button"
-            class="step-button"
-            :aria-label="`J${index + 1} 减小角度`"
-            @pointerdown="startPress(index, -1)"
-            @pointerup="finishPress"
-            @pointerleave="finishPress"
-            @pointercancel="finishPress"
-          >
-            −
-          </button>
-          <input
-            class="angle-input"
-            type="number"
-            step="0.1"
-            :min="props.jointRanges[index][0]"
-            :max="props.jointRanges[index][1]"
-            :value="angle.toFixed(1)"
-            :aria-label="`J${index + 1} 角度输入`"
-            @change="handleAngleChange(index, $event)"
-          />
-          <span class="degree-symbol">°</span>
-          <button
-            type="button"
-            class="step-button"
-            :aria-label="`J${index + 1} 增加角度`"
-            @pointerdown="startPress(index, 1)"
-            @pointerup="finishPress"
-            @pointerleave="finishPress"
-            @pointercancel="finishPress"
-          >
-            +
-          </button>
-          <span class="joint-range"
-            >{{ props.jointRanges[index][0] }}° ~ {{ props.jointRanges[index][1] }}°</span
-          >
-        </div>
+        <span class="joint-name">J{{ index + 1 }}</span>
+        <button
+          type="button"
+          class="step-button"
+          :aria-label="`J${index + 1} 减小角度`"
+          @pointerdown="startPress(index, -1)"
+          @pointerup="finishPress"
+          @pointerleave="finishPress"
+          @pointercancel="finishPress"
+        >
+          −
+        </button>
         <input
-          class="joint-slider"
-          type="range"
+          class="angle-input"
+          type="number"
+          step="0.1"
           :min="props.jointRanges[index][0]"
           :max="props.jointRanges[index][1]"
-          step="0.1"
-          :value="angle"
-          :aria-label="`J${index + 1} 角度滑块`"
-          @input="handleAngleChange(index, $event)"
+          :value="angle.toFixed(1)"
+          :aria-label="`J${index + 1} 角度输入`"
+          @change="handleAngleChange(index, $event)"
         />
+        <button
+          type="button"
+          class="step-button"
+          :aria-label="`J${index + 1} 增加角度`"
+          @pointerdown="startPress(index, 1)"
+          @pointerup="finishPress"
+          @pointerleave="finishPress"
+          @pointercancel="finishPress"
+        >
+          +
+        </button>
+        <span class="joint-range"
+          >{{ props.jointRanges[index][0] }}° ~ {{ props.jointRanges[index][1] }}°</span
+        >
       </article>
     </div>
 
@@ -156,38 +143,6 @@ onBeforeUnmount(stopPress)
       </button>
     </div>
 
-    <div class="panel-actions">
-      <button type="button" class="secondary-action" @click="emit('reset')">回零</button>
-      <button type="button" class="secondary-action" @click="emit('random')">随机姿态</button>
-    </div>
-
-    <div class="pose-card" aria-label="正解结果">
-      <div class="pose-card-title">当前正解末端位姿</div>
-      <div class="pose-grid">
-        <span
-          >P X <strong>{{ formatPoseValue(props.pose.positionMm[0]) }}</strong> mm</span
-        >
-        <span
-          >P Y <strong>{{ formatPoseValue(props.pose.positionMm[1]) }}</strong> mm</span
-        >
-        <span
-          >P Z <strong>{{ formatPoseValue(props.pose.positionMm[2]) }}</strong> mm</span
-        >
-        <span
-          >R X <strong>{{ formatPoseValue(props.pose.orientationDeg[0]) }}</strong
-          >°</span
-        >
-        <span
-          >R Y <strong>{{ formatPoseValue(props.pose.orientationDeg[1]) }}</strong
-          >°</span
-        >
-        <span
-          >R Z <strong>{{ formatPoseValue(props.pose.orientationDeg[2]) }}</strong
-          >°</span
-        >
-      </div>
-    </div>
-
     <p class="panel-hint">点击步进按钮单次调整，按住按钮可连续调整。</p>
   </section>
 </template>
@@ -195,70 +150,68 @@ onBeforeUnmount(stopPress)
 <style scoped>
 .joint-panel {
   display: grid;
-  gap: 16px;
-  padding-top: 4px;
+  gap: 14px;
+  padding: 14px 16px;
 }
 
 .joint-panel h2 {
   color: var(--color-text-strong);
-  font-size: 19px;
-  letter-spacing: -0.03em;
+  font-size: 15px;
+  letter-spacing: -0.02em;
 }
 
 .joint-list {
   display: grid;
-  gap: 13px;
+  gap: 10px;
 }
 
+/* 关节行：J 名 − 值 + 量程（无拖动条）。 */
 .joint-row {
   display: grid;
-  gap: 8px;
-}
-
-.joint-row-head {
-  display: grid;
-  grid-template-columns: 28px 28px minmax(54px, 1fr) 10px 28px auto;
+  grid-template-columns: 24px 30px minmax(0, 1fr) 30px auto;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .joint-name {
-  color: var(--color-brand);
+  color: var(--color-brand-soft);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 700;
+}
+
+.step-button {
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
 }
 
 .angle-input {
   width: 100%;
   min-width: 0;
-  padding: 5px 4px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-xs);
+  padding: 6px 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
   outline: none;
   color: var(--color-text-strong);
-  background: var(--color-surface);
+  background: var(--color-editor);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
 .angle-input:focus {
-  border-color: var(--color-brand-strong);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.16);
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 2px rgba(255, 106, 26, 0.18);
 }
 
 .joint-range {
   color: var(--color-text-dim);
+  font-family: var(--font-mono);
   font-size: 10px;
+  letter-spacing: -0.02em;
   white-space: nowrap;
-}
-
-.joint-slider {
-  width: 100%;
-  height: 5px;
-  accent-color: var(--color-brand-strong);
-  cursor: pointer;
 }
 
 .panel-actions {
@@ -271,15 +224,7 @@ onBeforeUnmount(stopPress)
 .jog-tabpanel > .joint-panel {
   height: 100%;
   min-height: 0;
-  overflow: hidden;
-  gap: 2px;
-}
-
-.jog-tabpanel .joint-list {
-  gap: 4px;
-}
-
-.jog-tabpanel .joint-row {
-  gap: 3px;
+  gap: 10px;
+  align-content: start;
 }
 </style>
