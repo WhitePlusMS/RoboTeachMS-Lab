@@ -15,8 +15,8 @@ interface Props {
   program: readonly RapidExecutableInstruction[]
   /** off-path 时正等待 Clear 确认的运行模式；null 表示当前没有待确认。 */
   pendingClear: 'run' | 'step' | null
-  /** 工作区组合时只显示源码内容或固定控制栏；默认保留独立面板的完整视图。 */
-  display?: 'all' | 'content' | 'actions'
+  /** 工作区组合时只显示源码内容或固定控制栏；transport 供顶栏示教器式运行键组。 */
+  display?: 'all' | 'content' | 'actions' | 'transport'
   /** 从 Program Data 查看引用时，请求源码编辑器定位到对应范围。 */
   focusRange?: RapidSourceRange | null
   /** 每次查看引用递增，即使范围对象相同也必须重新定位。 */
@@ -105,19 +105,55 @@ const errorText = computed(() => {
   <section
     class="program-panel"
     :class="`program-panel-${display}`"
-    aria-labelledby="program-panel-title"
+    :aria-labelledby="display === 'all' ? 'program-panel-title' : undefined"
+    :aria-label="
+      display === 'transport' ? '程序运行控制' : display === 'content' ? 'RAPID 程序' : undefined
+    "
   >
-    <template v-if="display !== 'actions'">
-      <div class="panel-title-row">
+    <!-- 顶栏 transport：示教器式运行键组 + 程序状态丸 + off-path 确认 -->
+    <template v-if="display === 'transport'">
+      <div class="tgroup">
+        <button type="button" class="tkey tkey-run" :disabled="!canRun" @click="emit('run')">
+          <span class="tkey-icon" aria-hidden="true">▶</span>运行
+        </button>
+        <button type="button" class="tkey" :disabled="!canStep" @click="emit('step')">
+          <span class="tkey-icon" aria-hidden="true">⏭</span>单步
+        </button>
+        <button type="button" class="tkey tkey-stop" :disabled="!canStop" @click="emit('stop')">
+          <span class="tkey-icon" aria-hidden="true">■</span>停止
+        </button>
+        <button type="button" class="tkey" :disabled="!canPpToMain" @click="emit('pp')">
+          <span class="tkey-icon" aria-hidden="true">↺</span>PP to Main
+        </button>
+      </div>
+      <span class="control-status" :class="`program-state-${props.snapshot.state}`">
+        {{ stateLabel }}
+      </span>
+      <p v-if="props.snapshot.needsPPtoMain" class="program-hint program-hint-warn transport-hint">
+        停止后源码无法稳定映射当前程序指针：请先执行 PP to Main 以从 main 重新建立执行位置。
+      </p>
+      <p
+        v-else-if="props.snapshot.offPath && !showOffPathConfirm"
+        class="program-hint program-hint-warn transport-hint"
+      >
+        机器人已被手动 Jog，偏离原程序路径：再次运行/单步将从当前位置规划到下一目标。
+      </p>
+      <div v-if="showOffPathConfirm" class="program-clear-confirm" aria-label="偏离路径确认">
+        <p>{{ confirmLabel }}（ABB Clear 语义）。</p>
+        <div class="program-actions">
+          <button type="button" class="primary-action" @click="emit('confirm-clear')">确认</button>
+          <button type="button" class="secondary-action" @click="emit('cancel-clear')">取消</button>
+        </div>
+      </div>
+    </template>
+
+    <template v-if="display === 'all' || display === 'content'">
+      <div v-if="display === 'all'" class="panel-title-row">
         <div>
           <p class="panel-kicker">RAPID SOURCE &amp; RUN</p>
           <h2 id="program-panel-title">RAPID 程序</h2>
         </div>
-        <span
-          v-if="display === 'all'"
-          class="control-status"
-          :class="`program-state-${props.snapshot.state}`"
-        >
+        <span class="control-status" :class="`program-state-${props.snapshot.state}`">
           {{ stateLabel }}
         </span>
       </div>
@@ -154,9 +190,12 @@ const errorText = computed(() => {
         </div>
       </dl>
 
-      <div class="rapid-diagnostics" aria-label="RAPID 诊断">
-        <p v-if="props.snapshot.diagnostics.length === 0">诊断：无</p>
-        <ul v-else>
+      <div
+        v-if="props.snapshot.diagnostics.length > 0"
+        class="rapid-diagnostics"
+        aria-label="RAPID 诊断"
+      >
+        <ul>
           <li
             v-for="(diagnostic, index) in props.snapshot.diagnostics"
             :key="`${diagnostic.range.start.offset}-${index}`"
@@ -166,10 +205,10 @@ const errorText = computed(() => {
           </li>
         </ul>
       </div>
-      <p class="program-error">运动规划错误：{{ errorText }}</p>
+      <p v-if="props.snapshot.error" class="program-error">运动规划错误：{{ errorText }}</p>
     </template>
 
-    <template v-if="display !== 'content'">
+    <template v-if="display === 'all' || display === 'actions'">
       <div class="program-control-footer" aria-label="程序控制栏">
         <div class="panel-title-row">
           <div>
@@ -237,6 +276,14 @@ const errorText = computed(() => {
   background: var(--color-surface-deep);
 }
 
+/* dock 内的 content 模式：去掉面板外壳（边框/底色/圆角），避免与 dock 套娃。 */
+.program-panel-content {
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .program-panel h2 {
   color: var(--color-text-strong);
   font-size: 19px;
@@ -274,21 +321,26 @@ const errorText = computed(() => {
   color: var(--color-danger-soft);
 }
 
+/* 指针读数：无边框 hairline 条带，不再每格一个盒子。 */
 .program-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 0;
   margin: 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .program-stats div {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
+  padding: 8px 2px;
+}
+
+.program-stats div + div {
+  padding-left: 14px;
+  border-left: 1px solid var(--color-border);
 }
 
 .program-stats dt {
@@ -314,10 +366,10 @@ const errorText = computed(() => {
 .program-hint-warn {
   margin: -6px 0 0;
   padding: 8px 10px;
-  border: 1px solid rgba(250, 204, 21, 0.35);
+  border: 1px solid rgba(245, 197, 66, 0.35);
   border-radius: var(--radius-sm);
   color: var(--color-warning-soft);
-  background: rgba(113, 63, 18, 0.18);
+  background: rgba(245, 197, 66, 0.08);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -340,34 +392,55 @@ const errorText = computed(() => {
 
 .program-control-footer .program-hint-warn {
   margin: 0;
-  padding: 6px 8px;
-  font-size: 10px;
+  padding: 7px 9px;
+  font-size: 11px;
 }
 
 .program-control-footer .program-actions {
-  gap: 5px;
+  gap: 6px;
 }
 
 .program-control-footer .primary-action,
 .program-control-footer .secondary-action,
 .program-control-footer .danger-action {
-  padding: 6px 9px;
-  font-size: 11px;
+  padding: 7px 12px;
+  font-size: 12px;
 }
 
 .program-clear-confirm {
   display: grid;
   gap: 5px;
   padding: 7px 9px;
-  border: 1px solid rgba(250, 204, 21, 0.4);
+  border: 1px solid rgba(245, 197, 66, 0.4);
   border-radius: var(--radius-sm);
-  background: rgba(113, 63, 18, 0.18);
+  background: rgba(245, 197, 66, 0.08);
 }
 
 .program-clear-confirm p {
   margin: 0;
   color: var(--color-warning-soft);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
+}
+
+/* 顶栏 transport：去掉面板外壳，仅保留水平键组与状态丸。 */
+.program-panel-transport {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.program-panel-transport .transport-hint {
+  max-width: 360px;
+  margin: 0;
+}
+
+.program-panel-transport .program-clear-confirm {
+  flex-basis: 100%;
 }
 </style>

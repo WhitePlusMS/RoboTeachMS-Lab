@@ -43,9 +43,13 @@ interface Props {
   runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
   /** 唯一受控编辑入口；返回结果以展示结构化拒绝原因。 */
   applyEdit: (command: RapidEditCommand) => RapidEditResult
+  /** dock 内 content 模式不渲染自带标题行（dock 头部已显示「程序数据」）。 */
+  display?: 'all' | 'content'
 }
 
 const props = defineProps<Props>()
+
+const display = computed(() => props.display ?? 'all')
 
 const emit = defineEmits<{
   'view-reference': [range: RapidSourceRange]
@@ -91,6 +95,29 @@ const renaming = ref(false)
 const renameValue = ref('')
 const editError = ref<string | null>(null)
 const insertionIndex = ref<number | null>(null)
+
+/** 删除二次确认：armed 后 3 秒未确认或切换选中/视图即复原。 */
+const deleteArmed = ref(false)
+let deleteArmTimer: number | null = null
+
+function disarmDelete(): void {
+  deleteArmed.value = false
+  if (deleteArmTimer !== null) {
+    window.clearTimeout(deleteArmTimer)
+    deleteArmTimer = null
+  }
+}
+
+function armDelete(): void {
+  disarmDelete()
+  deleteArmed.value = true
+  deleteArmTimer = window.setTimeout(() => {
+    deleteArmed.value = false
+    deleteArmTimer = null
+  }, 3000)
+}
+
+watch([selectedName, panelView], disarmDelete)
 
 const robtargetEntries = computed(() => props.data.filter(isRobtargetProgramData))
 
@@ -258,6 +285,12 @@ function commitRename(): void {
 function deleteTarget(): void {
   const target = selectedTarget.value
   if (!target) return
+  // 二次确认：第一次点击进入确认态，再次点击才提交受控删除。
+  if (!deleteArmed.value) {
+    armDelete()
+    return
+  }
+  disarmDelete()
   runEdit({ type: 'delete-target', name: target.name })
 }
 
@@ -409,8 +442,12 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 </script>
 
 <template>
-  <section class="program-data-panel" aria-labelledby="program-data-title">
-    <div class="panel-title-row">
+  <section
+    class="program-data-panel"
+    :aria-labelledby="display !== 'content' ? 'program-data-title' : undefined"
+    :aria-label="display === 'content' ? '程序数据' : undefined"
+  >
+    <div v-if="display !== 'content'" class="panel-title-row">
       <div>
         <p class="panel-kicker">PROGRAM DATA</p>
         <h2 id="program-data-title">程序数据</h2>
@@ -423,12 +460,8 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
       </span>
     </div>
 
-    <p class="program-data-hint">
-      {{
-        props.canExecute
-          ? 'RAPID 模块 · 按数据类型浏览运动数据'
-          : '源程序存在错误：仅只读浏览，已禁用结构化编辑与运行。'
-      }}
+    <p v-if="!props.canExecute" class="program-data-hint">
+      源程序存在错误：仅只读浏览，已禁用结构化编辑与运行。
     </p>
     <p v-if="editError" class="program-data-error">{{ editError }}</p>
     <p v-if="selectedReadonly" class="program-data-hint">
@@ -457,7 +490,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
       }}</span>
       <span>目标 {{ activeOperandNames.target || '—' }}</span>
       <span>速度 {{ activeOperandNames.speed || '—' }}</span>
-      <span>zone {{ activeOperandNames.zone || '—' }}</span>
+      <span>转弯区 {{ activeOperandNames.zone || '—' }}</span>
       <span>工具 {{ activeOperandNames.tool || '—' }}</span>
       <span v-if="activeOperandNames.wobj">工件 {{ activeOperandNames.wobj }}</span>
       <span v-if="activeZoneFlyBy" class="program-data-flyby-hint">fly-by：MVP 未模拟路径融合</span>
@@ -680,7 +713,14 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
             <button v-else type="button" class="secondary-action" @click="startRename">
               重命名
             </button>
-            <button type="button" class="danger-action" @click="deleteTarget">删除</button>
+            <button
+              type="button"
+              class="danger-action"
+              :class="{ 'delete-armed': deleteArmed }"
+              @click="deleteTarget"
+            >
+              {{ deleteArmed ? '确认删除？' : '删除' }}
+            </button>
           </div>
         </div>
       </template>
@@ -784,10 +824,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 .program-data-panel {
   display: grid;
   gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-deep);
+  padding: 14px 16px;
 }
 
 .program-data-panel h2 {
@@ -822,21 +859,25 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 }
 
 .program-data-kind-tab {
-  padding: 4px 8px;
+  padding: 5px 10px;
   border: 1px solid var(--color-border-kind);
   border-radius: var(--radius-sm);
   color: var(--color-text-faint);
   background: var(--color-surface-raised);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.program-data-kind-tab:hover,
+.program-data-kind-tab:hover {
+  border-color: var(--color-brand);
+  color: var(--color-text-strong);
+}
+
 .program-data-kind-tab.active {
-  border-color: rgba(56, 189, 248, 0.6);
+  border-color: var(--color-brand);
   color: var(--color-brand-soft);
-  background: rgba(14, 116, 144, 0.4);
+  background: var(--color-brand-dim);
 }
 
 .program-data-active {
@@ -844,12 +885,12 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 7px 10px;
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 106, 26, 0.25);
   border-radius: var(--radius-md);
-  background: rgba(14, 116, 144, 0.18);
+  background: rgba(255, 106, 26, 0.08);
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: 8px;
 }
 
@@ -885,12 +926,12 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: var(--color-editor);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .program-data-filter:focus {
   border-color: var(--color-brand-strong);
-  outline: 2px solid rgba(56, 189, 248, 0.18);
+  outline: 2px solid rgba(255, 106, 26, 0.18);
   outline-offset: 1px;
 }
 
@@ -898,9 +939,9 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
   display: grid;
   gap: 7px;
   padding: 9px;
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(255, 106, 26, 0.2);
   border-radius: var(--radius-md);
-  background: rgba(12, 74, 110, 0.12);
+  background: rgba(255, 106, 26, 0.07);
 }
 
 .program-data-teach-heading {
@@ -912,7 +953,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 
 .program-data-teach-title {
   margin: 0;
-  color: var(--color-brand);
+  color: var(--color-text-strong);
   font-size: 12px;
   font-weight: 700;
 }
@@ -921,7 +962,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
   margin: 0;
   color: var(--color-text-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .program-data-teach-row {
@@ -943,7 +984,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 }
 
 .program-data-name-input:focus {
-  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline: 2px solid rgba(255, 106, 26, 0.55);
   outline-offset: 1px;
 }
 
@@ -970,24 +1011,24 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 }
 
 .program-data-item.selected {
-  border-color: rgba(56, 189, 248, 0.7);
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16);
+  border-color: rgba(255, 106, 26, 0.7);
+  box-shadow: 0 0 0 1px rgba(255, 106, 26, 0.16);
 }
 
 .program-data-item.active,
 .program-data-item.active:hover {
-  border-color: rgba(250, 204, 21, 0.65);
-  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.22);
-  background: rgba(250, 204, 21, 0.05);
+  border-color: rgba(245, 197, 66, 0.65);
+  box-shadow: 0 0 0 1px rgba(245, 197, 66, 0.22);
+  background: rgba(245, 197, 66, 0.05);
 }
 
 .program-data-row {
   display: grid;
-  grid-template-columns: minmax(70px, 0.7fr) auto minmax(110px, 1.5fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   width: 100%;
   min-width: 0;
-  gap: 7px;
+  gap: 8px;
   padding: 9px 10px;
   border: 0;
   color: var(--color-text-muted);
@@ -998,7 +1039,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 
 .program-data-row:hover,
 .program-data-row:focus-visible {
-  background: rgba(14, 116, 144, 0.2);
+  background: rgba(255, 106, 26, 0.2);
   outline: none;
 }
 
@@ -1015,33 +1056,32 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 
 .program-data-row-coord {
   min-width: 0;
-  overflow: hidden;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .program-data-label {
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .program-data-storage {
   color: var(--color-warning-soft);
-  background: rgba(113, 63, 18, 0.28);
+  background: rgba(245, 197, 66, 0.1);
 }
 
 .program-data-references {
   color: var(--color-brand);
-  background: rgba(12, 74, 110, 0.28);
+  background: var(--color-brand-dim);
 }
 
 .program-data-system {
   color: var(--color-warning-strong);
-  border-color: rgba(251, 191, 36, 0.4);
+  border-color: rgba(245, 197, 66, 0.4);
 }
 
 .program-data-empty {
@@ -1067,7 +1107,7 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
   padding: 10px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-md);
-  background: rgba(11, 18, 32, 0.98);
+  background: rgba(20, 23, 28, 0.98);
   box-shadow: 0 -10px 24px rgba(2, 6, 23, 0.28);
 }
 
@@ -1100,13 +1140,13 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 }
 
 .program-data-selection-toggle {
-  padding: 3px 7px;
+  padding: 4px 8px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-xs);
   color: var(--color-text-faint);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .program-data-selection-toggle:hover,
@@ -1123,13 +1163,13 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 }
 
 .program-data-reference-link {
-  padding: 4px 7px;
+  padding: 5px 8px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-xs);
   color: var(--color-brand);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .program-data-reference-link:hover,
@@ -1152,9 +1192,9 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
 }
 
 .program-data-selection {
-  flex: 0 1 42%;
+  flex: 0 1 56%;
   min-height: 0;
-  max-height: 42%;
+  max-height: 56%;
   overflow-y: auto;
 }
 
@@ -1175,29 +1215,36 @@ function readonlyFields(entry: RapidProgramData): Array<[string, string]> {
   flex: 1 1 140px;
 }
 
+/* 删除二次确认：armed 态高亮警示。 */
+.danger-action.delete-armed {
+  border-color: var(--color-danger-strong);
+  color: var(--color-text-strong);
+  background: var(--color-danger-hover-bg);
+}
+
 .program-data-share-warning {
   flex-basis: 100%;
   margin: 0;
   color: var(--color-warning);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .program-data-insert-position {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--color-text-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .program-data-insert-position select {
-  max-width: 150px;
-  padding: 5px;
+  max-width: 240px;
+  padding: 6px 8px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-xs);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   background: var(--color-editor);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .program-data-actions {

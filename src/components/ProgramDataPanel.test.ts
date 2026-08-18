@@ -262,7 +262,7 @@ describe('ProgramDataPanel 点位详情与受控编辑', () => {
     })
   })
 
-  it('受控删除被拒绝时保留详情和结构化错误', async () => {
+  it('受控删除被拒绝时保留详情和结构化错误（二次确认后提交）', async () => {
     const wrapper = mountPanel({
       data: DEFAULT_PARSED.data,
       applyEdit: () => ({
@@ -278,9 +278,16 @@ describe('ProgramDataPanel 点位详情与受控编辑', () => {
       .findAll('button')
       .find((button) => button.text() === '编辑数据')!
       .trigger('click')
+    // 第一次点击仅进入确认态，不提交删除。
     await wrapper
       .findAll('button')
       .find((button) => button.text() === '删除')!
+      .trigger('click')
+    expect(wrapper.text()).not.toContain('不能删除')
+    // 再次点击确认才真正提交受控删除。
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '确认删除？')!
       .trigger('click')
     expect(wrapper.text()).toContain('不能删除')
     expect(wrapper.findAll('[aria-label="点位详情"]')).toHaveLength(1)

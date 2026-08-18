@@ -140,15 +140,15 @@ const kindLabel = computed(() => {
           <dd>{{ motionInstruction.operands.speed }}</dd>
         </div>
         <div>
-          <dt>zone</dt>
+          <dt>转弯区</dt>
           <dd>{{ motionInstruction.operands.zone }}</dd>
         </div>
         <div>
-          <dt>tool</dt>
+          <dt>工具</dt>
           <dd>{{ motionInstruction.operands.tool }}</dd>
         </div>
         <div>
-          <dt>wobj</dt>
+          <dt>工件</dt>
           <dd>{{ motionInstruction.operands.wobj }}</dd>
         </div>
       </dl>
@@ -231,7 +231,7 @@ const kindLabel = computed(() => {
 }
 
 .rapid-source-editor:focus {
-  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline: 2px solid rgba(255, 106, 26, 0.55);
   outline-offset: 1px;
 }
 
@@ -276,19 +276,19 @@ const kindLabel = computed(() => {
 }
 
 .source-line.pp-line {
-  color: var(--color-editor);
-  background: var(--color-brand-strong);
+  color: var(--color-on-brand);
+  background: var(--color-pp);
   font-weight: 700;
 }
 
 .source-line.mp-line {
-  color: var(--color-editor);
+  color: var(--color-on-brand);
   background: var(--color-orange);
   font-weight: 700;
 }
 
 .source-line.both-line {
-  background: linear-gradient(90deg, var(--color-orange) 0 50%, var(--color-brand-strong) 50% 100%);
+  background: linear-gradient(90deg, var(--color-orange) 0 50%, var(--color-pp) 50% 100%);
 }
 
 .source-line.diagnostic-line {
@@ -310,9 +310,9 @@ const kindLabel = computed(() => {
 
 .instruction-summary {
   padding: 10px 12px;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  background: var(--color-surface-deep);
 }
 
 .instruction-summary-empty {
@@ -323,7 +323,7 @@ const kindLabel = computed(() => {
 
 .instruction-summary-fields {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px 12px;
   margin: 0;
 }
@@ -332,16 +332,23 @@ const kindLabel = computed(() => {
   display: flex;
   align-items: baseline;
   gap: 6px;
+  min-width: 0;
 }
 
 .instruction-summary-fields dt {
+  flex: 0 0 auto;
   color: var(--color-text-dim);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .instruction-summary-fields dd {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   color: var(--color-text);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
