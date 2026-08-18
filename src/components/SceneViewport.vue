@@ -1,20 +1,30 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { JointAngles } from '@/robotics/types.ts'
-import { createAbbScene, type AbbSceneController, type AbbSceneStatus } from '@/scene/abb-scene.ts'
+import {
+  createAbbScene,
+  type AbbRobTargetMarker,
+  type AbbSceneController,
+  type AbbSceneStatus,
+} from '@/scene/abb-scene.ts'
 
-const props = defineProps<{
-  joints: JointAngles
-  showGrid: boolean
-  showCoordinateSystems: boolean
-  showDhDebug: boolean
-  showTrajectory: boolean
-  trajectoryCount: number
-  /** 领域层「当前活动工具」坐标系的世界位置（场景米）；null 不显示。 */
-  activeToolFrame?: [number, number, number] | null
-  /** 领域层「当前工件坐标」坐标系的世界位置（场景米）；null 不显示。 */
-  activeWobjFrame?: [number, number, number] | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    joints: JointAngles
+    showGrid: boolean
+    showCoordinateSystems: boolean
+    showDhDebug: boolean
+    showTrajectory: boolean
+    trajectoryCount: number
+    /** RAPID 源码解析出的 robtarget 空间标记（ABB 基座坐标，毫米）。 */
+    robtargets?: readonly AbbRobTargetMarker[]
+    showRobtargets?: boolean
+  }>(),
+  {
+    robtargets: () => [],
+    showRobtargets: true,
+  },
+)
 
 const emit = defineEmits<{
   status: [value: AbbSceneStatus]
@@ -23,6 +33,7 @@ const emit = defineEmits<{
   'dh-debug-change': [value: boolean]
   'trajectory-change': [value: boolean]
   'trajectory-count': [value: number]
+  'robtargets-change': [value: boolean]
 }>()
 
 const viewport = ref<HTMLDivElement | null>(null)
@@ -41,6 +52,8 @@ onMounted(() => {
       showTrajectory: props.showTrajectory,
     })
     controller.setJoints(props.joints)
+    controller.setRobTargets(props.robtargets)
+    controller.setRobTargetsVisible(props.showRobtargets)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     sceneError.value = message.includes('WebGL')
@@ -72,14 +85,15 @@ watch(
   },
 )
 
-// 领域层提供的活动 Tool/WObj 坐标系显示；position 已经是场景米。
 watch(
-  () => props.activeToolFrame,
-  (position) => controller?.setActiveToolFrame(position ?? null),
+  () => props.robtargets,
+  (robtargets) => controller?.setRobTargets(robtargets),
+  { deep: true },
 )
+
 watch(
-  () => props.activeWobjFrame,
-  (position) => controller?.setActiveWobjFrame(position ?? null),
+  () => props.showRobtargets,
+  (visible) => controller?.setRobTargetsVisible(visible),
 )
 
 onBeforeUnmount(() => {
@@ -135,6 +149,14 @@ onBeforeUnmount(() => {
       </button>
       <button
         type="button"
+        :class="['scene-aux-button', { active: props.showRobtargets }]"
+        :aria-pressed="props.showRobtargets"
+        @click="emit('robtargets-change', !props.showRobtargets)"
+      >
+        点位
+      </button>
+      <button
+        type="button"
         class="scene-aux-button scene-aux-clear"
         :disabled="props.trajectoryCount === 0"
         @click="clearTrajectory"
@@ -170,7 +192,7 @@ onBeforeUnmount(() => {
   padding: 24px;
   color: var(--color-text-muted);
   text-align: center;
-  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.94), var(--color-scene-bg) 72%);
+  background: radial-gradient(circle at center, rgba(35, 39, 47, 0.94), var(--color-scene-bg) 72%);
 }
 
 .scene-webgl-fallback strong {
@@ -198,21 +220,26 @@ onBeforeUnmount(() => {
 }
 
 .scene-aux-button {
-  padding: 6px 9px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  padding: 7px 11px;
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  background: rgba(15, 23, 42, 0.82);
+  background: rgba(20, 22, 27, 0.82);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
   backdrop-filter: blur(8px);
 }
 
-.scene-aux-button:hover,
+.scene-aux-button:hover {
+  border-color: var(--color-brand);
+  color: var(--color-text-strong);
+  background: rgba(39, 44, 54, 0.85);
+}
+
 .scene-aux-button.active {
-  border-color: var(--color-brand-strong);
+  border-color: var(--color-brand);
   color: var(--color-brand-soft);
-  background: rgba(14, 116, 144, 0.75);
+  background: var(--color-brand-dim);
 }
 
 .scene-aux-button:disabled {
@@ -221,7 +248,7 @@ onBeforeUnmount(() => {
 }
 
 .scene-aux-clear {
-  border-color: rgba(251, 191, 36, 0.5);
+  border-color: rgba(245, 197, 66, 0.5);
 }
 
 .scene-trajectory-count {
@@ -230,10 +257,11 @@ onBeforeUnmount(() => {
   top: 14px;
   z-index: 2;
   padding: 6px 9px;
-  border: 1px solid rgba(249, 115, 22, 0.45);
+  border: 1px solid var(--color-brand);
   border-radius: var(--radius-sm);
-  color: var(--color-orange-soft);
-  background: rgba(124, 45, 18, 0.75);
+  color: var(--color-brand-soft);
+  background: rgba(20, 22, 27, 0.82);
+  backdrop-filter: blur(8px);
   font-family: var(--font-mono);
   font-size: 10px;
 }

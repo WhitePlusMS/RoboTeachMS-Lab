@@ -3,7 +3,6 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import type { JointAngles } from '@/robotics/types.ts'
 import { ABB_DEFAULT_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
-import { createFrameAxes } from './scene-helpers.ts'
 import {
   createBaseScene,
   createSceneController,
@@ -38,6 +37,12 @@ export const ABB_JOINT_AXES: Record<(typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number]
 
 export type AbbSceneStatus = 'loading' | 'ready' | 'error'
 
+/** robtarget 空间标记：ABB 基座坐标（毫米）的命名点位。 */
+export interface AbbRobTargetMarker {
+  name: string
+  position: readonly [number, number, number]
+}
+
 export interface AbbSceneOptions {
   onStatus?: (status: AbbSceneStatus) => void
   onTrajectoryCount?: (count: number) => void
@@ -53,11 +58,10 @@ export interface AbbSceneController {
   setCoordinateSystemsVisible: (visible: boolean) => void
   setDhDebugVisible: (visible: boolean) => void
   setTrajectoryVisible: (visible: boolean) => void
+  /** 重建 robtarget 空间标记（小球 + 名称标签）；位置为 ABB 基座坐标（毫米）。 */
+  setRobTargets: (targets: readonly AbbRobTargetMarker[]) => void
+  setRobTargetsVisible: (visible: boolean) => void
   clearTrajectory: () => void
-  /** 在场景（米）位置显示/隐藏“当前活动工具”坐标系框；null 隐藏。 */
-  setActiveToolFrame: (position: [number, number, number] | null) => void
-  /** 在场景（米）位置显示/隐藏“当前工件坐标”坐标系框；null 隐藏。 */
-  setActiveWobjFrame: (position: [number, number, number] | null) => void
   dispose: () => void
 }
 
@@ -192,6 +196,54 @@ export function createAbbBenchmarkScene(): THREE.Scene {
   return createBaseScene(ABB_DISPLAY)
 }
 
+/** robtarget 空间标记：小球 + canvas 文字标签，随 setRobTargets 全量重建。 */
+const ROBTARGET_SPHERE_RADIUS = 0.02
+const ROBTARGET_LABEL_HEIGHT = 0.07
+
+function createRobTargetLabel(name: string): THREE.Sprite {
+  const font = '600 52px ui-monospace, SFMono-Regular, Consolas, monospace'
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  if (!context) return new THREE.Sprite()
+  context.font = font
+  const textWidth = Math.ceil(context.measureText(name).width)
+  canvas.width = textWidth + 48
+  canvas.height = 80
+  context.font = font
+  context.fillStyle = 'rgba(14, 16, 19, 0.82)'
+  context.strokeStyle = '#333a44'
+  context.beginPath()
+  context.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12)
+  context.fill()
+  context.stroke()
+  context.fillStyle = '#e8eaee'
+  context.textBaseline = 'middle'
+  context.fillText(name, 24, canvas.height / 2 + 2)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }))
+  sprite.scale.set(
+    (canvas.width / canvas.height) * ROBTARGET_LABEL_HEIGHT,
+    ROBTARGET_LABEL_HEIGHT,
+    1,
+  )
+  return sprite
+}
+
+function disposeRobTargetMarkers(group: THREE.Group): void {
+  for (const child of [...group.children]) {
+    group.remove(child)
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose()
+      ;(child.material as THREE.Material).dispose()
+    } else if (child instanceof THREE.Sprite) {
+      child.material.map?.dispose()
+      child.material.dispose()
+    }
+  }
+}
+
 export function createAbbScene(
   container: HTMLElement,
   options: AbbSceneOptions = {},
@@ -203,9 +255,41 @@ export function createAbbScene(
   const dhDebugChain = createAbbDhDebugChain()
   dhDebugChain.group.visible = showDhDebug
 
-  // ABB 专属：活动 Tool/WObj 坐标系框，由共享工具轴挂载时一并创建。
-  let activeToolFrame: THREE.Group | null = null
-  let activeWobjFrame: THREE.Group | null = null
+  // robtarget 空间标记：与 FBX 视觉一致，ABB 基座 Z 向上叠加坡座（dizuo）支架高度。
+  const robTargetGroup = new THREE.Group()
+  robTargetGroup.name = 'ABB_RobTarget_Markers'
+  let robTargetBaseHeightMm = 0
+  let robTargetList: readonly AbbRobTargetMarker[] = []
+
+  function rebuildRobTargets(): void {
+    disposeRobTargetMarkers(robTargetGroup)
+    robTargetList.forEach((target, index) => {
+      const [x, y, z] = target.position
+      // ABB 基座坐标（毫米，Z 上）→ 场景坐标（米，Y 上），与 FK 显示闭环同一转换。
+      const scenePosition = new THREE.Vector3(
+        x * 0.001,
+        (z + robTargetBaseHeightMm) * 0.001,
+        -y * 0.001,
+      )
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(ROBTARGET_SPHERE_RADIUS, 20, 14),
+        new THREE.MeshStandardMaterial({
+          color: 0xff6a1a,
+          emissive: 0xff6a1a,
+          emissiveIntensity: 0.55,
+          metalness: 0.2,
+          roughness: 0.5,
+        }),
+      )
+      sphere.position.copy(scenePosition)
+      const label = createRobTargetLabel(target.name)
+      label.position.copy(scenePosition)
+      // 标签按序号上下交错，避免邻近点位的标签相互遮挡。
+      const labelGap = ROBTARGET_SPHERE_RADIUS + ROBTARGET_LABEL_HEIGHT * 0.7
+      label.position.y += index % 2 === 0 ? labelGap : -labelGap
+      robTargetGroup.add(sphere, label)
+    })
+  }
 
   const { controller, runtime } = createSceneController(container, {
     display: ABB_DISPLAY,
@@ -226,50 +310,34 @@ export function createAbbScene(
     skipFirstTrajectorySample: true,
     onModelReady: (model) => {
       const fbxBaseHeightMm = model.userData.fbxBaseHeightMm
-      if (typeof fbxBaseHeightMm === 'number') dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
+      if (typeof fbxBaseHeightMm === 'number') {
+        dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
+        robTargetBaseHeightMm = fbxBaseHeightMm
+        rebuildRobTargets()
+      }
       console.info(
         '[AbbScene] ABB FBX 加载完成：底座=dizuo，主动轴=joint1..joint6，机械法兰=joint6，工具=joint7',
       )
     },
     onJointUpdated: (joints) => dhDebugChain.update(joints),
-    onToolAxesAttached: (_toolAxes, sceneRuntime) => {
-      if (!activeToolFrame) {
-        activeToolFrame = createFrameAxes('ActiveToolFrameHelper')
-        activeToolFrame.visible = false
-        sceneRuntime.scene.add(activeToolFrame)
-      }
-      if (!activeWobjFrame) {
-        activeWobjFrame = createFrameAxes('ActiveWobjFrameHelper')
-        activeWobjFrame.visible = false
-        sceneRuntime.scene.add(activeWobjFrame)
-      }
-    },
+    onDispose: () => disposeRobTargetMarkers(robTargetGroup),
   })
 
   dhDebugChain.group.visible = showDhDebug
   runtime.scene.add(dhDebugChain.group)
-
-  /** 把领域层给出的（场景米）活动 Tool/WObj 坐标系框移动到该位置并显示；null 隐藏。 */
-  function setActiveFrameAt(
-    group: THREE.Group | null,
-    position: [number, number, number] | null,
-  ): void {
-    if (!group) return
-    if (!position) {
-      group.visible = false
-      return
-    }
-    group.position.set(position[0], position[1], position[2])
-    group.quaternion.set(0, 0, 0, 1) // 领域层只给出原点位置；轴方向沿用世界朝向（示意）。
-    group.visible = runtime.coordinateSystemsVisible
-  }
+  runtime.scene.add(robTargetGroup)
 
   return {
     ...controller,
     setDhDebugVisible: (visible: boolean) => {
       dhDebugChain.group.visible = visible
     },
-    setActiveToolFrame: (position) => setActiveFrameAt(activeToolFrame, position),
-    setActiveWobjFrame: (position) => setActiveFrameAt(activeWobjFrame, position),
+    setRobTargets: (targets: readonly AbbRobTargetMarker[]) => {
+      robTargetList = targets
+      rebuildRobTargets()
+    },
+    setRobTargetsVisible: (visible: boolean) => {
+      robTargetGroup.visible = visible
+    },
   }
 }

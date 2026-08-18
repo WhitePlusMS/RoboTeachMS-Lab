@@ -69,8 +69,6 @@ export interface SceneFactoryConfig {
   onModelReady?: (model: THREE.Group, runtime: SceneRuntime) => void
   /** 回退几何挂载后调用（如 KUKA 对回退 Pivot 施加关节并通知 onModel(null)）。 */
   onModelFallback?: (fallback: THREE.Group, runtime: SceneRuntime) => void
-  /** 工具轴对象挂载后调用（如 ABB 同时创建活动 Tool/WObj 坐标系框）。 */
-  onToolAxesAttached?: (toolAxes: THREE.Group, runtime: SceneRuntime) => void
   /** 目标关节变化后调用（如 ABB 同步 DH 参考链、KUKA 同步 RobotModel）。 */
   onJointUpdated?: (joints: JointAngles, runtime: SceneRuntime) => void
   onDispose?: (runtime: SceneRuntime) => void
@@ -283,7 +281,6 @@ export function createSceneController(
     toolAxes = createToolAxes()
     toolAxes.visible = shared.coordinateSystemsVisible
     scene.add(toolAxes)
-    config.onToolAxesAttached?.(toolAxes, runtime)
   }
 
   const updateToolAxes = (): void => {

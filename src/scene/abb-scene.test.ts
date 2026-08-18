@@ -13,7 +13,6 @@ import {
   findNode,
   prepareAbbModel,
 } from './abb-scene.ts'
-import { createFrameAxes } from './scene-helpers.ts'
 import { extractAbbFbxCalibration } from './abb-fbx-calibration.ts'
 
 describe('ABB IRB 1200 FBX 场景适配器', () => {
@@ -123,13 +122,5 @@ describe('ABB IRB 1200 FBX 场景适配器', () => {
     expect(scene.getObjectByName('ABB_Benchmark_Workbench')).not.toBeNull()
     expect(scene.getObjectByName('Ground_Grid')).not.toBeNull()
     expect(scene.getObjectByName('BaseAxesHelper')).not.toBeNull()
-  })
-
-  it('活动 Tool/WObj 坐标系框是可命名、随版本坐标轴三色的 THREE.Group（票据 05）', () => {
-    const frame = createFrameAxes('ActiveToolFrameHelper')
-    expect(frame.name).toBe('ActiveToolFrameHelper')
-    expect(frame.type).toBe('Group')
-    expect(frame.visible).toBe(true)
-    expect(frame.children.length).toBeGreaterThan(0)
   })
 })

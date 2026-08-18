@@ -75,8 +75,3 @@ export function createBaseAxes(): THREE.Group {
 export function createToolAxes(): THREE.Group {
   return createAxes('ToolAxesHelper', TOOL_AXES_CONFIG)
 }
-
-/** 领域层给出的活动 Tool/WObj 坐标显示框；与工具轴同尺寸，供选中时指示对应坐标系。 */
-export function createFrameAxes(name: string): THREE.Group {
-  return createAxes(name, TOOL_AXES_CONFIG)
-}
