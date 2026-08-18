@@ -34,6 +34,12 @@ async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Prom
   }
 }
 
+/** 新边栏语义：Jog 控件在最右窄边栏的 Jog 功能面板里，先展开再操作。 */
+async function openJogPanel(page: Parameters<typeof test>[0]['page']): Promise<void> {
+  const jogTab = page.getByRole('tab', { name: '手动 Jog' })
+  if ((await jogTab.getAttribute('aria-selected')) !== 'true') await jogTab.click()
+}
+
 async function setJoints(
   page: Parameters<typeof test>[0]['page'],
   joints: JointAngles,
@@ -365,6 +371,7 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     expect(pageErrors).toEqual([])
 
     const j1 = page.getByRole('spinbutton', { name: 'J1 角度输入' })
+    await openJogPanel(page)
     await j1.fill('30')
     await j1.press('Tab')
     await expect(j1).toHaveValue('30.0')
@@ -417,6 +424,7 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
   test('验证页面位姿与 ABB DH 正解闭环', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByText('场景已就绪')).toBeVisible({ timeout: 15_000 })
+    await openJogPanel(page)
 
     const samples: JointAngles[] = [
       [0, 0, 0, 0, 0, 0],
@@ -487,6 +495,7 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
   test('World 单次位移与 Tool 长按均保持 TCP 直线轨迹', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByText('场景已就绪')).toBeVisible({ timeout: 15_000 })
+    await openJogPanel(page)
     await setJoints(page, [15, -20, 30, 10, 25, -15])
     await page.getByRole('tab', { name: '笛卡尔' }).click()
 

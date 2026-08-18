@@ -202,13 +202,12 @@ ENDMODULE`)
     await stepButton.click()
     await expect(statusLabel(page)).toHaveText('已停止', { timeout: 10_000 })
     await expect(page.locator('[aria-label="选择 num count"]')).toContainText('初值 0 · 当前 1')
-    await dataTab.click()
+    // 新边栏语义下重复点击当前功能会收起面板：视图保持在 Program Data，直接切数据类型页签。
     await page.getByRole('tab', { name: 'bool' }).click()
     await stepButton.click()
     await expect(page.locator('[aria-label="选择 bool enabled"]')).toContainText(
       '初值 FALSE · 当前 TRUE',
     )
-    await dataTab.click()
     await stepButton.click()
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('3')
     await expect(programStats(page).locator('dd').nth(1)).toHaveText('—')
