@@ -3,6 +3,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import type { JointAngles } from '@/robotics/types.ts'
 import { ABB_DEFAULT_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
+import { abbScene } from '@/theme/scene.ts'
 import {
   createBaseScene,
   createSceneController,
@@ -148,12 +149,12 @@ function createFallbackRobot(): THREE.Group {
   root.name = 'ABB_Fallback_Robot'
 
   const darkMaterial = new THREE.MeshStandardMaterial({
-    color: 0x343b48,
+    color: abbScene.fallbackDark,
     metalness: 0.6,
     roughness: 0.35,
   })
   const yellowMaterial = new THREE.MeshStandardMaterial({
-    color: 0xf59e0b,
+    color: abbScene.fallbackYellow,
     metalness: 0.35,
     roughness: 0.5,
   })
@@ -227,13 +228,13 @@ function createRobTargetLabel(name: string): THREE.Sprite {
   canvas.width = textWidth + 48
   canvas.height = 80
   context.font = font
-  context.fillStyle = 'rgba(14, 16, 19, 0.82)'
-  context.strokeStyle = '#333a44'
+  context.fillStyle = abbScene.labelBackground
+  context.strokeStyle = abbScene.labelBorder
   context.beginPath()
   context.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 12)
   context.fill()
   context.stroke()
-  context.fillStyle = '#e8eaee'
+  context.fillStyle = abbScene.labelText
   context.textBaseline = 'middle'
   context.fillText(name, 24, canvas.height / 2 + 2)
 
@@ -293,8 +294,8 @@ export function createAbbScene(
       const sphere = new THREE.Mesh(
         new THREE.SphereGeometry(style.radius, 20, 14),
         new THREE.MeshStandardMaterial({
-          color: 0xff6a1a,
-          emissive: 0xff6a1a,
+          color: abbScene.robTarget,
+          emissive: abbScene.robTarget,
           emissiveIntensity: style.emissiveIntensity,
           metalness: 0.2,
           roughness: 0.5,

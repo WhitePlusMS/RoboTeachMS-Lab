@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { sceneEnvironment } from '@/theme/scene.ts'
 
 interface AxesConfig {
   length: number
@@ -32,9 +33,9 @@ function createAxes(name: string, config: AxesConfig): THREE.Group {
 
   const up = new THREE.Vector3(0, 1, 0)
   const axes = [
-    { direction: new THREE.Vector3(1, 0, 0), color: 0xff0000 },
-    { direction: new THREE.Vector3(0, 1, 0), color: 0x00ff00 },
-    { direction: new THREE.Vector3(0, 0, 1), color: 0x0000ff },
+    { direction: new THREE.Vector3(1, 0, 0), color: sceneEnvironment.axisX },
+    { direction: new THREE.Vector3(0, 1, 0), color: sceneEnvironment.axisY },
+    { direction: new THREE.Vector3(0, 0, 1), color: sceneEnvironment.axisZ },
   ]
 
   axes.forEach(({ direction, color }) => {
@@ -59,7 +60,7 @@ function createAxes(name: string, config: AxesConfig): THREE.Group {
   })
 
   const originMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffff00,
+    color: sceneEnvironment.axisOrigin,
     depthTest: false,
     toneMapped: false,
   })

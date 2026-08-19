@@ -8,6 +8,7 @@ import {
   DEFAULT_TRAJECTORY_LIMIT,
   type ScenePoint,
 } from './trajectory.ts'
+import { sceneEnvironment } from '@/theme/scene.ts'
 
 export type SceneStatus = 'loading' | 'ready' | 'error'
 
@@ -100,12 +101,12 @@ export function findNode(root: THREE.Object3D, name: string): THREE.Object3D | n
 /** 创建不依赖渲染器的工作台 + 地面网格 + 世界坐标轴 + 灯光基准场景树。 */
 export function createBaseScene(display: SceneDisplayConfig): THREE.Scene {
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x101827)
+  scene.background = new THREE.Color(sceneEnvironment.background)
 
   const workbench = new THREE.Group()
   workbench.name = display.bench.name
   const topMaterial = new THREE.MeshStandardMaterial({
-    color: 0xd5d9df,
+    color: sceneEnvironment.workbenchTop,
     metalness: 0.25,
     roughness: 0.75,
   })
@@ -114,7 +115,7 @@ export function createBaseScene(display: SceneDisplayConfig): THREE.Scene {
   top.receiveShadow = true
   workbench.add(top)
   const frameMaterial = new THREE.MeshStandardMaterial({
-    color: 0x667085,
+    color: sceneEnvironment.workbenchFrame,
     metalness: 0.45,
     roughness: 0.55,
   })
@@ -124,7 +125,12 @@ export function createBaseScene(display: SceneDisplayConfig): THREE.Scene {
   workbench.add(frame)
   scene.add(workbench)
 
-  const grid = new THREE.GridHelper(display.gridSize, 32, 0x64748b, 0x334155)
+  const grid = new THREE.GridHelper(
+    display.gridSize,
+    32,
+    sceneEnvironment.gridColor,
+    sceneEnvironment.gridColorLine,
+  )
   grid.position.y = 0.002
   grid.name = 'Ground_Grid'
   scene.add(grid)
@@ -133,8 +139,14 @@ export function createBaseScene(display: SceneDisplayConfig): THREE.Scene {
   axes.position.y = 0.01
   scene.add(axes)
 
-  scene.add(new THREE.HemisphereLight(0xf6f8fb, 0x4b5563, 1.8))
-  const keyLight = new THREE.DirectionalLight(0xffffff, 3.2)
+  scene.add(
+    new THREE.HemisphereLight(
+      sceneEnvironment.hemisphereSky,
+      sceneEnvironment.hemisphereGround,
+      1.8,
+    ),
+  )
+  const keyLight = new THREE.DirectionalLight(sceneEnvironment.keyLight, 3.2)
   keyLight.position.set(...display.keyLightPosition)
   keyLight.castShadow = true
   keyLight.shadow.mapSize.set(2048, 2048)
@@ -145,7 +157,7 @@ export function createBaseScene(display: SceneDisplayConfig): THREE.Scene {
   keyLight.shadow.camera.top = display.keyLightBounds
   keyLight.shadow.camera.bottom = -display.keyLightBounds
   scene.add(keyLight)
-  const fillLight = new THREE.DirectionalLight(0x9ab9e8, 1.4)
+  const fillLight = new THREE.DirectionalLight(sceneEnvironment.fillLight, 1.4)
   fillLight.position.set(...display.fillLightPosition)
   scene.add(fillLight)
 
@@ -239,7 +251,7 @@ export function createSceneController(
   trajectoryGeometry.setAttribute('position', trajectoryAttribute)
   trajectoryGeometry.setDrawRange(0, 0)
   const trajectoryMaterial = new THREE.LineBasicMaterial({
-    color: 0xf97316,
+    color: sceneEnvironment.trajectory,
     opacity: 0.8,
     transparent: true,
     depthTest: false,

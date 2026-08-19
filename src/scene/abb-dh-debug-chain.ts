@@ -2,9 +2,10 @@ import * as THREE from 'three'
 import type { JointAngles } from '@/robotics/types.ts'
 import { forwardAbbKinematicsFramesDegrees } from '@/robot-models/abb-irb1200/abb-kinematics.ts'
 import { abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
+import { abbScene } from '@/theme/scene.ts'
 
 const DH_FRAME_NAMES = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'FLANGE'] as const
-const DH_FRAME_COLORS = [0xff3b30, 0xff9500, 0xffcc00, 0x34c759, 0x00c7be, 0x007aff, 0xaf52de]
+const DH_FRAME_COLORS = abbScene.dhFrameColors
 const DH_SCENE_UNIT = 0.001
 const DH_MARKER_RADIUS = 0.035
 const DH_AXIS_LENGTH = 0.16
@@ -36,7 +37,7 @@ function matrixToThreeMatrix(matrix: number[][]): THREE.Matrix4 {
   )
 }
 
-function createMarker(name: string, color: number): THREE.Mesh {
+function createMarker(name: string, color: string): THREE.Mesh {
   const marker = new THREE.Mesh(
     new THREE.SphereGeometry(DH_MARKER_RADIUS, 16, 12),
     new THREE.MeshBasicMaterial({ color, depthTest: false, toneMapped: false }),
@@ -75,7 +76,7 @@ export function createAbbDhDebugChain(): AbbDhDebugChain {
   lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3))
   const line = new THREE.Line(
     lineGeometry,
-    new THREE.LineBasicMaterial({ color: 0xff4d4f, depthTest: false, toneMapped: false }),
+    new THREE.LineBasicMaterial({ color: abbScene.dhLink, depthTest: false, toneMapped: false }),
   )
   line.name = 'ABB_DH_Debug_Links'
   line.renderOrder = 1000

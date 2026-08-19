@@ -371,7 +371,7 @@ const kindLabel = computed(() => {
 }
 
 .source-line.runtime-error-line {
-  color: #fff;
+  color: var(--color-on-fill);
   background: var(--color-error-bg);
   box-shadow: inset 4px 0 var(--color-error-edge);
 }

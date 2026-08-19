@@ -218,7 +218,7 @@ watch(
 
 .preset-btn-danger {
   border-color: var(--color-danger);
-  color: #fff;
+  color: var(--color-on-fill);
   background: var(--color-danger);
   font-weight: 600;
 }

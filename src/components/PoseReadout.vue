@@ -199,8 +199,8 @@ function format(value: number): string {
 }
 
 .orientation-toggle button.active {
-  background: var(--color-accent, #3b82f6);
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-on-fill);
 }
 
 /* 六格读数：X/Y/Z/RX/RY/RZ，跨功能共享的统一格式；无盒子，hairline 分隔。 */
