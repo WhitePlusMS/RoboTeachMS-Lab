@@ -51,12 +51,6 @@ export type RapidEditCommand =
   | { type: 'delete-instruction'; index: number }
   | { type: 'comment-instructions'; indices: readonly number[] }
   | { type: 'uncomment-lines'; lines: readonly number[] }
-  | {
-      /** 粘贴剪切/复制捕获的原始指令行文本；指令数由重新解析得出，不由调用方声明。 */
-      type: 'paste-instructions'
-      insertionIndex: number
-      text: string
-    }
   | { type: 'change-motion-kind'; index: number }
 
 export type RapidEditErrorCode =
@@ -203,7 +197,7 @@ function guardEditable(parsed: ReturnType<typeof parseRapidProgram>): RapidEditE
 }
 
 /**
- * 编辑后校验：delete/comment/uncomment/paste 这类文本级命令可能破坏程序结构，
+ * 编辑后校验：delete/comment/uncomment 这类文本级命令可能破坏程序结构，
  * 应用前先用候选源码整体解析，结果必须可执行或仅剩 missing-target，否则整体拒绝。
  */
 function guardEditedSource(nextSource: string): RapidEditError | null {
@@ -267,8 +261,6 @@ export function applyRapidEdit(source: string, command: RapidEditCommand): Rapid
       return commentInstructions(source, parsed, command.indices)
     case 'uncomment-lines':
       return uncommentLines(source, parsed, command.lines)
-    case 'paste-instructions':
-      return pasteInstructions(source, parsed, command.insertionIndex, command.text)
     case 'change-motion-kind':
       return changeMotionKind(source, parsed, command.index)
   }
@@ -649,48 +641,6 @@ function uncommentLines(
     result: {
       source: nextSource,
       programRemap: count > 0 ? { inserted: { at, count } } : undefined,
-    },
-  }
-}
-
-function pasteInstructions(
-  source: string,
-  parsed: ReturnType<typeof parseRapidProgram>,
-  insertionIndex: number,
-  text: string,
-): RapidEditResult {
-  const insertionPoint = parsed.motionInsertionPoints.find(
-    (point) => point.index === insertionIndex,
-  )
-  if (!insertionPoint) {
-    return {
-      ok: false,
-      error: {
-        code: 'invalid-insertion-position',
-        message: `插入位置 ${insertionIndex} 不在 main 的合法运动位置中`,
-      },
-    }
-  }
-  if (text.trim().length === 0) {
-    return { ok: false, error: { code: 'invalid-instruction', message: '剪贴板为空，无可粘贴指令' } }
-  }
-
-  const eol = detectLineEnding(source)
-  const anchorLine = lineStartAt(source, insertionPoint.offset, eol)
-  // 粘贴文本逐字保留，统一以源文件换行符收尾，保证自成行块。
-  const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, eol)
-  const block = normalized.endsWith(eol) ? normalized : `${normalized}${eol}`
-  const nextSource = source.slice(0, anchorLine.start) + block + source.slice(anchorLine.start)
-  const guard = guardEditedSource(nextSource)
-  if (guard) return { ok: false, error: guard }
-
-  const next = parseRapidProgram(nextSource)
-  const count = next.instructions.length - parsed.instructions.length
-  return {
-    ok: true,
-    result: {
-      source: nextSource,
-      programRemap: count > 0 ? { inserted: { at: insertionIndex, count } } : undefined,
     },
   }
 }

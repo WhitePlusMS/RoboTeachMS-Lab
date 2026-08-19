@@ -507,7 +507,7 @@ ENDMODULE`
   })
 })
 
-describe('指令级编辑（删除/注释/粘贴/切换运动类型）', () => {
+describe('指令级编辑（删除/注释/切换运动类型）', () => {
   const THREE = `MODULE Demo
     CONST robtarget pA := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
     CONST robtarget pB := [[100,0,807],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -589,30 +589,6 @@ ENDMODULE`
     const result = applyRapidEdit(source, { type: 'comment-instructions', indices: [0] })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('source-error')
-  })
-
-  it('粘贴捕获的指令文本到锚点行之前，指令数由重新解析得出', () => {
-    const result = applyRapidEdit(THREE, {
-      type: 'paste-instructions',
-      insertionIndex: 1,
-      text: '        MoveJ pA,v100,fine,tool0;\n',
-    })
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.result.programRemap).toEqual({ inserted: { at: 1, count: 1 } })
-    expect(parse(result.result.source).instructions).toHaveLength(4)
-  })
-
-  it('粘贴空文本或破坏语法的文本被拒绝', () => {
-    const empty = applyRapidEdit(THREE, { type: 'paste-instructions', insertionIndex: 1, text: '  ' })
-    expect(empty.ok).toBe(false)
-    const broken = applyRapidEdit(THREE, {
-      type: 'paste-instructions',
-      insertionIndex: 1,
-      text: '        MoveJ pA v100 fine;\n',
-    })
-    expect(broken.ok).toBe(false)
-    if (!broken.ok) expect(broken.error.code).toBe('source-error')
   })
 
   it('Change to MoveJ/MoveL：关键字互换，操作数不变', () => {

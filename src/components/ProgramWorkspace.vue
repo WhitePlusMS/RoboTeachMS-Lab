@@ -126,7 +126,6 @@ const controller: ProgramPanelController = injected ?? {
       ? fallbackSelectedTargetName.value
       : null,
   ),
-  clipboard: computed(() => null),
   applyEdit: props.applyEdit ?? noopEdit,
   run: () => emit('run'),
   step: () => emit('step'),
@@ -136,7 +135,6 @@ const controller: ProgramPanelController = injected ?? {
   cancelClearToNext: () => emit('cancel-clear'),
   setSource: (source) => emit('source-change', source),
   selectTarget: updateSelectedTarget,
-  setClipboard: () => {},
   undo: () => {},
   redo: () => {},
   canUndo: computed(() => false),

@@ -116,14 +116,13 @@ ENDMODULE`
     const { wrapper } = mountWorkspace({ source: src })
     await focusLine(wrapper, src, 4) // 赋值行
 
-    // 赋值也是合法指令（可剪切/复制/注释），仅 Change to 是运动专属不出现。
+    // 赋值也是合法指令（可注释/取消注释），仅 更改选定内容 与 Change to 是运动专属。
     await wrapper.get('[aria-label="编辑"]').trigger('click')
     const list = wrapper.get('[aria-label="编辑操作列表"]')
     const buttons = list.findAll('button')
     const byText = (t: string) => buttons.find((b) => b.text().trim() === t)
-    expect(byText('剪切')!.attributes('disabled')).toBeUndefined()
-    expect(byText('复制')!.attributes('disabled')).toBeUndefined()
     expect(byText('注释')!.attributes('disabled')).toBeUndefined()
+    expect(byText('更改选定内容')!.attributes('disabled')).toBeDefined()
     expect(buttons.some((b) => b.text().includes('Change to'))).toBe(false)
 
     // 参数面板不因光标点选出现（双击/更改选定内容才打开）。

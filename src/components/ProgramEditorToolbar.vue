@@ -13,7 +13,8 @@ import type { ProgramPanelController } from '@/application/use-program-panel-con
  * FlexPendant 程序编辑器工具栏（3HAC050941 5.3.4 对齐）：
  * - 「添加指令」：弹出 Common 类指令列表（MoveJ/MoveL），新指令为 `*,v1000,z50,tool0;`
  *   未示教占位形态，插在光标行之后（光标未知时回退到 PP 之后）；
- * - 「编辑」：剪切/复制/粘贴/注释/取消注释/Change to MoveJ-MoveL，粒度为光标所在指令行；
+ * - 「编辑」：更改选定内容（打开参数面板）/注释/取消注释/Change to MoveJ-MoveL，粒度为光标所在指令行；
+ *   剪切/复制/粘贴不提供——网页版编辑器直接用系统剪贴板（Ctrl+X/C/V），语义与真机指令级操作等价；
  * - 撤销/重做：最多 3 步受控编辑历史。
  */
 interface Props {
@@ -28,7 +29,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-/** 插入/粘贴成功后上报新指令所在源码行，让连续示教逐条向下追加。 */
+/** 插入成功后上报新指令所在源码行，让连续示教逐条向下追加。 */
 const emit = defineEmits<{
   inserted: [line: number]
   /** 「编辑 → 更改选定内容」：请求打开光标指令的参数面板（FlexPendant Change Selected）。 */
@@ -58,18 +59,6 @@ const resolvedPoint = computed<RapidMotionInsertionPoint | null>(() => {
     (point) => point.index > props.controller.snapshot.value.programPointer,
   )
   return afterPP ?? points[points.length - 1]
-})
-
-const insertionHint = computed(() => {
-  if (props.controller.insertionPoints.value.length === 0) {
-    return '无可插入位置：程序需要包含 PROC main。'
-  }
-  const point = resolvedPoint.value
-  if (point === null) {
-    return '光标不在 main 程序体内：请点击源码中 ENDPROC 之前的位置。'
-  }
-  const anchor = props.cursorLine === null ? 'PP 之后' : '光标行之后'
-  return `插入位置：${anchor} · 行 ${point.line}`
 })
 
 const canAdd = computed(() => !running.value && resolvedPoint.value !== null)
@@ -132,8 +121,6 @@ const cursorLineCommented = computed(
   () => props.cursorLineText !== null && /^\s*!/.test(props.cursorLineText),
 )
 
-const clipboard = computed(() => props.controller.clipboard.value)
-
 function report(result: { ok: boolean } & { error?: { message: string } }): boolean {
   toolbarError.value = result.ok ? null : (result.error?.message ?? '操作失败')
   return result.ok
@@ -150,52 +137,6 @@ function addMotion(kind: 'movej' | 'movel'): void {
   if (!report(props.controller.applyEdit(command))) return
   addOpen.value = false
   // 新指令占用锚点原所在行；上报后下一次添加自动跟到新指令之后。
-  emit('inserted', point.line)
-}
-
-/** 光标指令所在整行源码（逐字，含行尾换行），供剪切/复制进剪贴板。 */
-function cursorInstructionLine(): string | null {
-  const target = props.cursorInstruction
-  if (!target) return null
-  const source = props.controller.source.value
-  const eol = source.includes('\r\n') ? '\r\n' : '\n'
-  const prevEol = source.lastIndexOf(eol, target.instruction.sourceRange.start.offset - 1)
-  const start = prevEol === -1 ? 0 : prevEol + eol.length
-  const lineEnd = source.indexOf(eol, target.instruction.sourceRange.end.offset)
-  const end = lineEnd === -1 ? source.length : lineEnd + eol.length
-  return source.slice(start, end)
-}
-
-function copyInstruction(): void {
-  const text = cursorInstructionLine()
-  if (text === null) return
-  props.controller.setClipboard({ text, instructionCount: 1 })
-  editOpen.value = false
-}
-
-function cutInstruction(): void {
-  const target = props.cursorInstruction
-  if (!target) return
-  const text = cursorInstructionLine()
-  if (text === null) return
-  // FlexPendant Cut = Copy + 删除；删除失败（如破坏控制流结构）时剪贴板不更新。
-  const result = props.controller.applyEdit({ type: 'delete-instruction', index: target.index })
-  if (!report(result)) return
-  props.controller.setClipboard({ text, instructionCount: 1 })
-  editOpen.value = false
-}
-
-function pasteInstructions(): void {
-  const entry = clipboard.value
-  const point = resolvedPoint.value
-  if (!entry || !point) return
-  const result = props.controller.applyEdit({
-    type: 'paste-instructions',
-    insertionIndex: point.index,
-    text: entry.text,
-  })
-  if (!report(result)) return
-  editOpen.value = false
   emit('inserted', point.line)
 }
 
@@ -241,7 +182,6 @@ function redo(): void {
 
 <template>
   <section class="program-editor-toolbar" aria-label="程序编辑器操作">
-    <p class="program-editor-hint">{{ insertionHint }}</p>
     <div class="program-editor-actions">
       <div class="program-editor-menu">
         <button
@@ -280,30 +220,6 @@ function redo(): void {
             @click="openArguments"
           >
             更改选定内容
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            :disabled="cursorInstruction === null"
-            @click="cutInstruction"
-          >
-            剪切
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            :disabled="cursorInstruction === null"
-            @click="copyInstruction"
-          >
-            复制
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            :disabled="clipboard === null || resolvedPoint === null"
-            @click="pasteInstructions"
-          >
-            粘贴
           </button>
           <button
             type="button"
@@ -368,29 +284,18 @@ function redo(): void {
 /* 外壳（边框/底色/内边距）由 ProgramWorkspace 的固定工具条统一提供，本组件只是行内一组控件。 */
 .program-editor-toolbar {
   display: flex;
-  flex: 1 1 320px;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex: 1 1 auto;
   align-items: center;
   min-width: 0;
 }
 
-.program-editor-hint {
-  flex: 1 1 160px;
-  min-width: 0;
-  margin: 0;
-  color: var(--color-text-faint);
-  font-size: 12px;
-}
-
-/* 菜单与撤销/重做作为整体换行：窄面板下要么同行、要么整体掉到下一行右对齐。 */
+/* 所有按钮固定一行排列，不换行。 */
 .program-editor-actions {
   display: flex;
   flex: 0 0 auto;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 8px;
   align-items: center;
-  margin-left: auto;
 }
 
 .program-editor-menu {

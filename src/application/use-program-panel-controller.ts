@@ -15,18 +15,12 @@ import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
  */
 type ReadonlyRef<T> = { readonly value: T }
 
-/** 程序编辑器内部剪贴板条目：剪切/复制捕获的原始指令行文本与其包含的可执行指令数。 */
-export interface InstructionClipboardEntry {
-  text: string
-  instructionCount: number
-}
-
 /**
  * 右侧 RAPID/Program Data 工作区共享的控制器切片（由 App 单一实例化并 provide）。
  * Program Data 视图（data/activeIndex/canExecute/program/insertionPoints/runtimeValues）
  * 全部从同一次 parseRapidProgram 结果派生，不建立第二份点位存储或平行 parser。
  * 动作切片（run/step/stop/ppToMain/…/applyEdit）委托给唯一 ProgramController。
- * 点位选中态与指令剪贴板由 App 单一持有，ProgramDataPanel/ProgramEditorToolbar 是受控组件。
+ * 点位选中态由 App 单一持有，ProgramDataPanel 是受控组件。
  */
 export interface ProgramPanelController {
   snapshot: ReadonlyRef<ProgramControllerSnapshot>
@@ -45,8 +39,6 @@ export interface ProgramPanelController {
   runtimeValues: ReadonlyRef<ReadonlyMap<string, RapidScalarVariable>>
   /** App 唯一持有的点位选中名称；null 表示未选中。 */
   selectedTargetName: ReadonlyRef<string | null>
-  /** App 唯一持有的指令剪贴板；null 表示为空。 */
-  clipboard: ReadonlyRef<InstructionClipboardEntry | null>
   applyEdit: (command: RapidEditCommand) => RapidEditResult
   run(): void
   step(): void
@@ -57,8 +49,6 @@ export interface ProgramPanelController {
   setSource(source: string): void
   /** 更新共享选中态；ProgramDataPanel 通过该入口与 App 同步。 */
   selectTarget(name: string | null): void
-  /** 更新指令剪贴板；剪切/复制时写入，粘贴成功后保留（与 FlexPendant 一致可重复粘贴）。 */
-  setClipboard(entry: InstructionClipboardEntry | null): void
   /** FlexPendant 式撤销/重做（受控编辑，最多 3 步）。 */
   undo(): void
   redo(): void
