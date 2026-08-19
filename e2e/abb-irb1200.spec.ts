@@ -36,7 +36,8 @@ async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Prom
 
 /** 新边栏语义：Jog 控件在最右窄边栏的 Jog 功能面板里，先展开再操作。 */
 async function openJogPanel(page: Parameters<typeof test>[0]['page']): Promise<void> {
-  const jogTab = page.getByRole('tab', { name: '手动 Jog' })
+  // 功能边栏 Jog tab：当前命名「手动控制」（兼容历史「手动 Jog」）。
+  const jogTab = page.getByRole('tab', { name: /手动/ })
   if ((await jogTab.getAttribute('aria-selected')) !== 'true') await jogTab.click()
 }
 
@@ -383,24 +384,24 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     await expect(page.getByText('-400° ~ 400°')).toBeVisible()
 
     const coordinateButton = page.getByRole('button', { name: '基座/工具坐标' })
-    await expect(coordinateButton).toHaveAttribute('aria-pressed', 'true')
-    await coordinateButton.click()
     await expect(coordinateButton).toHaveAttribute('aria-pressed', 'false')
     await coordinateButton.click()
     await expect(coordinateButton).toHaveAttribute('aria-pressed', 'true')
+    await coordinateButton.click()
+    await expect(coordinateButton).toHaveAttribute('aria-pressed', 'false')
 
     const dhDebugButton = page.getByRole('button', { name: 'DH参考链' })
-    await expect(dhDebugButton).toHaveAttribute('aria-pressed', 'true')
-    await dhDebugButton.click()
     await expect(dhDebugButton).toHaveAttribute('aria-pressed', 'false')
     await dhDebugButton.click()
     await expect(dhDebugButton).toHaveAttribute('aria-pressed', 'true')
+    await dhDebugButton.click()
+    await expect(dhDebugButton).toHaveAttribute('aria-pressed', 'false')
 
     const gridButton = page.getByRole('button', { name: '网格' })
     await gridButton.click()
-    await expect(gridButton).toHaveAttribute('aria-pressed', 'false')
-    await gridButton.click()
     await expect(gridButton).toHaveAttribute('aria-pressed', 'true')
+    await gridButton.click()
+    await expect(gridButton).toHaveAttribute('aria-pressed', 'false')
 
     const trajectoryButton = page.getByRole('button', { name: '轨迹', exact: true })
     const clearTrajectoryButton = page.getByRole('button', { name: '清空轨迹' })
@@ -499,12 +500,14 @@ test.describe('ABB IRB 1200-5/0.9 教学场景', () => {
     await setJoints(page, [15, -20, 30, 10, 25, -15])
     await page.getByRole('tab', { name: '笛卡尔' }).click()
 
+    // 世界系单次位移：选 10 mm 位置步进，点按一次 X 增加（<180ms 点按=单步，FlexPendant 增量式语义）。
+    await page.getByRole('button', { name: '10 mm', exact: true }).click()
     const worldStart = (await readDisplayedPose(page)).position
-    const xInput = page.getByRole('spinbutton', { name: 'X 数值输入', exact: true })
-    await xInput.fill(String(worldStart[0] + 5))
-    await xInput.press('Tab')
+    const worldX = page.getByRole('button', { name: 'X 增加', exact: true })
+    await worldX.dispatchEvent('pointerdown')
+    await worldX.dispatchEvent('pointerup')
     const worldSamples = [worldStart, ...(await sampleDisplayedPositions(page, 900))]
-    const worldTarget: [number, number, number] = [worldStart[0] + 5, worldStart[1], worldStart[2]]
+    const worldTarget: [number, number, number] = [worldStart[0] + 10, worldStart[1], worldStart[2]]
     const worldMaxDeviation = Math.max(
       ...worldSamples.map((point) => distanceToLineMm(point, worldStart, worldTarget)),
     )
