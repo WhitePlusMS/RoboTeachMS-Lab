@@ -29,6 +29,7 @@ npm run preview
 - X/Y/Z/RX/RY/RZ 笛卡尔控制、World/Tool 坐标系切换、独立位置/姿态步进和长按调整
 - 基于 DH 正解的数值 Jacobian DLS 逆解；失败时保留最近一次有效关节状态并提示原因
 - RAPID 源程序编辑、源码范围诊断、`MoveJ`/`MoveL` 与模块级 `VAR num/bool` 数据
+- FlexPendant 式程序编辑器：「添加指令」只列 MoveJ/MoveL 并插入 `*,v1000,z50,tool0` 未示教占位（程序不可运行）；参数编辑器改写目标点/速度/转弯区、修改位置；剪切/复制/粘贴、注释/取消注释、Change to MoveJ↔MoveL、撤销/重做（3 步）。Program Data 暂不维护第二份点位存储。
 - 最小标量赋值表达式：字面量、变量、括号、算术、比较、`AND`/`OR`/`NOT`
 - 非嵌套 `IF`/`ELSEIF`/`ELSE`/`ENDIF` 分支；`WHILE` 与 `FOR ... TO ... STEP ...` 循环、循环内 `EXITDO` 提前退出，条件/循环/嵌套 IF 与运动共用同一执行计划
 - 嵌套 `IF` 与嵌套循环（循环体/条件体内允许多层递归区块）
