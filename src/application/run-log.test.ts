@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
+/* eslint-disable vue/one-component-per-file -- 测试用 defineComponent 胶水组件 */
 import { describe, expect, it } from 'vitest'
-import { nextTick, ref } from 'vue'
-import { RUN_LOG_CAP, useRunLog } from './run-log.ts'
+import { defineComponent, h, nextTick, ref } from 'vue'
+import { mount } from '@vue/test-utils'
+import { injectRunLog, provideRunLog, RUN_LOG_CAP, useRunLog } from './run-log.ts'
 import type { ProgramControllerSnapshot } from './program-control.ts'
 
 function makeSnapshot(
@@ -77,5 +80,47 @@ describe('useRunLog 程序日志数据流', () => {
     }
     expect(log.entries.value).toHaveLength(RUN_LOG_CAP)
     expect(log.entries.value.at(-1)?.text).toBe(`条目 ${RUN_LOG_CAP + 19}`)
+  })
+
+  it('info/ok/warn/error 便捷方法按级别落条', () => {
+    const snapshot = ref(makeSnapshot())
+    const log = useRunLog(snapshot)
+    log.info('数据', '更新')
+    log.ok('程序', '完成')
+    log.warn('运动', '偏离')
+    log.error('错误', '失败')
+
+    expect(log.entries.value.map((entry) => [entry.level, entry.tag, entry.text])).toEqual([
+      ['info', '数据', '更新'],
+      ['ok', '程序', '完成'],
+      ['warn', '运动', '偏离'],
+      ['err', '错误', '失败'],
+    ])
+  })
+
+  it('provide/inject：injectRunLog 取到同一共享日志客户端并可直接调用', async () => {
+    const snapshot = ref(makeSnapshot())
+    const log = useRunLog(snapshot)
+
+    const Child = defineComponent({
+      setup() {
+        const client = injectRunLog()
+        client?.info('注入', '可直接调用')
+        return () => h('div', 'injected')
+      },
+    })
+    const Host = defineComponent({
+      setup() {
+        provideRunLog(log)
+        return () => h(Child)
+      },
+    })
+
+    mount(Host)
+    expect(log.entries.value.at(-1)).toMatchObject({
+      level: 'info',
+      tag: '注入',
+      text: '可直接调用',
+    })
   })
 })

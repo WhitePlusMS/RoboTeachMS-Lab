@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { inject, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
 
 export type RunLogLevel = 'info' | 'ok' | 'warn' | 'err'
@@ -16,9 +16,29 @@ export interface RunLogEntry {
 /** 日志条数上限，超出后丢弃最旧条目。 */
 export const RUN_LOG_CAP = 200
 
+/**
+ * 日志客户端：任何组件 / 控制器都可 inject 后直接调用 info/ok/warn/error 记录单步操作。
+ * 不持有程序状态，只在动作发生时追加一条带级别与来源标签的时间戳条目。
+ */
 export interface RunLogController {
   entries: Ref<RunLogEntry[]>
   append: (level: RunLogLevel, tag: string, text: string) => void
+  info(tag: string, text: string): void
+  ok(tag: string, text: string): void
+  warn(tag: string, text: string): void
+  error(tag: string, text: string): void
+}
+
+export const RunLogKey: InjectionKey<RunLogController> = Symbol('run-log')
+
+/** 由 App 在 setup 中调用一次，把共享日志控制器提供给整棵组件树。 */
+export function provideRunLog(controller: RunLogController): void {
+  provide(RunLogKey, controller)
+}
+
+/** 组件/控制器 inject 日志客户端；无提供方（如独立测试挂载）时返回 null，由调用方回退。 */
+export function injectRunLog(): RunLogController | null {
+  return inject(RunLogKey, null)
 }
 
 function timestamp(): string {
@@ -26,8 +46,8 @@ function timestamp(): string {
 }
 
 /**
- * 底部日志栏数据流：观察程序快照的 state 迁移 / 运行时错误 / 静态诊断，
- * 生成带级别的时间戳条目；不持有程序状态，只做派生记录。
+ * 底部日志栏数据流：观察程序快照的 state 迁移 / 运行时错误 / 静态诊断 自动生成条目，
+ * 同时暴露 append / info / ok / warn / error 供用户操作时直接记录。不持有程序状态。
  */
 export function useRunLog(snapshot: Ref<ProgramControllerSnapshot>): RunLogController {
   const entries = ref<RunLogEntry[]>([])
@@ -39,6 +59,22 @@ export function useRunLog(snapshot: Ref<ProgramControllerSnapshot>): RunLogContr
     if (entries.value.length > RUN_LOG_CAP) {
       entries.value.splice(0, entries.value.length - RUN_LOG_CAP)
     }
+  }
+
+  function info(tag: string, text: string): void {
+    append('info', tag, text)
+  }
+
+  function ok(tag: string, text: string): void {
+    append('ok', tag, text)
+  }
+
+  function warn(tag: string, text: string): void {
+    append('warn', tag, text)
+  }
+
+  function error(tag: string, text: string): void {
+    append('err', tag, text)
   }
 
   watch(
@@ -62,9 +98,6 @@ export function useRunLog(snapshot: Ref<ProgramControllerSnapshot>): RunLogContr
         case 'error':
           append('err', '错误', snapshot.value.error?.message ?? '程序进入错误状态')
           break
-        case 'idle':
-          append('info', '程序', 'PP 已回到 main，等待运行')
-          break
       }
     },
   )
@@ -86,5 +119,5 @@ export function useRunLog(snapshot: Ref<ProgramControllerSnapshot>): RunLogContr
     },
   )
 
-  return { entries, append }
+  return { entries, append, info, ok, warn, error }
 }
