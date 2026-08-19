@@ -1,7 +1,8 @@
 /**
  * RAPID 预设程序库：教学台 RAPID 标签页可一键加载的默认模板。
- * 内容取自 docs/rapid-frontend-test-cases.md 的可运行示例（1-A / 1-B / 2 / 6 / 7 / 8），
- * 均为「MoveJ 定位 + MoveL 短直线」的安全坐标，可直接运行。
+ * 六个预设按「运行能力维度」各代表一类：1 大范围慢速循环、2 自定义工具/工件+Offs、
+ * 3 控制流与标量、4 流水线多点位往返取放、5 锯齿高低起伏路径、6 液晶数字 0–9 循环书写。
+ * 均以「MoveJ 定位 + MoveL 短直线」的安全坐标编写，已用真实 planMoveJ/planMoveL 逐条验证可达。
  * 表单项只读：六类运动数据、num/bool 标量、IF/WHILE/FOR/EXITDO 控制流等能力全部覆盖。
  * 源码是模板的唯一事实源，运行时由 rapid-parser 解析。
  */
@@ -16,7 +17,7 @@ export interface RapidPresetProgram {
   source: string
 }
 
-const PRESET_PROGRAM_1A = `MODULE M
+const PRESET_PROGRAM_1 = `MODULE M
   ! 大范围运动演示：全域描边大矩形 + 垂直升降 + 姿态旋转，低速 v50 + 无限循环。
   CONST robtarget pHome := [[451,0,807],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   ! 大矩形四角：X 与 Y 正负摆幅，跨度约 300×400mm，描边明显可见。
@@ -44,88 +45,120 @@ const PRESET_PROGRAM_1A = `MODULE M
   ENDPROC
 ENDMODULE`
 
-const PRESET_PROGRAM_1B = `MODULE M
-  CONST robtarget q1 := [[451,0,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget q2 := [[451,40,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+const PRESET_PROGRAM_2 = `MODULE M
+  ! 自定义工具/工件坐标 + Offs 偏移取放：三站点往返取放，跨度约 330×240mm。
+  CONST robtarget pHome := [[451,0,660],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pA := [[531,0,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pB := [[371,120,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pC := [[371,-120,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   PERS tooldata myTool := [TRUE, [[90,0,120],[1,0,0,0]], [1,[0,0,60],[1,0,0,0],0,0,0]];
   PERS wobjdata myTable := [FALSE, TRUE, "", [[0,0,0],[1,0,0,0]], [[0,0,0],[1,0,0,0]]];
   PROC main()
-    MoveJ q1, v300, fine, myTool \\WObj:=myTable;
-    MoveL q2, v150, fine, myTool \\WObj:=myTable;
-    MoveL Offs(q2, 40, 0, 0), v200, fine, myTool \\WObj:=myTable;
-    MoveL q1, v200, fine, myTool \\WObj:=myTable;
+    MoveJ pHome, v300, fine, myTool \\WObj:=myTable;
+    ! 站 A：MoveJ 定位，Offs 垂直下降取放。
+    MoveJ pA, v200, fine, myTool \\WObj:=myTable;
+    MoveL Offs(pA, 0, 0, -70), v80, fine, myTool \\WObj:=myTable;
+    MoveL Offs(pA, 0, 0, 0), v80, fine, myTool \\WObj:=myTable;
+    ! 站 B：左移后再次 Offs 取放。
+    MoveJ pB, v200, fine, myTool \\WObj:=myTable;
+    MoveL Offs(pB, 0, 0, -70), v80, fine, myTool \\WObj:=myTable;
+    MoveL Offs(pB, 0, 0, 0), v80, fine, myTool \\WObj:=myTable;
+    ! 站 C：下移后 Offs 取放。
+    MoveJ pC, v200, fine, myTool \\WObj:=myTable;
+    MoveL Offs(pC, 0, 0, -70), v80, fine, myTool \\WObj:=myTable;
+    MoveL Offs(pC, 0, 0, 0), v80, fine, myTool \\WObj:=myTable;
+    MoveJ pHome, v300, fine, myTool \\WObj:=myTable;
   ENDPROC
 ENDMODULE`
 
-const PRESET_PROGRAM_2 = `MODULE M
+const PRESET_PROGRAM_3 = `MODULE M
+  ! 控制流与标量：IF/ELSEIF/ELSE + WHILE + FOR + EXITDO，用 i/j 在五角间跳转。
   CONST robtarget pA := [[451,0,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pB := [[451,60,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pC := [[521,0,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pR := [[581,0,560],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pL := [[361,0,620],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pLD := [[541,-150,540],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pRU := [[541,150,540],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   VAR num i := 0;
   VAR num j := 0;
   VAR bool flag := TRUE;
   PROC main()
     i := 0; j := 0;
     MoveJ pA, v300, fine, tool0;
+    ! WHILE ×3：i 每轮按 IF 分支跳到右/左/上角，再回中；跨度约 220×150mm。
     WHILE i < 3 DO
       i := i + 1;
-      MoveL pB, v150, z20, tool0;
-    ENDWHILE
-    FOR j FROM 1 TO 3 DO
-      IF j > 2 THEN
-        MoveL pC, v150, fine, tool0;
-      ELSEIF j = 2 THEN
-        MoveL pB, v150, z20, tool0;
+      IF i = 1 THEN
+        MoveJ pR, v200, fine, tool0;
+      ELSEIF i = 2 THEN
+        MoveJ pL, v200, fine, tool0;
       ELSE
-        MoveL pA, v150, z20, tool0;
+        MoveJ pRU, v200, fine, tool0;
+      ENDIF
+      MoveJ pA, v200, fine, tool0;
+    ENDWHILE
+    ! FOR ×3：依次访问左下、右上、左角。
+    FOR j FROM 1 TO 3 DO
+      IF j = 1 THEN
+        MoveJ pLD, v200, fine, tool0;
+      ELSEIF j = 2 THEN
+        MoveJ pRU, v200, fine, tool0;
+      ELSE
+        MoveJ pL, v200, fine, tool0;
       ENDIF
     ENDFOR
+    ! IF + EXITDO：不断前进到右角，i=5 时 EXITDO 退出。
     IF flag THEN
-      WHILE i < 4 DO
+      WHILE i < 6 DO
         i := i + 1;
-        IF i = 4 THEN EXITDO; ENDIF
-        MoveL pC, v100, fine, tool0;
+        IF i = 5 THEN EXITDO; ENDIF
+        MoveJ pR, v200, fine, tool0;
+        MoveJ pA, v200, fine, tool0;
       ENDWHILE
     ENDIF
-    MoveL pA, v200, fine, tool0;
+    MoveJ pA, v200, fine, tool0;
   ENDPROC
 ENDMODULE`
 
-const PRESET_PROGRAM_6 = `MODULE ComplexDemo
-  CONST robtarget pHome := [[451,0,620],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pA1 := [[451,140,560],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pA2 := [[451,140,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pB1 := [[541,70,560],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pB2 := [[541,70,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pC1 := [[541,-70,560],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pC2 := [[541,-70,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pD1 := [[451,-140,560],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pD2 := [[451,-140,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pE1 := [[361,-70,560],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget pE2 := [[361,-70,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+const PRESET_PROGRAM_4 = `MODULE M
+  ! 流水线搬运：六工位往返取放，跨度约 300×380mm，全程 tool0。
+  CONST robtarget pHome := [[451,0,640],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pA1 := [[451,190,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pA2 := [[451,190,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pB1 := [[601,120,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pB2 := [[601,120,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pC1 := [[601,-120,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pD1 := [[451,-190,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pD2 := [[451,-190,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pE1 := [[301,-120,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pE2 := [[301,-120,510],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pF1 := [[301,120,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   PROC main()
     MoveJ pHome, v300, fine, tool0;
     MoveJ pA1, v200, fine, tool0;  MoveL pA2, v80, fine, tool0;  MoveL pA1, v80, fine, tool0;
     MoveJ pB1, v200, fine, tool0;  MoveL pB2, v80, fine, tool0;  MoveL pB1, v80, fine, tool0;
-    MoveJ pC1, v200, fine, tool0;  MoveL pC2, v80, fine, tool0;  MoveL pC1, v80, fine, tool0;
+    MoveJ pC1, v200, fine, tool0;
     MoveJ pD1, v200, fine, tool0;  MoveL pD2, v80, fine, tool0;  MoveL pD1, v80, fine, tool0;
     MoveJ pE1, v200, fine, tool0;  MoveL pE2, v80, fine, tool0;  MoveL pE1, v80, fine, tool0;
+    MoveJ pF1, v200, fine, tool0;
     MoveJ pHome, v300, fine, tool0;
   ENDPROC
 ENDMODULE`
 
-const PRESET_PROGRAM_7 = `MODULE ComplexDemo
-  CONST robtarget pHome := [[451,0,620],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w1 := [[461,140,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w2 := [[461,140,530],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w3 := [[541,70,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w4 := [[541,70,530],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w5 := [[541,-70,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w6 := [[541,-70,530],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w7 := [[461,-140,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w8 := [[461,-140,530],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w9 := [[361,-70,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-  CONST robtarget w10 := [[361,-70,530],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+const PRESET_PROGRAM_5 = `MODULE M
+  ! 锯齿高低路径：左右交替 + 大幅高低起伏，绕回字形一圈，跨度约 260×360mm。
+  CONST robtarget pHome := [[451,0,640],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w1  := [[451,180,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w2  := [[451,180,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w3  := [[581,110,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w4  := [[581,110,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w5  := [[581,-110,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w6  := [[581,-110,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w7  := [[451,-180,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w8  := [[451,-180,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w9  := [[321,-110,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w10 := [[321,-110,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w11 := [[321,110,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget w12 := [[321,110,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   PROC main()
     MoveJ pHome, v300, fine, tool0;
     MoveJ w1, v200, fine, tool0;  MoveL w2, v80, fine, tool0;
@@ -133,11 +166,12 @@ const PRESET_PROGRAM_7 = `MODULE ComplexDemo
     MoveJ w5, v200, fine, tool0;  MoveL w6, v80, fine, tool0;
     MoveJ w7, v200, fine, tool0;  MoveL w8, v80, fine, tool0;
     MoveJ w9, v200, fine, tool0;  MoveL w10, v80, fine, tool0;
+    MoveJ w11, v200, fine, tool0; MoveL w12, v80, fine, tool0;
     MoveJ pHome, v300, fine, tool0;
   ENDPROC
 ENDMODULE`
 
-const PRESET_PROGRAM_8 = `MODULE M
+const PRESET_PROGRAM_6 = `MODULE M
   CONST robtarget home := [[451,0,807],[0,1,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   CONST robtarget d0TL := [[601,0,867],[0,1,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   CONST robtarget d0TR := [[701,0,867],[0,1,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -257,43 +291,43 @@ const PRESET_PROGRAM_8 = `MODULE M
   ENDPROC
 ENDMODULE`
 
-/** 页面可直接加载的全部预设程序（取自测试用例文档的可运行示例）。 */
+/** 页面可直接加载的全部预设程序：六个预设各代表一个运行能力维度。 */
 export const RAPID_PRESET_PROGRAMS: ReadonlyArray<RapidPresetProgram> = [
   {
-    id: 'preset-1a',
-    name: '1-A · 大范围慢速运动演示（无限循环）',
+    id: 'preset-1',
+    name: '1 · 大范围慢速运动演示（无限循环）',
     description: '低速 v50 + 大范围矩形描边（300×400mm）+ 垂直升降 + 姿态旋转，WHILE TRUE 无限循环',
-    source: PRESET_PROGRAM_1A,
-  },
-  {
-    id: 'preset-1b',
-    name: '1-B · 自定义 tool/wobj 全家桶',
-    description: '用户自定义 tooldata/wobjdata + 可选参数 \\WObj + Offs',
-    source: PRESET_PROGRAM_1B,
+    source: PRESET_PROGRAM_1,
   },
   {
     id: 'preset-2',
-    name: '2 · 控制流与标量全家桶',
-    description: 'num/bool 标量 + IF/ELSEIF/ELSE + WHILE + FOR + EXITDO + 嵌套控制流',
+    name: '2 · 自定义工具/工件 + Offs 偏移取放',
+    description: '自定义 tooldata/wobjdata + 可选参数 \\WObj + Offs，三站点往返取放（跨度约 330×240mm）',
     source: PRESET_PROGRAM_2,
   },
   {
+    id: 'preset-3',
+    name: '3 · 控制流与标量（五角跳转）',
+    description: 'num/bool 标量 + IF/ELSEIF/ELSE + WHILE + FOR + EXITDO，控制流驱动五角移动（跨度约 220×150mm）',
+    source: PRESET_PROGRAM_3,
+  },
+  {
+    id: 'preset-4',
+    name: '4 · 流水线搬运（六工位往返取放）',
+    description: 'MoveJ 定位 + MoveL 短距取放，六工位大范围往返（跨度约 300×380mm）',
+    source: PRESET_PROGRAM_4,
+  },
+  {
+    id: 'preset-5',
+    name: '5 · 锯齿高低路径（左右交替 + 大幅起伏）',
+    description: 'MoveJ 定位 + MoveL 短步，绕回字形大幅高低起伏轨迹（跨度约 260×360mm）',
+    source: PRESET_PROGRAM_5,
+  },
+  {
     id: 'preset-6',
-    name: '6 · 流水线搬运（5 工位往返取放）',
-    description: 'MoveJ 定位 + MoveL 短距取放，多点位往返取放的视觉效果',
-    source: PRESET_PROGRAM_6,
-  },
-  {
-    id: 'preset-7',
-    name: '7 · 锯齿高低路径（左右交替 + 高低起伏）',
-    description: 'MoveJ 定位 + MoveL 短步，展示高低起伏轨迹',
-    source: PRESET_PROGRAM_7,
-  },
-  {
-    id: 'preset-8',
-    name: '8 · 液晶数字 0–9 循环书写（绕 J1 一圈）',
+    name: '6 · 液晶数字 0–9 循环书写（绕 J1 一圈）',
     description: '无限循环写数字；约 10000 次防死循环上限时自动截停',
-    source: PRESET_PROGRAM_8,
+    source: PRESET_PROGRAM_6,
   },
 ]
 
