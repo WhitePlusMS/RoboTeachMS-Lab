@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
+  DEFAULT_ROBTARGET,
   makeTaughtTargetFromPose,
   type RapidEditCommand,
   type RapidEditResult,
@@ -53,17 +54,30 @@ const emit = defineEmits<{
 
 const display = computed(() => props.display ?? 'all')
 
-/** 可浏览的数据种类（按 ABB 示教器习惯）；loaddata 作为工具负载数据随 tooldata 展示，不单列 Tab。 */
+/**
+ * 可浏览的数据种类（按 ABB 示教器习惯）；loaddata 作为工具负载数据随 tooldata 展示，不单列 Tab。
+ * 顺序按「是否含系统预定义项」分组：先纯程序变量类（robtarget/num/bool），后含系统项的运动配置类
+ * （tooldata/wobjdata/speeddata/zonedata），同类聚拢便于辨认。
+ */
 const KINDS: ReadonlyArray<{ kind: RapidDataKind; zh: string; en: string }> = [
   { kind: 'robtarget', zh: '目标点', en: 'robtarget' },
+  { kind: 'num', zh: '数字', en: 'num' },
+  { kind: 'bool', zh: '布尔', en: 'bool' },
   { kind: 'tooldata', zh: '工具数据', en: 'tooldata' },
   { kind: 'wobjdata', zh: '工件坐标', en: 'wobjdata' },
   { kind: 'speeddata', zh: '速度数据', en: 'speeddata' },
   { kind: 'zonedata', zh: '转弯区', en: 'zonedata' },
-  { kind: 'num', zh: '数字', en: 'num' },
-  { kind: 'bool', zh: '布尔', en: 'bool' },
 ]
 const activeKind = ref<RapidDataKind>('robtarget')
+
+/** 每种数据是否含系统预定义项：含系统项的 Tab 用黄色系配色区分于纯程序变量 Tab。 */
+const kindHasSystem = computed<Record<string, boolean>>(() => {
+  const has: Record<string, boolean> = {}
+  for (const entry of props.data) {
+    if (entry.system) has[entry.kind] = true
+  }
+  return has
+})
 
 /** 当前指令的高亮信息：使用的 target/speed/zone/tool/wobj 名称（原始拼写），及其 zone 是否 fly-by。 */
 const activeInstruction = computed(() =>
@@ -221,16 +235,13 @@ function runEdit(command: RapidEditCommand): void {
 }
 
 function createTarget(): void {
-  if (!taughtRobTarget.value) {
-    editError.value = '当前姿态不可用，无法示教点位'
-    return
-  }
   const name = newTargetName.value.trim()
   if (!name) {
     editError.value = '请输入新点位名称'
     return
   }
-  runEdit({ type: 'create-target', name, target: taughtRobTarget.value })
+  // FlexPendant Program Data「New」：以类型默认值创建，位置后续用 Modify Position 录入。
+  runEdit({ type: 'create-target', name, target: DEFAULT_ROBTARGET })
   if (!editError.value) newTargetName.value = ''
 }
 
@@ -332,6 +343,10 @@ function deleteTarget(): void {
 const readonlyEntries = computed(() =>
   props.data.filter((d) => d.kind === activeKind.value && d.kind !== 'robtarget'),
 )
+/** 系统预定义只读项（tool0/wobj0/load0/官方 speed/zone）：与程序声明的变量分开分组展示。 */
+const systemEntries = computed(() => readonlyEntries.value.filter((entry) => entry.system))
+/** 程序声明的变量（非系统）：可被源码重定义/受控编辑的对象。 */
+const programEntries = computed(() => readonlyEntries.value.filter((entry) => !entry.system))
 const selectedReadonlyName = ref<string | null>(null)
 const selectedReadonly = computed(() => {
   if (!selectedReadonlyName.value) return null
@@ -491,7 +506,6 @@ function rowSummary(entry: RapidProgramData): string {
   >
     <div v-if="display !== 'content'" class="panel-title-row">
       <div>
-        <p class="panel-kicker">PROGRAM DATA</p>
         <h2 id="program-data-title">程序数据</h2>
       </div>
       <span
@@ -514,7 +528,10 @@ function rowSummary(entry: RapidProgramData): string {
         type="button"
         role="tab"
         class="program-data-kind-tab"
-        :class="{ active: activeKind === kind.kind }"
+        :class="{
+          active: activeKind === kind.kind,
+          'has-system': kindHasSystem[kind.kind] === true,
+        }"
         :aria-selected="activeKind === kind.kind"
         @click="activeKind = kind.kind"
       >
@@ -552,10 +569,8 @@ function rowSummary(entry: RapidProgramData): string {
 
       <div v-if="props.canExecute" class="program-data-teach">
         <div class="program-data-teach-heading">
-          <p class="program-data-teach-title">从当前 TCP 新建点位</p>
-          <span class="program-data-teach-preview">{{
-            taughtRobTarget ? formatCoord(taughtRobTarget.trans) : '当前 TCP 不可用'
-          }}</span>
+          <p class="program-data-teach-title">新建点位</p>
+          <span class="program-data-teach-preview">以默认值创建，位置用 Modify Position 录入</span>
         </div>
         <div class="program-data-teach-row">
           <input
@@ -715,7 +730,7 @@ function rowSummary(entry: RapidProgramData): string {
       </p>
     </template>
 
-    <!-- 非 robtarget：只读列表 + 原地展开 -->
+    <!-- 非 robtarget：只读列表 + 原地展开（系统预定义项与程序变量分节展示） -->
     <template v-else>
       <div class="program-data-toolbar">
         <span class="program-data-type-count"
@@ -728,12 +743,17 @@ function rowSummary(entry: RapidProgramData): string {
         class="program-data-list"
         :aria-label="`${activeKind} 数据列表`"
       >
+        <!-- 程序声明的变量分节头：品牌色，可被源码重定义/受控编辑。 -->
+        <li v-if="programEntries.length > 0" class="program-data-group-head">
+          <span class="program-data-group-dot" aria-hidden="true"></span>程序声明的变量
+        </li>
         <li
-          v-for="entry in readonlyEntries"
-          :key="`${entry.kind}-${entry.name}`"
+          v-for="entry in programEntries"
+          :key="`prog-${entry.kind}-${entry.name}`"
           class="program-data-item"
           :class="{
-            selected: selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase(),
+            selected:
+              selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase(),
             active: isActiveName(entry.name, activeOperandForKind(entry.kind)),
           }"
         >
@@ -747,7 +767,6 @@ function rowSummary(entry: RapidProgramData): string {
             @click="selectReadonly(entry.name)"
           >
             <span class="program-data-row-name">{{ entry.name }}</span>
-            <span v-if="entry.system" class="program-data-label program-data-system">系统只读</span>
             <span class="program-data-label program-data-storage">{{ entry.storage }}</span>
             <span class="program-data-row-coord">{{ rowSummary(entry) }}</span>
             <span class="program-data-label program-data-references">{{
@@ -760,12 +779,77 @@ function rowSummary(entry: RapidProgramData): string {
             class="program-data-inline-detail"
             :aria-label="`${activeKind} 详情`"
           >
-            <div v-if="entry.system" class="program-data-system-badge">系统预定义 · 只读</div>
             <dl class="program-data-fields">
               <div v-if="entry.kind === 'num' || entry.kind === 'bool'">
                 <dt>类型</dt>
                 <dd>{{ entry.kind }}</dd>
               </div>
+              <div>
+                <dt>存储</dt>
+                <dd>{{ entry.storage }}</dd>
+              </div>
+              <div v-for="[field, value] in readonlyFields(entry)" :key="field">
+                <dt>{{ field }}</dt>
+                <dd>{{ value }}</dd>
+              </div>
+              <div>
+                <dt>引用</dt>
+                <dd>{{ referenceLabel(entry.referenceRanges) }}</dd>
+              </div>
+            </dl>
+            <div v-if="entry.referenceRanges.length > 0" class="program-data-reference-links">
+              <button
+                v-for="(range, index) in entry.referenceRanges"
+                :key="`${range.start.offset}-${index}`"
+                type="button"
+                class="program-data-reference-link"
+                @click="emit('view-reference', range)"
+              >
+                查看引用 · 行 {{ range.start.line }}
+              </button>
+            </div>
+          </div>
+        </li>
+
+        <!-- 系统预定义只读项分节头：黄色，表示 tool0/wobj0/load0/官方 speed/zone。 -->
+        <li v-if="systemEntries.length > 0" class="program-data-group-head program-data-group-system">
+          <span class="program-data-group-dot" aria-hidden="true"></span>系统预定义 · 只读
+        </li>
+        <li
+          v-for="entry in systemEntries"
+          :key="`sys-${entry.kind}-${entry.name}`"
+          class="program-data-item program-data-item-system"
+          :class="{
+            selected:
+              selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase(),
+            active: isActiveName(entry.name, activeOperandForKind(entry.kind)),
+          }"
+        >
+          <button
+            type="button"
+            class="program-data-row"
+            :aria-label="`选择 ${activeKind} ${entry.name}`"
+            :aria-pressed="
+              selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase()
+            "
+            @click="selectReadonly(entry.name)"
+          >
+            <span class="program-data-row-name">{{ entry.name }}</span>
+            <span class="program-data-label program-data-system">系统只读</span>
+            <span class="program-data-label program-data-storage">{{ entry.storage }}</span>
+            <span class="program-data-row-coord">{{ rowSummary(entry) }}</span>
+            <span class="program-data-label program-data-references">{{
+              referenceLabel(entry.referenceRanges)
+            }}</span>
+          </button>
+
+          <div
+            v-if="selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase()"
+            class="program-data-inline-detail"
+            :aria-label="`${activeKind} 详情`"
+          >
+            <div class="program-data-system-badge">系统预定义 · 只读</div>
+            <dl class="program-data-fields">
               <div>
                 <dt>存储</dt>
                 <dd>{{ entry.storage }}</dd>
@@ -870,6 +954,17 @@ function rowSummary(entry: RapidProgramData): string {
 .program-data-kind-tab:hover {
   border-color: var(--color-brand);
   color: var(--color-text-strong);
+}
+
+/* 含系统预定义项的 Tab：黄色弱化描边 + 淡黄底，区分于纯程序变量 Tab。 */
+.program-data-kind-tab.has-system {
+  border-color: rgba(245, 197, 66, 0.42);
+  background: rgba(245, 197, 66, 0.08);
+}
+
+.program-data-kind-tab.has-system:hover {
+  border-color: var(--color-warning);
+  color: var(--color-warning-soft);
 }
 
 .program-data-kind-tab.active {
@@ -1088,6 +1183,65 @@ function rowSummary(entry: RapidProgramData): string {
   color: var(--color-text-faint);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* —— 系统预定义 vs 程序变量 分组 —— */
+
+/* 列表内的分节头行（li）：纯展示，不带条目边框/点击态。 */
+.program-data-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  list-style: none;
+  color: var(--color-text-faint);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.program-data-group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+}
+
+/* 系统预定义组：黄色点 + 黄色文字，与「程序声明的变量」区分。 */
+.program-data-group-system .program-data-group-dot {
+  background: var(--color-warning);
+}
+
+.program-data-group-system {
+  color: var(--color-warning-soft);
+}
+
+/* 系统条目：中性灰弱化，表达只读/底层；与亮色的程序变量形成简单对比。 */
+.program-data-item-system {
+  opacity: 0.82;
+  border-color: var(--color-border);
+  background: rgba(128, 128, 128, 0.05);
+}
+
+.program-data-item-system:hover {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.program-data-item-system.system-selected {
+  opacity: 1;
+  border-color: var(--color-warning);
+  box-shadow: 0 0 0 1px rgba(245, 197, 66, 0.25);
+}
+
+/* 「系统只读」徽章：黄色表示只读系统项，是系统的唯一强调色。 */
+.program-data-system {
+  border-color: rgba(245, 197, 66, 0.55);
+  color: var(--color-warning-soft);
+  background: rgba(245, 197, 66, 0.08);
 }
 
 .program-data-empty {

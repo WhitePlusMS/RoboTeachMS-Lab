@@ -9,16 +9,16 @@ import { internalQuatToRapid } from './plan-shared.ts'
 import type { Pose } from '@/robotics/types.ts'
 
 /**
- * RAPID 受控源码编辑深模块：把一次语义化的 Program Data 命令应用到源程序，
+ * RAPID 受控源码编辑深模块：把一次语义化的 Program Data / 程序编辑器命令应用到源程序，
  * 只做符号级最小文本替换，未涉及的注释、空格、大小写和换行逐字保留。
  *
  * 调用方只提交语义命令与业务数据，不读取或计算 offset；源码范围、文本替换顺序、
- * 换行检测与插入点选择全部隐藏在本模块。源程序存在任何 error 时禁止结构化编辑。
+ * 换行检测与插入点选择全部隐藏在本模块。
+ *
+ * 可编辑性守卫（对齐 FlexPendant）：源程序存在 error 时禁止结构化编辑；
+ * 唯一例外是 missing-target（FlexPendant 式 `*` 未示教占位）——真机上程序带着 `*` 仍可
+ * 继续编辑指令与参数（只是不能运行），因此当全部诊断都是 missing-target 时所有命令放行。
  */
-
-/** 运动指令目标来源：已有点位或由当前 TCP 一次性示教生成。 */
-export type MotionTargetSelection =
-  { source: 'existing'; name: string } | { source: 'current'; target: RobTarget }
 
 /** 一次只执行一条的结构化编辑命令。 */
 export type RapidEditCommand =
@@ -27,11 +27,37 @@ export type RapidEditCommand =
   | { type: 'rename-target'; name: string; newName: string }
   | { type: 'delete-target'; name: string }
   | {
+      /** FlexPendant「添加指令」：插入 `MoveJ/MoveL *,v1000,z50,tool0;`，目标点为未示教占位。 */
       type: 'insert-motion'
       kind: 'movej' | 'movel'
       insertionIndex: number
-      target: MotionTargetSelection
     }
+  | {
+      /** FlexPendant 参数编辑器：改写第 index 条运动指令的目标点参数。 */
+      type: 'edit-motion-operand'
+      index: number
+      operand: 'target'
+      value:
+        | { source: 'existing'; name: string }
+        | { source: 'new'; target: RobTarget }
+    }
+  | {
+      /** FlexPendant 参数编辑器：改写第 index 条运动指令的速度/转弯区参数。 */
+      type: 'edit-motion-operand'
+      index: number
+      operand: 'speed' | 'zone'
+      value: { name: string }
+    }
+  | { type: 'delete-instruction'; index: number }
+  | { type: 'comment-instructions'; indices: readonly number[] }
+  | { type: 'uncomment-lines'; lines: readonly number[] }
+  | {
+      /** 粘贴剪切/复制捕获的原始指令行文本；指令数由重新解析得出，不由调用方声明。 */
+      type: 'paste-instructions'
+      insertionIndex: number
+      text: string
+    }
+  | { type: 'change-motion-kind'; index: number }
 
 export type RapidEditErrorCode =
   | 'source-error'
@@ -40,6 +66,8 @@ export type RapidEditErrorCode =
   | 'undefined-target'
   | 'target-referenced'
   | 'invalid-insertion-position'
+  | 'invalid-instruction'
+  | 'undefined-operand'
 
 export interface RapidEditError {
   code: RapidEditErrorCode
@@ -49,8 +77,17 @@ export interface RapidEditError {
 export interface RapidEditSuccess {
   /** 应用命令后的完整新源文本。 */
   source: string
-  /** 仅插入运动时返回的指令下标位移，供停止态 PP 保留原下一条指令。 */
-  programIndexShift?: { at: number; delta: 1 }
+  /**
+   * 指令数变化时的 PP 重映射信息：
+   * - removed：被删除/注释掉的原指令下标（升序）；
+   * - inserted：在原下标 at 之前插入了 count 条新指令。
+   */
+  programRemap?: {
+    removed?: readonly number[]
+    inserted?: { at: number; count: number }
+  }
+  /** PP 指向的指令文本被改写（参数/运动类型变更）时的下标；该 PP 必须 PP to Main。 */
+  programTextChangedAt?: number
 }
 
 export type RapidEditResult =
@@ -58,6 +95,14 @@ export type RapidEditResult =
 
 /** RAPID 标识符：字母/下划线开头，后续字母数字下划线；长度非空。 */
 const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/** FlexPendant Program Data「New」创建的 robtarget 默认值（3HAC050941 5.4.2）。 */
+export const DEFAULT_ROBTARGET: RobTarget = {
+  trans: [0, 0, 0],
+  rot: [1, 0, 0, 0],
+  robconf: [0, 0, 0, 0],
+  extax: [...NO_EXTERNAL_AXIS],
+}
 
 /** 名称匹配遵循 RAPID 大小写不敏感规则。 */
 function normalizeName(text: string): string {
@@ -105,10 +150,10 @@ export function formatTargetDeclaration(name: string, target: RobTarget): string
   return `CONST robtarget ${name} := ${formatRobTarget(target)};`
 }
 
-/** 新建运动指令使用固定受支持参数 v100,fine,tool0。 */
-function formatMotion(kind: 'movej' | 'movel', name: string): string {
+/** FlexPendant 新插入的运动指令：`*` 未示教目标 + 默认 v1000,z50,tool0（3HAC050941 5.3.5）。 */
+function formatMotion(kind: 'movej' | 'movel'): string {
   const keyword = kind === 'movej' ? 'MoveJ' : 'MoveL'
-  return `${keyword} ${name},v100,fine,tool0;`
+  return `${keyword} *,v1000,z50,tool0;`
 }
 
 /** 从 p10 开始每次加 10，返回第一个在当前全名称空间中未占用的名称。 */
@@ -142,12 +187,56 @@ function validateNewName(
   return null
 }
 
-/** 预检：源程序存在 error 时禁止任何结构化编辑。 */
-function guardExecutable(parsed: ReturnType<typeof parseRapidProgram>): RapidEditError | null {
-  if (!parsed.canExecute) {
-    return { code: 'source-error', message: '源程序存在错误，禁止结构化编辑' }
+/** 诊断是否全部是 missing-target：唯一允许继续结构化编辑的 error 形态（见模块头注释）。 */
+function onlyMissingTarget(parsed: ReturnType<typeof parseRapidProgram>): boolean {
+  return (
+    parsed.diagnostics.length > 0 &&
+    parsed.diagnostics.every((diagnostic) => diagnostic.code === 'missing-target')
+  )
+}
+
+/** 预检：源程序存在 error（除 missing-target 外）时禁止任何结构化编辑。 */
+function guardEditable(parsed: ReturnType<typeof parseRapidProgram>): RapidEditError | null {
+  if (parsed.canExecute) return null
+  if (onlyMissingTarget(parsed)) return null
+  return { code: 'source-error', message: '源程序存在错误，禁止结构化编辑' }
+}
+
+/**
+ * 编辑后校验：delete/comment/uncomment/paste 这类文本级命令可能破坏程序结构，
+ * 应用前先用候选源码整体解析，结果必须可执行或仅剩 missing-target，否则整体拒绝。
+ */
+function guardEditedSource(nextSource: string): RapidEditError | null {
+  const next = parseRapidProgram(nextSource)
+  if (next.canExecute) return null
+  if (onlyMissingTarget(next)) return null
+  return { code: 'source-error', message: '编辑后源程序将存在错误，已取消本次修改' }
+}
+
+/** 取 parsed.instructions 的第 index 条；越界时给出结构化错误。 */
+function instructionAt(
+  parsed: ReturnType<typeof parseRapidProgram>,
+  index: number,
+): RapidEditError | null {
+  if (index < 0 || index >= parsed.instructions.length) {
+    return { code: 'invalid-instruction', message: `指令下标 ${index} 不存在` }
   }
   return null
+}
+
+/** 对候选源码应用一组文本替换；替换按 offset 从大到小应用，避免前面插入影响后面位置。 */
+function applyReplacements(
+  source: string,
+  replacements: Array<{ offset: number; endOffset?: number; text: string }>,
+): string {
+  const sorted = [...replacements].sort((a, b) => b.offset - a.offset)
+  let nextSource = source
+  for (const replacement of sorted) {
+    const end = replacement.endOffset ?? replacement.offset
+    nextSource =
+      nextSource.slice(0, replacement.offset) + replacement.text + nextSource.slice(end)
+  }
+  return nextSource
 }
 
 /**
@@ -156,7 +245,7 @@ function guardExecutable(parsed: ReturnType<typeof parseRapidProgram>): RapidEdi
  */
 export function applyRapidEdit(source: string, command: RapidEditCommand): RapidEditResult {
   const parsed = parseRapidProgram(source)
-  const preflight = guardExecutable(parsed)
+  const preflight = guardEditable(parsed)
   if (preflight) return { ok: false, error: preflight }
 
   switch (command.type) {
@@ -169,7 +258,19 @@ export function applyRapidEdit(source: string, command: RapidEditCommand): Rapid
     case 'delete-target':
       return deleteTarget(source, parsed, command.name)
     case 'insert-motion':
-      return insertMotion(source, parsed, command.kind, command.insertionIndex, command.target)
+      return insertMotion(source, parsed, command.kind, command.insertionIndex)
+    case 'edit-motion-operand':
+      return editMotionOperand(source, parsed, command)
+    case 'delete-instruction':
+      return deleteInstruction(source, parsed, command.index)
+    case 'comment-instructions':
+      return commentInstructions(source, parsed, command.indices)
+    case 'uncomment-lines':
+      return uncommentLines(source, parsed, command.lines)
+    case 'paste-instructions':
+      return pasteInstructions(source, parsed, command.insertionIndex, command.text)
+    case 'change-motion-kind':
+      return changeMotionKind(source, parsed, command.index)
   }
 }
 
@@ -286,7 +387,6 @@ function insertMotion(
   parsed: ReturnType<typeof parseRapidProgram>,
   kind: 'movej' | 'movel',
   insertionIndex: number,
-  targetSelection: MotionTargetSelection,
 ): RapidEditResult {
   const insertionPoint = parsed.motionInsertionPoints.find(
     (point) => point.index === insertionIndex,
@@ -301,61 +401,321 @@ function insertMotion(
     }
   }
 
-  let targetName: string
-  let declarationInsert: { offset: number; text: string } | null = null
-
-  if (targetSelection.source === 'existing') {
-    const entry = findTarget(parsed, targetSelection.name)
-    if (!entry)
-      return {
-        ok: false,
-        error: { code: 'undefined-target', message: `未定义 robtarget ${targetSelection.name}` },
-      }
-    targetName = entry.name
-  } else {
-    const existing = allSymbolNames(parsed)
-    const autoName = findAvailableTargetName(parsed)
-    const nameError = validateNewName(autoName, existing)
-    if (nameError) return { ok: false, error: nameError }
-    targetName = autoName
-    const eol = detectLineEnding(source)
-    // 新 robtarget 声明插到 main PROC 之前，作为独立声明行，缩进沿用 PROC 行（模块级）缩进，
-    // 行尾补换行，避免与后续 PROC main() 粘到同一行。
-    const procLine = lineStartAt(source, parsed.dataInsertOffset, eol)
-    declarationInsert = {
-      offset: procLine.start,
-      text: `${procLine.indent}${formatTargetDeclaration(targetName, targetSelection.target)}${eol}`,
-    }
-  }
-
-  const motionText = formatMotion(kind, targetName)
-  const eol = detectLineEnding(source)
   // 新运动语句插到锚点所在行行首，缩进沿用该行行首缩进（自动匹配 WHILE/IF 等嵌套层级），
   // 该行自身缩进保留给后续原语句，避免叠加硬编码空格造成错位。
+  const eol = detectLineEnding(source)
   const anchorLine = lineStartAt(source, insertionPoint.offset, eol)
-  const motionInsert = {
-    offset: anchorLine.start,
-    text: `${anchorLine.indent}${motionText}${eol}`,
-  }
-
-  // 所有替换按 offset 从大到小应用，避免前面插入影响后面位置。
-  const replacements = declarationInsert ? [motionInsert, declarationInsert] : [motionInsert]
-  replacements.sort((a, b) => b.offset - a.offset)
-
-  let nextSource = source
-  for (const replacement of replacements) {
-    nextSource =
-      nextSource.slice(0, replacement.offset) +
-      replacement.text +
-      nextSource.slice(replacement.offset)
-  }
+  const nextSource =
+    source.slice(0, anchorLine.start) +
+    `${anchorLine.indent}${formatMotion(kind)}${eol}` +
+    source.slice(anchorLine.start)
 
   return {
     ok: true,
     result: {
       source: nextSource,
-      programIndexShift: { at: insertionIndex, delta: 1 },
+      programRemap: { inserted: { at: insertionIndex, count: 1 } },
     },
+  }
+}
+
+/** 模块级新 robtarget 声明的插入片段：插到 main PROC 行首，缩进沿用 PROC 行（模块级）缩进。 */
+function declarationInsertion(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  name: string,
+  target: RobTarget,
+): { offset: number; text: string } {
+  const eol = detectLineEnding(source)
+  const procLine = lineStartAt(source, parsed.dataInsertOffset, eol)
+  return {
+    offset: procLine.start,
+    text: `${procLine.indent}${formatTargetDeclaration(name, target)}${eol}`,
+  }
+}
+
+function editMotionOperand(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  command: Extract<RapidEditCommand, { type: 'edit-motion-operand' }>,
+): RapidEditResult {
+  const indexError = instructionAt(parsed, command.index)
+  if (indexError) return { ok: false, error: indexError }
+  const instruction = parsed.instructions[command.index]
+  if (instruction.kind !== 'movej' && instruction.kind !== 'movel') {
+    return {
+      ok: false,
+      error: { code: 'invalid-instruction', message: `第 ${command.index + 1} 条指令不是运动指令` },
+    }
+  }
+
+  const replacements: Array<{ offset: number; endOffset?: number; text: string }> = []
+
+  if (command.operand === 'target') {
+    const range = instruction.operandRanges.target
+    if (command.value.source === 'existing') {
+      const entry = findTarget(parsed, command.value.name)
+      if (!entry) {
+        return {
+          ok: false,
+          error: { code: 'undefined-target', message: `未定义 robtarget ${command.value.name}` },
+        }
+      }
+      // 允许把 Offs/RelTool 表达式或 `*` 占位整体替换为命名点位。
+      replacements.push({
+        offset: range.start.offset,
+        endOffset: range.end.offset,
+        text: entry.name,
+      })
+    } else {
+      const existing = allSymbolNames(parsed)
+      const autoName = findAvailableTargetName(parsed)
+      const nameError = validateNewName(autoName, existing)
+      if (nameError) return { ok: false, error: nameError }
+      // 原子两步：模块级新建声明（记录当前 TCP）+ 替换目标操作数。
+      replacements.push({
+        offset: range.start.offset,
+        endOffset: range.end.offset,
+        text: autoName,
+      })
+      replacements.push(declarationInsertion(source, parsed, autoName, command.value.target))
+    }
+  } else {
+    const dataKind = command.operand === 'speed' ? 'speeddata' : 'zonedata'
+    const key = normalizeName(command.value.name)
+    const exists = parsed.data.some(
+      (entry) => entry.kind === dataKind && normalizeName(entry.name) === key,
+    )
+    if (!exists) {
+      return {
+        ok: false,
+        error: {
+          code: 'undefined-operand',
+          message: `未定义 ${dataKind} ${command.value.name}`,
+        },
+      }
+    }
+    const range =
+      command.operand === 'speed' ? instruction.operandRanges.speed : instruction.operandRanges.zone
+    // 用列表中的原始拼写替换（系统预定义名大小写与源码习惯一致）。
+    const displayName =
+      parsed.data.find((entry) => entry.kind === dataKind && normalizeName(entry.name) === key)
+        ?.name ?? command.value.name
+    replacements.push({ offset: range.start.offset, endOffset: range.end.offset, text: displayName })
+  }
+
+  return {
+    ok: true,
+    result: {
+      source: applyReplacements(source, replacements),
+      programTextChangedAt: command.index,
+    },
+  }
+}
+
+/** 指令必须只占一行：本项目的运动/赋值/控制流语句均为单行，多行暂不支持行级编辑。 */
+function singleLineError(
+  instruction: { sourceRange: { start: { line: number }; end: { line: number } } },
+  index: number,
+  action: string,
+): RapidEditError | null {
+  if (instruction.sourceRange.start.line !== instruction.sourceRange.end.line) {
+    return {
+      code: 'invalid-instruction',
+      message: `第 ${index + 1} 条指令跨多行，暂不支持${action}`,
+    }
+  }
+  return null
+}
+
+/** 指令所在整行的范围（含行首与行尾换行）。 */
+function instructionLineSpan(
+  source: string,
+  instruction: { sourceRange: { start: { offset: number }; end: { offset: number } } },
+): { start: number; end: number } {
+  const eol = detectLineEnding(source)
+  const previousEol = source.lastIndexOf(eol, instruction.sourceRange.start.offset - 1)
+  const start = previousEol === -1 ? 0 : previousEol + eol.length
+  const lineEnd = source.indexOf(eol, instruction.sourceRange.end.offset)
+  const end = lineEnd === -1 ? source.length : lineEnd + eol.length
+  return { start, end }
+}
+
+function deleteInstruction(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  index: number,
+): RapidEditResult {
+  const indexError = instructionAt(parsed, index)
+  if (indexError) return { ok: false, error: indexError }
+  const instruction = parsed.instructions[index]
+  const multiLine = singleLineError(instruction, index, '整行删除')
+  if (multiLine) return { ok: false, error: multiLine }
+
+  const span = instructionLineSpan(source, instruction)
+  const nextSource = source.slice(0, span.start) + source.slice(span.end)
+  const guard = guardEditedSource(nextSource)
+  if (guard) return { ok: false, error: guard }
+  return {
+    ok: true,
+    result: { source: nextSource, programRemap: { removed: [index] } },
+  }
+}
+
+function commentInstructions(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  indices: readonly number[],
+): RapidEditResult {
+  if (indices.length === 0) {
+    return { ok: false, error: { code: 'invalid-instruction', message: '没有指定要注释的指令' } }
+  }
+  const replacements: Array<{ offset: number; text: string }> = []
+  const seen = new Set<number>()
+  for (const index of indices) {
+    const indexError = instructionAt(parsed, index)
+    if (indexError) return { ok: false, error: indexError }
+    if (seen.has(index)) continue
+    seen.add(index)
+    const instruction = parsed.instructions[index]
+    const multiLine = singleLineError(instruction, index, '注释')
+    if (multiLine) return { ok: false, error: multiLine }
+    // 行首插入 `!`：整行变为注释，缩进保留在注释文本内。
+    replacements.push({ offset: instructionLineSpan(source, instruction).start, text: '!' })
+  }
+
+  const nextSource = applyReplacements(source, replacements)
+  const guard = guardEditedSource(nextSource)
+  if (guard) return { ok: false, error: guard }
+  return {
+    ok: true,
+    result: { source: nextSource, programRemap: { removed: [...seen].sort((a, b) => a - b) } },
+  }
+}
+
+/** 计算 1 起始行号的行起始 offset；行号越界返回 -1。 */
+function lineStartOffsetOfLine(source: string, line: number): number {
+  if (line < 1) return -1
+  let offset = 0
+  for (let currentLine = 1; currentLine < line; currentLine += 1) {
+    const next = source.indexOf('\n', offset)
+    if (next === -1) return -1
+    offset = next + 1
+  }
+  return offset
+}
+
+function uncommentLines(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  lines: readonly number[],
+): RapidEditResult {
+  if (lines.length === 0) {
+    return { ok: false, error: { code: 'invalid-instruction', message: '没有指定要取消注释的行' } }
+  }
+  const replacements: Array<{ offset: number; endOffset: number; text: string }> = []
+  const sortedOffsets: number[] = []
+  for (const line of [...lines].sort((a, b) => a - b)) {
+    const lineStart = lineStartOffsetOfLine(source, line)
+    if (lineStart === -1) {
+      return { ok: false, error: { code: 'invalid-instruction', message: `行 ${line} 不存在` } }
+    }
+    // 跳过行首空白后必须是 `!`，否则该行不是注释行。
+    let cursorPos = lineStart
+    while (source[cursorPos] === ' ' || source[cursorPos] === '\t') cursorPos += 1
+    if (source[cursorPos] !== '!') {
+      return {
+        ok: false,
+        error: { code: 'invalid-instruction', message: `第 ${line} 行不是注释行` },
+      }
+    }
+    replacements.push({ offset: cursorPos, endOffset: cursorPos + 1, text: '' })
+    sortedOffsets.push(lineStart)
+  }
+
+  const nextSource = applyReplacements(source, replacements)
+  const guard = guardEditedSource(nextSource)
+  if (guard) return { ok: false, error: guard }
+
+  // PP 重映射：取消注释引入的指令数与位置由重新解析得出（注释行不一定是可执行指令）。
+  const next = parseRapidProgram(nextSource)
+  const firstOffset = sortedOffsets[0]
+  const at = next.instructions.filter(
+    (instruction) => instruction.sourceRange.start.offset < firstOffset,
+  ).length
+  const count = next.instructions.length - parsed.instructions.length
+  return {
+    ok: true,
+    result: {
+      source: nextSource,
+      programRemap: count > 0 ? { inserted: { at, count } } : undefined,
+    },
+  }
+}
+
+function pasteInstructions(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  insertionIndex: number,
+  text: string,
+): RapidEditResult {
+  const insertionPoint = parsed.motionInsertionPoints.find(
+    (point) => point.index === insertionIndex,
+  )
+  if (!insertionPoint) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid-insertion-position',
+        message: `插入位置 ${insertionIndex} 不在 main 的合法运动位置中`,
+      },
+    }
+  }
+  if (text.trim().length === 0) {
+    return { ok: false, error: { code: 'invalid-instruction', message: '剪贴板为空，无可粘贴指令' } }
+  }
+
+  const eol = detectLineEnding(source)
+  const anchorLine = lineStartAt(source, insertionPoint.offset, eol)
+  // 粘贴文本逐字保留，统一以源文件换行符收尾，保证自成行块。
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, eol)
+  const block = normalized.endsWith(eol) ? normalized : `${normalized}${eol}`
+  const nextSource = source.slice(0, anchorLine.start) + block + source.slice(anchorLine.start)
+  const guard = guardEditedSource(nextSource)
+  if (guard) return { ok: false, error: guard }
+
+  const next = parseRapidProgram(nextSource)
+  const count = next.instructions.length - parsed.instructions.length
+  return {
+    ok: true,
+    result: {
+      source: nextSource,
+      programRemap: count > 0 ? { inserted: { at: insertionIndex, count } } : undefined,
+    },
+  }
+}
+
+function changeMotionKind(
+  source: string,
+  parsed: ReturnType<typeof parseRapidProgram>,
+  index: number,
+): RapidEditResult {
+  const indexError = instructionAt(parsed, index)
+  if (indexError) return { ok: false, error: indexError }
+  const instruction = parsed.instructions[index]
+  if (instruction.kind !== 'movej' && instruction.kind !== 'movel') {
+    return {
+      ok: false,
+      error: { code: 'invalid-instruction', message: `第 ${index + 1} 条指令不是运动指令` },
+    }
+  }
+  const start = instruction.sourceRange.start.offset
+  const keyword = instruction.kind === 'movej' ? 'MoveL' : 'MoveJ'
+  // sourceRange 从关键字 token 开始；原关键字恰为 5 字符（MoveJ/MoveL）。
+  const nextSource = source.slice(0, start) + keyword + source.slice(start + 5)
+  return {
+    ok: true,
+    result: { source: nextSource, programTextChangedAt: index },
   }
 }
 

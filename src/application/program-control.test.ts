@@ -252,18 +252,29 @@ describe('applyEdit 单一受控编辑入口', () => {
     expect(pWork?.target.trans).toEqual([600, 200, 400])
   })
 
-  it('插入 MoveJ 引用现有目标后可执行且新程序多一条运动', () => {
+  it('插入 MoveJ 得到 `*` 占位（不可执行），补全目标点后恢复可执行且多一条运动', () => {
     const { ctrl } = setupController()
-    const result = ctrl.applyEdit({
+    const inserted = ctrl.applyEdit({
       type: 'insert-motion',
       kind: 'movej',
       insertionIndex: 3,
-      target: { source: 'existing', name: 'pRest' },
     })
-    expect(result.ok).toBe(true)
+    expect(inserted.ok).toBe(true)
+    // `*` 未示教占位：程序不可运行，但指令已进入 instructions 视图。
+    expect(ctrl.parsed.value.canExecute).toBe(false)
+    expect(ctrl.parsed.value.instructions).toHaveLength(4)
+
+    const filled = ctrl.applyEdit({
+      type: 'edit-motion-operand',
+      index: 3,
+      operand: 'target',
+      value: { source: 'existing', name: 'pRest' },
+    })
+    expect(filled.ok).toBe(true)
     expect(ctrl.parsed.value.canExecute).toBe(true)
     expect(ctrl.parsed.value.program).toHaveLength(4)
     expect(ctrl.parsed.value.program[3].kind).toBe('movej')
+    expect(ctrl.parsed.value.program[3].sourceText).toContain('pRest')
   })
 })
 
@@ -381,7 +392,7 @@ describe('停止后源码编辑的 PP 映射', () => {
     expect(h.ctrl.snapshot.value.programPointer).toBe(1)
   })
 
-  it('停止后在 PP 之前插入运动时，旧的下一条指令仍保持为 PP', async () => {
+  it('停止后在 PP 之前插入 `*` 指令：PP 挂起折算，补全目标点后 PP 保留在原指令', async () => {
     const h = setupController()
     h.ctrl.run()
     await flush()
@@ -391,19 +402,148 @@ describe('停止后源码编辑的 PP 映射', () => {
     await flush()
     expect(h.ctrl.snapshot.value.programPointer).toBe(1)
 
-    const result = h.ctrl.applyEdit({
+    // 插入 `MoveJ *,v1000,z50,tool0;`：程序暂不可执行，PP 挂起（执行器不动）。
+    const inserted = h.ctrl.applyEdit({
       type: 'insert-motion',
       kind: 'movej',
       insertionIndex: 1,
-      target: { source: 'existing', name: 'p3' },
     })
-    expect(result.ok).toBe(true)
+    expect(inserted.ok).toBe(true)
+    await flush()
+    expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
+    expect(h.ctrl.snapshot.value.programPointer).toBe(1)
+
+    // 补全第 2 条（下标 1）的目标点：程序恢复可执行，PP 映射到原指令的新下标 2。
+    const filled = h.ctrl.applyEdit({
+      type: 'edit-motion-operand',
+      index: 1,
+      operand: 'target',
+      value: { source: 'existing', name: 'p3' },
+    })
+    expect(filled.ok).toBe(true)
     await flush()
     expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
     expect(h.ctrl.snapshot.value.programPointer).toBe(2)
-    const inserted = h.ctrl.parsed.value.program[2]
-    if (!inserted || !isRapidMotionInstruction(inserted)) throw new Error('插入结果应为运动指令')
-    expect(inserted.operands.target).toBe('p2')
+    const current = h.ctrl.parsed.value.program[2]
+    if (!current || !isRapidMotionInstruction(current)) throw new Error('应为运动指令')
+    expect(current.operands.target).toBe('p2')
+  })
+
+  it('停止后删除/注释 PP 之前的指令，PP 随指令数减少而左移；删除 PP 指令则要求 PP to Main', async () => {
+    const h = setupController()
+    h.ctrl.run()
+    await flush()
+    h.settle('completed')
+    await flush()
+    h.ctrl.stop()
+    await flush()
+    expect(h.ctrl.snapshot.value.programPointer).toBe(1)
+
+    // 删除第 1 条（下标 0）：PP 左移到 0。
+    const deleted = h.ctrl.applyEdit({ type: 'delete-instruction', index: 0 })
+    expect(deleted.ok).toBe(true)
+    await flush()
+    expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
+    expect(h.ctrl.snapshot.value.programPointer).toBe(0)
+
+    // 再删除当前 PP（下标 0）指向的指令：要求 PP to Main。
+    const removed = h.ctrl.applyEdit({ type: 'delete-instruction', index: 0 })
+    expect(removed.ok).toBe(true)
+    await flush()
+    expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(true)
+  })
+
+  it('改写 PP 指向指令的参数要求 PP to Main；改写其它指令不影响 PP', async () => {
+    const h = setupController()
+    h.ctrl.run()
+    await flush()
+    h.settle('completed')
+    await flush()
+    h.ctrl.stop()
+    await flush()
+    expect(h.ctrl.snapshot.value.programPointer).toBe(1)
+
+    // 改第 3 条（下标 2）的速度：PP 不动。
+    const other = h.ctrl.applyEdit({
+      type: 'edit-motion-operand',
+      index: 2,
+      operand: 'speed',
+      value: { name: 'v50' },
+    })
+    expect(other.ok).toBe(true)
+    await flush()
+    expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
+    expect(h.ctrl.snapshot.value.programPointer).toBe(1)
+
+    // 改 PP（下标 1）的速度：要求 PP to Main。
+    const atPP = h.ctrl.applyEdit({
+      type: 'edit-motion-operand',
+      index: 1,
+      operand: 'speed',
+      value: { name: 'v50' },
+    })
+    expect(atPP.ok).toBe(true)
+    await flush()
+    expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(true)
+  })
+})
+
+describe('受控编辑的撤销/重做', () => {
+  it('撤销恢复上一次编辑前的源码，重做恢复编辑后；自由文本编辑清空历史', async () => {
+    const h = setupController()
+    expect(h.ctrl.canUndo.value).toBe(false)
+
+    const original = h.source.value
+    const first = h.ctrl.applyEdit({
+      type: 'create-target',
+      name: 'pTaught',
+      target: taughtTarget([0, 0, 0]),
+    })
+    expect(first.ok).toBe(true)
+    expect(h.ctrl.canUndo.value).toBe(true)
+
+    h.ctrl.undo()
+    await flush()
+    expect(h.source.value).toBe(original)
+    expect(h.ctrl.canRedo.value).toBe(true)
+
+    h.ctrl.redo()
+    await flush()
+    expect(h.source.value).toContain('CONST robtarget pTaught')
+    expect(h.ctrl.canUndo.value).toBe(true)
+    expect(h.ctrl.canRedo.value).toBe(false)
+
+    // 自由文本编辑（textarea/预设加载）清空全部历史。
+    h.source.value = h.source.value.replace('MoveJ p3,v200', 'MoveJ p3,v300')
+    await flush()
+    expect(h.ctrl.canUndo.value).toBe(false)
+    expect(h.ctrl.canRedo.value).toBe(false)
+  })
+
+  it('撤销栈最多保留 3 步，更早的编辑不可撤销', async () => {
+    const h = setupController()
+    h.ctrl.applyEdit({ type: 'rename-target', name: 'p1', newName: 'pA' })
+    const v1 = h.source.value
+    h.ctrl.applyEdit({ type: 'rename-target', name: 'p2', newName: 'pB' })
+    const v2 = h.source.value
+    h.ctrl.applyEdit({ type: 'rename-target', name: 'p3', newName: 'pC' })
+    const v3 = h.source.value
+    h.ctrl.applyEdit({ type: 'rename-target', name: 'pA', newName: 'pD' })
+
+    h.ctrl.undo()
+    await flush()
+    expect(h.source.value).toBe(v3)
+    h.ctrl.undo()
+    await flush()
+    expect(h.source.value).toBe(v2)
+    h.ctrl.undo()
+    await flush()
+    expect(h.source.value).toBe(v1)
+    // 第 4 步撤销被拒绝：最早的编辑已超出 3 步上限。
+    expect(h.ctrl.canUndo.value).toBe(false)
+    h.ctrl.undo()
+    await flush()
+    expect(h.source.value).toBe(v1)
   })
 })
 

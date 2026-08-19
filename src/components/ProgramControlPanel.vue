@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Play, Rewind, Square, StepForward } from '@lucide/vue'
 import RapidSourceEditor from './RapidSourceEditor.vue'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
 import {
@@ -34,8 +35,10 @@ const emit = defineEmits<{
   stop: []
   pp: []
   'source-change': [source: string]
-  /** 透传源码编辑器光标行，供 MotionInstructionToolbar 光标定位插入。 */
+  /** 透传源码编辑器光标行，供 ProgramEditorToolbar/MotionArgumentPanel 光标定位。 */
   'cursor-line-change': [line: number]
+  /** 透传双击指令行（FlexPendant Change Selected），携带行号（1 起始）。 */
+  'line-activate': [line: number]
   'confirm-clear': []
   'cancel-clear': []
 }>()
@@ -114,25 +117,25 @@ const errorText = computed(() => {
       display === 'transport' ? '程序运行控制' : display === 'content' ? 'RAPID 程序' : undefined
     "
   >
-    <!-- 顶栏 transport：示教器式运行键组 + 程序状态丸 + off-path 确认 -->
+    <!-- 顶栏 transport：示教器式运行键组 + off-path 确认 -->
     <template v-if="display === 'transport'">
       <div class="tgroup">
         <button type="button" class="tkey tkey-run" :disabled="!canRun" @click="emit('run')">
-          <span class="tkey-icon" aria-hidden="true">▶</span>运行
+          <span class="tkey-icon" aria-hidden="true"><Play :size="13" /></span>运行
         </button>
         <button type="button" class="tkey" :disabled="!canStep" @click="emit('step')">
-          <span class="tkey-icon" aria-hidden="true">⏭</span>单步
+          <span class="tkey-icon" aria-hidden="true"><StepForward :size="13" /></span>单步
         </button>
         <button type="button" class="tkey tkey-stop" :disabled="!canStop" @click="emit('stop')">
-          <span class="tkey-icon" aria-hidden="true">■</span>停止
+          <span class="tkey-icon" aria-hidden="true"><Square :size="12" /></span>停止
         </button>
         <button type="button" class="tkey" :disabled="!canPpToMain" @click="emit('pp')">
-          <span class="tkey-icon" aria-hidden="true">↺</span>PP to Main
+          <span class="tkey-icon" aria-hidden="true"><Rewind :size="13" /></span>PP to Main
         </button>
+        <span class="control-status" :class="`program-state-${props.snapshot.state}`">
+          {{ stateLabel }}
+        </span>
       </div>
-      <span class="control-status" :class="`program-state-${props.snapshot.state}`">
-        {{ stateLabel }}
-      </span>
       <p v-if="props.snapshot.needsPPtoMain" class="program-hint program-hint-warn transport-hint">
         停止后源码无法稳定映射当前程序指针：请先执行 PP to Main 以从 main 重新建立执行位置。
       </p>
@@ -154,7 +157,6 @@ const errorText = computed(() => {
     <template v-if="display === 'all' || display === 'content'">
       <div v-if="display === 'all'" class="panel-title-row">
         <div>
-          <p class="panel-kicker">RAPID SOURCE &amp; RUN</p>
           <h2 id="program-panel-title">RAPID 程序</h2>
         </div>
         <span class="control-status" :class="`program-state-${props.snapshot.state}`">
@@ -175,6 +177,7 @@ const errorText = computed(() => {
         :focus-request-id="props.focusRequestId"
         @source-change="emit('source-change', $event)"
         @cursor-line-change="emit('cursor-line-change', $event)"
+        @line-activate="emit('line-activate', $event)"
       />
       <p v-if="sourceLocked" class="program-hint">程序运行期间，源程序已锁定。</p>
       <p v-else-if="awaitingNext" class="program-hint">
@@ -218,7 +221,6 @@ const errorText = computed(() => {
       <div class="program-control-footer" aria-label="程序控制栏">
         <div class="panel-title-row">
           <div>
-            <p class="panel-kicker">PROGRAM CONTROL</p>
             <h2>程序控制</h2>
           </div>
           <span class="control-status" :class="`program-state-${props.snapshot.state}`">
@@ -428,14 +430,6 @@ const errorText = computed(() => {
 }
 
 /* 顶栏 transport 内的程序状态丸与 .tkey/.pill 同高对齐。 */
-.program-panel-transport .control-status {
-  display: inline-flex;
-  align-items: center;
-  box-sizing: border-box;
-  height: 30px;
-  padding: 0 10px;
-}
-
 .program-panel-transport .transport-hint {
   max-width: 360px;
   margin: 0;

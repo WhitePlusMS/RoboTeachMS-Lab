@@ -16,6 +16,7 @@ export type RapidDiagnosticCode =
   | 'invalid-data'
   | 'missing-module'
   | 'missing-entrypoint'
+  | 'missing-target'
 
 export interface RapidDiagnostic {
   code: RapidDiagnosticCode

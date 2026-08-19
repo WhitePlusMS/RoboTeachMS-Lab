@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import ProgramControlPanel from './ProgramControlPanel.vue'
 import ProgramDataPanel from './ProgramDataPanel.vue'
-import MotionInstructionToolbar from './MotionInstructionToolbar.vue'
+import ProgramEditorToolbar from './ProgramEditorToolbar.vue'
+import MotionArgumentPanel from './MotionArgumentPanel.vue'
 import RapidPresetSelector from './RapidPresetSelector.vue'
 import type { RapidPresetProgram } from '@/application/preset-programs.ts'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
@@ -31,6 +32,8 @@ interface Props {
   snapshot?: ProgramControllerSnapshot
   source?: string
   program?: readonly RapidExecutableInstruction[]
+  /** 全部已解析指令（含 `*` 占位运动）；独立挂载时由父级透传，供光标指令解析与参数编辑。 */
+  instructions?: readonly RapidExecutableInstruction[]
   pendingClear?: 'run' | 'step' | null
   /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */
   data?: readonly RapidProgramData[]
@@ -109,10 +112,12 @@ const controller: ProgramPanelController = injected ?? {
   snapshot: computed(() => props.snapshot ?? EMPTY_SNAPSHOT),
   source: computed(() => props.source ?? ''),
   program: computed(() => props.program ?? []),
+  instructions: computed(() => props.instructions ?? []),
   pendingClear: computed(() => props.pendingClear ?? null),
   data: computed(() => props.data ?? []),
   activeIndex: computed(() => props.activeIndex ?? null),
   canExecute: computed(() => props.canExecute ?? true),
+  editable: computed(() => props.canExecute ?? true),
   insertionPoints: computed(() => props.insertionPoints ?? []),
   pose: computed(() => props.pose ?? null),
   runtimeValues: computed(() => props.runtimeValues ?? new Map()),
@@ -121,6 +126,7 @@ const controller: ProgramPanelController = injected ?? {
       ? fallbackSelectedTargetName.value
       : null,
   ),
+  clipboard: computed(() => null),
   applyEdit: props.applyEdit ?? noopEdit,
   run: () => emit('run'),
   step: () => emit('step'),
@@ -130,6 +136,11 @@ const controller: ProgramPanelController = injected ?? {
   cancelClearToNext: () => emit('cancel-clear'),
   setSource: (source) => emit('source-change', source),
   selectTarget: updateSelectedTarget,
+  setClipboard: () => {},
+  undo: () => {},
+  redo: () => {},
+  canUndo: computed(() => false),
+  canRedo: computed(() => false),
 }
 
 /** Program Data 查看引用：定位源码编辑器并请求父级切回 RAPID 视图。 */
@@ -143,6 +154,66 @@ function focusRapidReference(range: RapidSourceRange): void {
 function handlePresetLoad(preset: RapidPresetProgram): void {
   controller.setSource(preset.source)
 }
+
+/**
+ * 光标所在指令：遍历全部已解析指令，取源码行范围覆盖光标行的最后一条（多行语句取内层）。
+ * 用于工具栏（编辑/Change to）与参数面板（MotionArgumentPanel）的指令级操作。
+ */
+const cursorInstruction = computed<{
+  index: number
+  instruction: RapidExecutableInstruction
+} | null>(() => {
+  if (cursorLine.value === null) return null
+  let result: { index: number; instruction: RapidExecutableInstruction } | null = null
+  controller.instructions.value.forEach((instruction, index) => {
+    if (
+      instruction.sourceRange.start.line <= (cursorLine.value as number) &&
+      (cursorLine.value as number) <= instruction.sourceRange.end.line
+    ) {
+      result = { index, instruction }
+    }
+  })
+  return result
+})
+
+/** 光标所在源码行文本（行首空白后以 `!` 开头判为注释行），供工具栏取消注释可用态。 */
+const cursorLineText = computed<string | null>(() => {
+  if (cursorLine.value === null) return null
+  const lines = controller.source.value.split(/\r\n|\n/)
+  const line = lines[cursorLine.value - 1]
+  return line === undefined ? null : line
+})
+
+/**
+ * 参数面板绑定的指令下标（FlexPendant Change Selected 语义）：
+ * 仅由双击指令行或「编辑 → 更改选定内容」显式打开，光标移动只高亮、不弹面板。
+ */
+const argumentTargetIndex = ref<number | null>(null)
+
+/** 打开参数面板：仅当目标是运动指令时有效（与真机一致，赋值/控制流没有参数编辑页）。 */
+function openArguments(target: { index: number; instruction: RapidExecutableInstruction } | null): void {
+  if (!target) return
+  if (target.instruction.kind !== 'movej' && target.instruction.kind !== 'movel') return
+  argumentTargetIndex.value = target.index
+}
+
+/** 双击指令行 = Change Selected：先把光标行同步到双击行，再按该行指令打开。 */
+function onLineActivate(line: number): void {
+  cursorLine.value = line
+  openArguments(cursorInstruction.value)
+}
+
+/** 参数面板当前绑定的指令；绑定下标失效或不再是运动指令时自动关闭。 */
+const argumentInstruction = computed<{
+  index: number
+  instruction: RapidExecutableInstruction
+} | null>(() => {
+  if (argumentTargetIndex.value === null) return null
+  const instruction = controller.instructions.value[argumentTargetIndex.value]
+  if (!instruction) return null
+  if (instruction.kind !== 'movej' && instruction.kind !== 'movel') return null
+  return { index: argumentTargetIndex.value, instruction }
+})
 </script>
 
 <template>
@@ -160,14 +231,18 @@ function handlePresetLoad(preset: RapidPresetProgram): void {
             :initial-source="controller.source.value"
             @load="handlePresetLoad"
           />
-          <MotionInstructionToolbar
-            :snapshot="controller.snapshot.value"
-            :program="controller.program.value"
-            :insertion-points="controller.insertionPoints.value"
+          <ProgramEditorToolbar
+            :controller="controller"
             :cursor-line="cursorLine"
-            :pose="controller.pose.value"
-            :apply-edit="controller.applyEdit"
+            :cursor-instruction="cursorInstruction"
+            :cursor-line-text="cursorLineText"
             @inserted="cursorLine = $event"
+            @open-arguments="openArguments(cursorInstruction)"
+          />
+          <MotionArgumentPanel
+            :controller="controller"
+            :cursor-instruction="argumentInstruction"
+            @close="argumentTargetIndex = null"
           />
         </div>
         <div class="program-rapid-scroll">
@@ -182,6 +257,7 @@ function handlePresetLoad(preset: RapidPresetProgram): void {
             :cursor-line="cursorLine"
             @source-change="controller.setSource"
             @cursor-line-change="cursorLine = $event"
+            @line-activate="onLineActivate"
           />
         </div>
       </div>

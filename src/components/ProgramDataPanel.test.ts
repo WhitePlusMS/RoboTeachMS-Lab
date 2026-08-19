@@ -165,7 +165,7 @@ ENDMODULE
 })
 
 describe('ProgramDataPanel 点位详情与受控编辑', () => {
-  it('新建点位从当前 TCP 提交 create-target 命令', async () => {
+  it('新建点位以默认值（非当前 TCP）提交 create-target 命令', async () => {
     const captures: unknown[] = []
     const wrapper = mountPanel({
       applyEdit: (command) => {
@@ -185,7 +185,8 @@ describe('ProgramDataPanel 点位详情与受控编辑', () => {
       target: { trans: number[]; rot: number[]; extax: number[] }
     }
     expect(command).toMatchObject({ type: 'create-target', name: 'pPick' })
-    expect(command.target.trans).toEqual([451, 150, 680])
+    // FlexPendant 式默认值：trans 全零、单位四元数、零 robconf、9E9 外轴（位置用 Modify Position 录入）。
+    expect(command.target.trans).toEqual([0, 0, 0])
     expect(command.target.rot).toEqual([1, 0, 0, 0])
     expect(command.target.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
   })

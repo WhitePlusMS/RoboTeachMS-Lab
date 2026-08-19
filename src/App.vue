@@ -22,7 +22,7 @@ import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
 import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
-import { provideProgramPanelController } from '@/application/use-program-panel-controller.ts'
+import { provideProgramPanelController, type InstructionClipboardEntry } from '@/application/use-program-panel-controller.ts'
 import { provideRobotController } from '@/application/use-robot-controller.ts'
 
 const profile = ABB_IRB1200_PROFILE
@@ -138,6 +138,19 @@ const activeInstructionIndex = computed(() => {
   return snapshot.motionPointer ?? snapshot.programPointer
 })
 
+/** 指令剪贴板：App 唯一持有；剪切/复制写入，ProgramEditorToolbar 经共享控制器读写。 */
+const programClipboard = ref<InstructionClipboardEntry | null>(null)
+
+/** 是否允许结构化编辑：可执行，或全部诊断都是 missing-target（`*` 未示教占位，真机仍可继续编辑）。 */
+const programEditable = computed(() => {
+  const parsed = programControl.parsed.value
+  if (parsed.canExecute) return true
+  return (
+    parsed.diagnostics.length > 0 &&
+    parsed.diagnostics.every((diagnostic) => diagnostic.code === 'missing-target')
+  )
+})
+
 /** 3D 场景的 robtarget 空间标记：与 Program Data 同源（同一次解析），并写入选中态。 */
 const robtargets = computed<readonly AbbRobTargetMarker[]>(() =>
   programData.value.filter(isRobtargetProgramData).map((entry) => ({
@@ -183,7 +196,7 @@ function handlePP(): void {
   runLog.info('程序', 'PP 已回到 main，等待运行')
 }
 
-/** 源码整体替换（预设加载 / 手工设值）：记录来源。 */
+/** 源码整体替换（预设加载 / 手工设值）：记录来源；受控编辑历史由 controller 自动清空。 */
 function handleSetSource(source: string): void {
   const changed = source !== rapidSource.value
   rapidSource.value = source
@@ -214,6 +227,18 @@ function commandLabel(command: RapidEditCommand): string {
       return `删除目标点 ${command.name}`
     case 'insert-motion':
       return `插入指令 ${command.kind.toUpperCase()}`
+    case 'edit-motion-operand':
+      return `修改指令参数 ${command.operand}`
+    case 'delete-instruction':
+      return '删除指令'
+    case 'comment-instructions':
+      return '注释指令'
+    case 'uncomment-lines':
+      return '取消注释'
+    case 'paste-instructions':
+      return '粘贴指令'
+    case 'change-motion-kind':
+      return '切换 MoveJ/MoveL'
   }
 }
 
@@ -244,19 +269,29 @@ provideProgramPanelController({
   snapshot: programSnapshot,
   source: computed(() => rapidSource.value),
   program: computed(() => programControl.parsed.value.program),
+  instructions: computed(() => programControl.parsed.value.instructions),
   pendingClear: pendingClearState,
   data: programData,
   activeIndex: activeInstructionIndex,
   canExecute: programDataCanExecute,
+  editable: programEditable,
   insertionPoints: computed(() => programControl.parsed.value.motionInsertionPoints),
   pose: toolPose,
   runtimeValues: computed(() => programSnapshot.value.variables),
   selectedTargetName,
+  clipboard: programClipboard,
   applyEdit: handleApplyEdit,
   selectTarget: (name) => {
     selectedTargetName.value = name
     if (name !== null) runLog.info('数据', `已选中目标点 ${name}`)
   },
+  setClipboard: (entry) => {
+    programClipboard.value = entry
+  },
+  undo: () => programControl.undo(),
+  redo: () => programControl.redo(),
+  canUndo: programControl.canUndo,
+  canRedo: programControl.canRedo,
   run: () => programControl.run(),
   step: () => programControl.step(),
   stop: () => programControl.stop(),

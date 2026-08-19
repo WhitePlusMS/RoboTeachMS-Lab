@@ -33,6 +33,8 @@ const emit = defineEmits<{
   'source-change': [source: string]
   /** 编辑器光标（caret）所在源码行（1 起始），供 FlexPendant 式光标定位插入使用。 */
   'cursor-line-change': [line: number]
+  /** 双击指令行（FlexPendant 双击 = Change Selected 打开参数编辑），携带该行行号（1 起始）。 */
+  'line-activate': [line: number]
 }>()
 
 const gutterOffset = ref(0)
@@ -58,6 +60,18 @@ function emitCursorLine(textarea: HTMLTextAreaElement): void {
 /** 光标活动统一入口：聚焦、鼠标点选、键盘移动、选区变化与输入都会改变 caret 位置。 */
 function onCursorActivity(event: Event): void {
   if (event.target instanceof HTMLTextAreaElement) emitCursorLine(event.target)
+}
+
+/** 双击 = FlexPendant 双击指令打开参数编辑；上报双击时 caret 所在行。 */
+function onLineActivate(event: MouseEvent): void {
+  if (!(event.target instanceof HTMLTextAreaElement)) return
+  const offset = event.target.selectionStart ?? 0
+  const value = event.target.value
+  let line = 1
+  for (let index = 0; index < offset && index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) line += 1
+  }
+  emit('line-activate', line)
 }
 
 function handleSourceInput(event: Event): void {
@@ -171,6 +185,7 @@ const kindLabel = computed(() => {
         @input="handleSourceInput"
         @focus="onCursorActivity"
         @click="onCursorActivity"
+        @dblclick="onLineActivate"
         @keyup="onCursorActivity"
         @select="onCursorActivity"
       />

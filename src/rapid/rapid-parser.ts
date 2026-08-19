@@ -9,6 +9,7 @@ import type {
   ZoneData,
 } from './rapid-types.ts'
 import {
+  NO_EXTERNAL_AXIS,
   SYSTEM_LOADDATA,
   SYSTEM_SPEED,
   SYSTEM_TOOLDATA,
@@ -67,6 +68,7 @@ export type RapidMotionInstruction = StructuredMotionInstruction & {
   sourceText: string
   /** 运动操作数标识符（原始拼写），供结构化指令摘要展示，组件不另行解析 RAPID 字符串。 */
   operands: {
+    /** FlexPendant 式未示教占位时为 '*'，此时 target 字段为零值占位（missing-target ⇒ canExecute=false，永不执行）。 */
     target: string
     speed: string
     zone: string
@@ -200,6 +202,12 @@ export interface RapidMotionInsertionPoint {
 export interface RapidParseResult {
   /** 仅在没有 error 时可执行；存在 error 时返回空数组，防止误启动部分程序。 */
   program: readonly RapidExecutableInstruction[]
+  /**
+   * 全部成功解析的指令（含 `*` 未示教占位的运动指令），不受 canExecute 门控。
+   * 供 UI 做"光标所在指令"解析与受控参数编辑；executor 永远只使用 program。
+   * 注意：语义解析失败的语句（如引用未定义名称的运动）仍被剔除，与 program 内部口径一致。
+   */
+  instructions: readonly RapidExecutableInstruction[]
   diagnostics: readonly RapidDiagnostic[]
   canExecute: boolean
   /** 模块级命名数据的派生 Program Data 视图：六类运动数据与 num/bool 标量；来自同一次解析，无第二份状态。 */
@@ -248,10 +256,10 @@ export function isRobtargetProgramData(data: RapidProgramData): data is RapidPro
   return data.kind === 'robtarget'
 }
 
-/** 目标操作数意图：普通命名 robtarget，或 Offs()/RelTool() 目标表达式（基准必须为命名 robtarget）。 */
+/** 目标操作数意图：普通命名 robtarget、Offs()/RelTool() 目标表达式（基准必须为命名 robtarget），或 FlexPendant 式 `*` 未示教占位。 */
 interface PendingTarget {
-  kind: 'name' | 'offs' | 'reltool'
-  /** 基准目标名称（普通名称时即该名）。 */
+  kind: 'name' | 'offs' | 'reltool' | 'star'
+  /** 基准目标名称（普通名称时即该名）；`*` 占位时为字面量 '*'。 */
   baseName: string
   baseToken: Token
   /** Offs/RelTool 的数值参数。 */
@@ -266,7 +274,7 @@ interface PendingTarget {
   sourceText: string
 }
 
-type PendingTargetExpressionKind = Exclude<PendingTarget['kind'], 'name'>
+type PendingTargetExpressionKind = Exclude<PendingTarget['kind'], 'name' | 'star'>
 
 interface PendingReference {
   kind: OperandKind
@@ -1000,6 +1008,8 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
   /**
    * 读取目标操作数：先取首 token（普通 robtarget 名称，或 Offs/RelTool 位置函数关键字）。
+   * FlexPendant 式 `*` 未示教占位也合法：产生 missing-target error（程序不可运行，
+   * 与真实控制器一致），但指令仍进入 instructions 视图供受控编辑补全。
    * Offs(p,[x,y,z]) / RelTool(p,[dx,dy,dz[,rx,ry,rz]]) 参数为数值字面量；RelTool 还接受
    * `\\Rx:=`、`\\Ry:=`、`\\Rz:=` 命名旋转开关。缺失基准、参数数量错误、非数值参数或缺失括号
    * 均给出精确诊断并中止整条运动。
@@ -1008,6 +1018,21 @@ export function parseRapidProgram(source: string): RapidParseResult {
     target: PendingTarget | null
     separatorConsumed: boolean
   } {
+    // FlexPendant 新插入的运动指令以 `*` 作为未示教目标占位（3HAC050941 5.3.5 示例）。
+    if (isSymbol(current(), '*')) {
+      const star = advance()
+      addDiagnostic('missing-target', '目标点未示教（*）：请选择已有点位或新建点位', star)
+      return {
+        target: {
+          kind: 'star',
+          baseName: '*',
+          baseToken: star,
+          range: rangeFromToken(star, lineStarts),
+          sourceText: '*',
+        },
+        separatorConsumed: false,
+      }
+    }
     const slot = expectOperandSlot('目标点名称', onAbort)
     const first = slot.token
     if (!first) return { target: null, separatorConsumed: slot.separatorConsumed }
@@ -1151,7 +1176,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const targetResult = parseTargetOperand(abort)
     const target = targetResult.target
     let separatorConsumed = targetResult.separatorConsumed
-    if (target) {
+    if (target && target.kind !== 'star') {
       queueReference('target', target.baseToken, target.kind === 'name' ? undefined : target.kind)
     }
     if (abandoned) return
@@ -1585,10 +1610,15 @@ export function parseRapidProgram(source: string): RapidParseResult {
     let valid = true
 
     // 目标：普通名称或 Offs/RelTool 表达式；基准必须是用户声明的 robtarget（未定义诊断已由 resolveReferences 发出）。
-    const baseValue = symbols.get(normalizeName(pending.target.baseName))?.value
+    // `*` 未示教占位：诊断已在 parseTargetOperand 发出（missing-target ⇒ canExecute=false），
+    // 指令仍进入 instructions 视图供受控编辑补全；target 为零值占位，永不进入执行。
+    const isStarTarget = pending.target.kind === 'star'
+    const baseValue = isStarTarget
+      ? undefined
+      : symbols.get(normalizeName(pending.target.baseName))?.value
     const baseTarget = baseValue?.kind === 'robtarget' ? baseValue.value : null
     let resolvedTarget = baseTarget
-    if (baseTarget && pending.target.kind !== 'name') {
+    if (baseTarget && (pending.target.kind === 'offs' || pending.target.kind === 'reltool')) {
       const { dx, dy, dz } = pending.target
       resolvedTarget =
         pending.target.kind === 'offs'
@@ -1602,6 +1632,14 @@ export function parseRapidProgram(source: string): RapidParseResult {
               pending.target.ry,
               pending.target.rz,
             )
+    }
+    if (isStarTarget) {
+      resolvedTarget = {
+        trans: [0, 0, 0],
+        rot: [1, 0, 0, 0],
+        robconf: [0, 0, 0, 0],
+        extax: [...NO_EXTERNAL_AXIS],
+      }
     }
     if (!resolvedTarget) valid = false
 
@@ -2008,6 +2046,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
     diagnostics.length === 0 && moduleCount === 1 && mainCount === 1 && sawEndModule
   return {
     program: canExecute ? program : [],
+    instructions: program,
     diagnostics,
     canExecute,
     data,

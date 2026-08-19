@@ -76,6 +76,11 @@ export interface ProgramController {
   ppToMain: () => void
   /** 通过唯一受控编辑入口应用一条 Program Data 命令；成功更新源码，失败保持源码不变。 */
   applyEdit: (command: RapidEditCommand) => RapidEditResult
+  /** FlexPendant 式撤销/重做：仅覆盖受控编辑，最多 3 步；自由文本编辑自动清空历史。 */
+  undo: () => void
+  redo: () => void
+  canUndo: Ref<boolean>
+  canRedo: Ref<boolean>
   /** 手动关节/笛卡尔命令前调用：程序活动时先终止，避免争用同一 MotionRunner。 */
   stopActiveProgram: () => void
   /** off-path 时长按 ABB Clear 语义从当前位置规划到下一目标。请求模式为刚点击的运行/单步。 */
@@ -458,6 +463,31 @@ export function useProgramController(options: ProgramControllerOptions): Program
   let needsPPtoMain = false
   // 紧邻一次受控编辑的标记；结构化编辑不会改变运动指令顺序，因此只需一次性消费。
   let pendingEdit: RapidEditSuccess | null = null
+  // 程序因 missing-target（`*` 占位）暂不可执行时，旧 PP 下标挂在这里，等补全目标点后再映射。
+  let trackedPP: number | null = null
+
+  /** FlexPendant 式受控编辑历史：撤销/重做最多 3 步（3HAC050941 5.3.4），只存整份源码快照。 */
+  interface EditHistoryEntry {
+    source: string
+  }
+  const HISTORY_LIMIT = 3
+  const undoStack: EditHistoryEntry[] = []
+  const redoStack: EditHistoryEntry[] = []
+  const canUndo = ref(false)
+  const canRedo = ref(false)
+  // undo/redo 写回源码时置位，让 reconcile 知道这不是自由文本编辑，不清空历史。
+  let applyingHistory = false
+
+  function updateHistoryFlags(): void {
+    canUndo.value = undoStack.length > 0
+    canRedo.value = redoStack.length > 0
+  }
+
+  function clearEditHistory(): void {
+    undoStack.length = 0
+    redoStack.length = 0
+    updateHistoryFlags()
+  }
   // 单一解析事实源：源程序变化时实时重算，运行、Program Data 列表与诊断共用它。
   const parsed = computed(() => parseRapidProgram(options.source.value))
   const snapshot = ref<ProgramControllerSnapshot>(createSnapshot())
@@ -624,6 +654,7 @@ export function useProgramController(options: ProgramControllerOptions): Program
     if (executor.getSnapshot().state === 'running') return
     needsPPtoMain = false
     pendingEdit = null
+    trackedPP = null
     // 复位教学防死循环计数器与 FOR 游标，开始全新的执行会话。
     loopSteps = 0
     forCursors.clear()
@@ -653,21 +684,61 @@ export function useProgramController(options: ProgramControllerOptions): Program
     if (executor.getSnapshot().state === 'running') {
       return { ok: false, error: { code: 'source-error', message: '程序运行期间禁止编辑源码' } }
     }
-    const result = applyRapidEdit(options.source.value, command)
+    const previousSource = options.source.value
+    const result = applyRapidEdit(previousSource, command)
     if (result.ok) {
       pendingEdit = result.result
       options.source.value = result.result.source
+      // 成功的受控编辑入撤销栈并清空重做栈（FlexPendant：新编辑使 redo 失效）。
+      undoStack.push({ source: previousSource })
+      if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
+      redoStack.length = 0
+      updateHistoryFlags()
     }
     return result
   }
 
+  /** 撤销最近一次受控编辑：恢复整份源码，PP 走自由编辑的唯一映射规则（失败则 PP to Main）。 */
+  function undo(): void {
+    if (executor.getSnapshot().state === 'running') return
+    const entry = undoStack.pop()
+    if (!entry) return
+    redoStack.push({ source: options.source.value })
+    pendingEdit = null
+    trackedPP = null
+    applyingHistory = true
+    options.source.value = entry.source
+    updateHistoryFlags()
+    console.info('[ABB-PROGRAM] 撤销一次受控编辑')
+  }
+
+  function redo(): void {
+    if (executor.getSnapshot().state === 'running') return
+    const entry = redoStack.pop()
+    if (!entry) return
+    undoStack.push({ source: options.source.value })
+    pendingEdit = null
+    trackedPP = null
+    applyingHistory = true
+    options.source.value = entry.source
+    updateHistoryFlags()
+    console.info('[ABB-PROGRAM] 重做一次受控编辑')
+  }
+
   /** 源码变化后把已停止程序的旧 PP 映射到新解析结果；无法唯一映射则要求 PP to Main。 */
   function reconcileProgramAfterSourceChange(): void {
+    // 历史驱动（undo/redo）与受控编辑之外的源码变化 = 自由文本编辑/预设加载：清空编辑历史。
+    const historyDriven = applyingHistory
+    applyingHistory = false
+    if (!historyDriven && pendingEdit === null) clearEditHistory()
     const base = executor.getSnapshot()
-    // 运行中不重映射；idle 仍需同步诊断，并消费不应跨越空闲周期的受控编辑标记。
+    // 运行中不重映射；无已加载程序的空闲态只需同步诊断，并消费不应跨越空闲周期的受控编辑标记。
+    // 注意：停止态结构化编辑重建执行器后状态回到 idle 但 PP/loadedProgram 仍有效，
+    // 这种 idle 必须继续走下面的 PP 映射，否则连续两次结构化编辑会丢失折算。
     if (base.state === 'running') return
-    if (base.state === 'idle') {
+    if (base.state === 'idle' && loadedProgram.length === 0) {
       pendingEdit = null
+      trackedPP = null
       sync()
       return
     }
@@ -689,20 +760,48 @@ export function useProgramController(options: ProgramControllerOptions): Program
       needsPPtoMain = true
       logicContextDirty = true
       pendingEdit = null
+      trackedPP = null
       console.info('[ABB-PROGRAM] 逻辑源码已变化，需 PP to Main 重建变量上下文')
       sync()
       return
     }
-    // 结构化编辑保留指令集合与顺序：PP 按同一下标映射；否则保守校验下标处指令是否仍一致。
+    // 结构化编辑按命令携带的 remap 精确折算 PP；自由编辑保守校验下标处指令是否仍一致。
     let mapTo: number | null = null
-    if (next.canExecute && next.program.length > 0) {
-      if (isStructuredEdit) {
-        const edit = pendingEdit as NonNullable<typeof pendingEdit>
-        const shift = edit.programIndexShift
-        pendingEdit = null
-        const candidateIndex = shift && oldIndex >= shift.at ? oldIndex + shift.delta : oldIndex
-        if (candidateIndex < next.program.length) mapTo = candidateIndex
+    if (isStructuredEdit) {
+      const edit = pendingEdit as NonNullable<typeof pendingEdit>
+      pendingEdit = null
+      // 挂起期间基准是 trackedPP（`*` 占位程序的折算下标），否则是执行器当前 PP。
+      const baseIndex = trackedPP ?? oldIndex
+      if (edit.programTextChangedAt !== undefined && edit.programTextChangedAt === baseIndex) {
+        // PP 指向的指令文本被改写（参数/运动类型变更）：无法证明等价，要求 PP to Main。
+        trackedPP = null
       } else {
+        let mapped = baseIndex
+        const removed = edit.programRemap?.removed ?? []
+        const removedHit = removed.includes(mapped)
+        if (!removedHit) {
+          mapped -= removed.filter((removedIndex) => removedIndex < mapped).length
+          const inserted = edit.programRemap?.inserted
+          if (inserted && mapped >= inserted.at) mapped += inserted.count
+        }
+        if (removedHit) {
+          // PP 指向的指令被删除/注释 → 要求 PP to Main。
+          trackedPP = null
+        } else if (next.canExecute && mapped < next.program.length) {
+          mapTo = mapped
+          trackedPP = null
+        } else if (!next.canExecute) {
+          // 程序带 `*` 占位暂不可执行：挂起 PP，补全目标点后的下一次编辑再继续映射。
+          trackedPP = mapped
+          sync()
+          return
+        } else {
+          trackedPP = null
+        }
+      }
+    } else {
+      trackedPP = null
+      if (next.canExecute && next.program.length > 0) {
         const oldSourceText = oldProgram[oldIndex]?.sourceText
         const candidates = oldSourceText
           ? next.program
@@ -746,6 +845,10 @@ export function useProgramController(options: ProgramControllerOptions): Program
     stop,
     ppToMain,
     applyEdit,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     stopActiveProgram,
     confirmClearToNext,
     cancelClearToNext,

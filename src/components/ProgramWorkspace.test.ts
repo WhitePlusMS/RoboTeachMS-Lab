@@ -55,6 +55,18 @@ function mountWorkspace(view: 'rapid' | 'data', selectedTargetName: string | nul
   })
 }
 
+/** 打开「添加指令」菜单并点击指定菜单位（如 MoveJ/MoveL）。 */
+async function addMotionItem(
+  wrapper: ReturnType<typeof mount>,
+  item: 'MoveJ' | 'MoveL',
+): Promise<void> {
+  await wrapper.get('[aria-label="添加指令"]').trigger('click')
+  const list = wrapper.get('[aria-label="Common 指令列表"]')
+  const button = list.findAll('button').find((b) => b.text().trim() === item)
+  expect(button).toBeTruthy()
+  await button!.trigger('click')
+}
+
 describe('ProgramWorkspace 受控视图的 RAPID/Program Data 工作区', () => {
   it('由 view prop 驱动切换，切换时保留源码编辑器实例，且无内部页签与固定控制栏', async () => {
     const wrapper = mountWorkspace('rapid')
@@ -65,18 +77,18 @@ describe('ProgramWorkspace 受控视图的 RAPID/Program Data 工作区', () => 
     // 内部 tab strip 与固定 actions 实例已移除（运行控制移到顶栏 transport）。
     expect(wrapper.find('#program-tab-rapid').exists()).toBe(false)
     expect(wrapper.find('[aria-label="程序控制栏"]').exists()).toBe(false)
-    // RAPID 面板显示添加指令工具栏，Program Data 面板不显示。
-    expect(wrapper.get('#program-panel-rapid').find('[aria-label="添加运动指令"]').exists()).toBe(
-      true,
-    )
+    // RAPID 面板显示程序编辑器工具栏，Program Data 面板不显示。
+    expect(
+      wrapper.get('#program-panel-rapid').find('[aria-label="程序编辑器操作"]').exists(),
+    ).toBe(true)
 
     await wrapper.setProps({ view: 'data' })
     expect(wrapper.get('#program-panel-rapid').attributes('hidden')).toBeDefined()
     expect(wrapper.get('#program-panel-data').attributes('hidden')).toBeUndefined()
     expect(wrapper.get('textarea').element).toBe(editor)
-    expect(wrapper.get('#program-panel-data').find('[aria-label="添加运动指令"]').exists()).toBe(
-      false,
-    )
+    expect(
+      wrapper.get('#program-panel-data').find('[aria-label="程序编辑器操作"]').exists(),
+    ).toBe(false)
   })
 
   it('查看引用会请求切回 RAPID 视图并生成新的源码定位请求', async () => {
@@ -150,7 +162,7 @@ ENDMODULE`
     await wrapper.vm.$nextTick()
 
     // 光标行已生效：应插到行 6 之后（程序末尾 index 2），而不回退到 PP 之后（index 1）。
-    await wrapper.get('[aria-label="添加 MoveJ"]').trigger('click')
+    await addMotionItem(wrapper, 'MoveJ')
     expect(commands).toHaveLength(1)
     expect(commands[0]).toMatchObject({ type: 'insert-motion', kind: 'movej', insertionIndex: 2 })
   })
@@ -180,7 +192,7 @@ ENDMODULE`
       },
     })
 
-    await wrapper.get('[aria-label="添加 MoveJ"]').trigger('click')
+    await addMotionItem(wrapper, 'MoveJ')
     expect(commands).toHaveLength(1)
     // PP 为第 1 条指令（index 0），回退时插到其后 index 1。
     expect(commands[0]).toMatchObject({ type: 'insert-motion', kind: 'movej', insertionIndex: 1 })
