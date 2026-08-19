@@ -23,6 +23,11 @@ function positionsClose(left: number[], right: number[], tolerance = 0.5): boole
   return left.every((value, index) => Math.abs(value - right[index]) < tolerance)
 }
 
+async function openJogPanel(page: Parameters<typeof test>[0]['page']): Promise<void> {
+  const jogTab = page.getByRole('tab', { name: /手动 Jog/ })
+  if ((await jogTab.getAttribute('aria-selected')) !== 'true') await jogTab.click()
+}
+
 test.describe('RAPID 文本 ABB 程序（运行/单步/停止/PP to Main）', () => {
   test('完整运行后状态为已完成，程序指针等于程序长度', async ({ page }) => {
     await waitForScene(page)
@@ -118,46 +123,86 @@ ENDMODULE`)
   })
 })
 
-test.describe('教学闭环：Program Data 示教与源码观察', () => {
-  test('新建点位→插入 MoveJ→单步→连续运行→修改位置→再运行', async ({ page }) => {
+test.describe('教学闭环：RAPID 工具栏添加指令与 Program Data 示教', () => {
+  test('当前位置添加 MoveJ→Program Data 选中态保持→运行→Modify Position→再运行', async ({
+    page,
+  }) => {
+    // 含三次实时运动执行（单步 + 两次连续运行，每次约 8s），需要超出默认 20s 的用例超时。
+    test.setTimeout(60_000)
     await waitForScene(page)
 
-    await page.getByRole('tab', { name: 'Program Data' }).click()
+    // 1) 未与编辑器交互时光标未知，工具栏回退到 PP 之后：示教当前位置添加 MoveJ。
+    await page.getByRole('button', { name: '添加 MoveJ' }).click()
 
-    // 1) 用当前 TCP 新建命名点位。
-    await page.getByLabel('新点位名称').fill('pTeach')
-    await page.getByRole('button', { name: '新建点位' }).click()
-    await expect(page.locator('.program-data-panel')).toContainText('pTeach')
+    // 2) 源码同时出现新点位声明与运动指令引用。
+    const editor = page.getByRole('textbox', { name: 'RAPID 源程序' })
+    await expect(editor).toHaveValue(/CONST robtarget p10/)
+    await expect(editor).toHaveValue(/MoveJ p10,v100,fine,tool0;/)
 
-    // 2) 为新建点位插入一条 MoveJ。
-    await page.getByRole('button', { name: '选择点位 pTeach' }).click()
-    await page.getByRole('button', { name: '插入 MoveJ' }).click()
+    // 3) 进入 Program Data，p10 存在且可选中；选中态在 RAPID/数据视图切换后保持。
+    await page.getByRole('tab', { name: /程序数据/ }).click()
+    await expect(page.locator('.program-data-panel')).toContainText('p10')
+    await page.getByRole('button', { name: '选择点位 p10' }).click()
+    await expect(page.locator('[aria-label="选中点位详情"]')).toContainText(
+      'Modify Position（更新位置）',
+    )
 
-    // 3) 单步执行首条运动，停在下一条等待。
+    await page.getByRole('tab', { name: /RAPID/ }).click()
+    await page.getByRole('tab', { name: /程序数据/ }).click()
+    await expect(page.getByRole('button', { name: '选择点位 p10' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    // 4) 单步执行首条运动，停在下一条等待。
     await page.getByRole('button', { name: '单步' }).click()
     await expect(statusLabel(page)).toHaveText('已停止', { timeout: 30_000 })
-    await page.getByRole('tab', { name: 'RAPID' }).click()
+    await page.getByRole('tab', { name: /RAPID/ }).click()
     await expect(page.locator('.program-panel').getByText('等待下一步')).toBeVisible()
-    await expect(page.locator('body')).toContainText('MoveJ')
 
-    // 4) 连续运行到完成。
+    // 5) 连续运行到完成；原 3 条 + 插入的 1 条 = 4 条指令全部完成。
     await page.getByRole('button', { name: '运行' }).click()
     await expect(statusLabel(page)).toHaveText('已完成', { timeout: 40_000 })
-    // 原 3 条 + 插入的 1 条 = 4 条指令全部完成。
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('4')
 
-    // 5) Modify Position（示教）更新已有点位，源码可继续执行。
-    await page.getByRole('tab', { name: 'Program Data' }).click()
-    await page.getByRole('button', { name: '选择点位 pWork' }).click()
+    // 6) Jog 改变机器人位姿后，对 p10 执行 Modify Position（示教）。
+    await openJogPanel(page)
+    const j1 = page.getByRole('spinbutton', { name: 'J1 角度输入' })
+    await j1.fill('10')
+    await j1.press('Tab')
+    await expect(j1).toHaveValue('10.0')
+
+    await page.getByRole('tab', { name: /程序数据/ }).click()
     await page.getByRole('button', { name: 'Modify Position（更新位置）' }).click()
     await expect(page.locator('.program-data-panel')).not.toContainText('不能删除') // 无错误
 
-    // 6) PP to Main 后重新运行。
+    // 7) PP to Main 后重新运行成功。
     await page.getByRole('button', { name: 'PP to Main' }).click()
     await expect(statusLabel(page)).toHaveText('空闲')
     await page.getByRole('button', { name: '运行' }).click()
     await expect(statusLabel(page)).toHaveText('已完成', { timeout: 40_000 })
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('4')
+  })
+
+  test('光标定位添加 MoveL：插在光标行之后并示教当前位置为新点位', async ({ page }) => {
+    await waitForScene(page)
+    const editor = page.getByRole('textbox', { name: 'RAPID 源程序' })
+
+    // 把编辑器光标放到第一条 MoveJ 所在行（FlexPendant 式光标定位）。
+    await editor.evaluate((el: HTMLTextAreaElement) => {
+      const at = el.value.indexOf('MoveJ')
+      el.selectionStart = el.selectionEnd = at
+      el.focus()
+    })
+
+    await page.getByRole('button', { name: '添加 MoveL' }).click()
+
+    // 新指令紧跟第一条 MoveJ 之后，目标点为自动示教命名的新 robtarget。
+    await expect(editor).toHaveValue(/MoveJ[^\n]*\n\s*MoveL p10,v100,fine,tool0;/)
+    await expect(editor).toHaveValue(/CONST robtarget p10/)
+
+    await page.getByRole('button', { name: '运行' }).click()
+    await expect(statusLabel(page)).toHaveText('已完成', { timeout: 30_000 })
   })
 
   test('程序运行与结构化指令摘要联动，MP 随运动指令更新', async ({ page }) => {
@@ -193,7 +238,7 @@ test.describe('教学闭环：Program Data 示教与源码观察', () => {
 ENDMODULE`)
 
     const stepButton = page.getByRole('button', { name: '单步' })
-    const dataTab = page.getByRole('tab', { name: 'Program Data' })
+    const dataTab = page.getByRole('tab', { name: /程序数据/ })
     await dataTab.click()
     await page.getByRole('tab', { name: 'num' }).click()
     await expect(page.locator('[aria-label="选择 num count"]')).toContainText('初值 0 · 当前 0')
@@ -211,7 +256,7 @@ ENDMODULE`)
     await stepButton.click()
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('3')
     await expect(programStats(page).locator('dd').nth(1)).toHaveText('—')
-    await page.getByRole('tab', { name: 'RAPID' }).click()
+    await page.getByRole('tab', { name: /RAPID/ }).click()
     await expect(page.locator('.program-panel').getByText('等待下一步')).toBeVisible()
 
     // 命中 MoveJ 后完成整个教学任务。

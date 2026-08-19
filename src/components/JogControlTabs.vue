@@ -42,7 +42,6 @@ const emit = defineEmits<{
   reset: []
   random: []
   move: [axis: CartesianAxis, direction: CartesianDirection, isContinuous?: boolean]
-  'set-field': [axis: CartesianAxis, value: number]
   'coordinate-change': [value: CoordinateSystem]
   'position-step-change': [value: number]
   'orientation-step-change': [value: number]
@@ -75,7 +74,6 @@ const controller: RobotController =
     randomize: () => emit('random'),
     moveCartesian: (axis, direction, isContinuous) =>
       emit('move', axis, direction, isContinuous),
-    setCartesianField: (axis, value) => emit('set-field', axis, value),
     setCoordinateSystem: (value) => emit('coordinate-change', value),
     setPositionStep: (value) => emit('position-step-change', value),
     setOrientationStep: (value) => emit('orientation-step-change', value),
@@ -180,14 +178,12 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
       :hidden="activeTab !== 'cartesian'"
     >
       <CartesianControlPanel
-        :pose="controller.pose.value"
         :coordinate-system="controller.coordinateSystem.value"
         :position-step="controller.positionStep.value"
         :orientation-step="controller.orientationStep.value"
         :status="controller.status.value"
         :status-message="controller.statusMessage.value"
         @move="controller.moveCartesian"
-        @set-field="controller.setCartesianField"
         @coordinate-change="controller.setCoordinateSystem"
         @position-step-change="controller.setPositionStep"
         @orientation-step-change="controller.setOrientationStep"

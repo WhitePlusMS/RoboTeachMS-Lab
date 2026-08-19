@@ -8,7 +8,6 @@ function mountLayout() {
     slots: {
       center: '<div data-testid="center-content">Three.js 场景</div>',
       panel: `<template #panel="{ activeFunction }"><div data-testid="panel-content">当前功能：{{ activeFunction }}</div></template>`,
-      pose: '<div data-testid="pose-content">位姿读数</div>',
     },
   })
 }
@@ -19,7 +18,6 @@ describe('WorkbenchLayout 边栏驱动的面板壳层', () => {
 
     expect(wrapper.get('[data-testid="center-content"]').text()).toBe('Three.js 场景')
     expect(wrapper.get('[data-testid="panel-content"]').text()).toBe('当前功能：rapid')
-    expect(wrapper.get('[data-testid="pose-content"]').text()).toBe('位姿读数')
     expect(wrapper.get('.workbench-layout').classes()).toContain('view-rapid')
     expect(wrapper.get('.workbench-layout').classes()).not.toContain('panel-closed')
 

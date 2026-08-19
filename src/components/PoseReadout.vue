@@ -6,9 +6,13 @@ import { injectRobotController } from '@/application/use-robot-controller.ts'
 interface Props {
   /** 独立挂载（测试）时直接传入；真实应用里优先使用共享机器人控制器的 pose。 */
   pose?: PoseDisplay
+  /** 紧凑模式：作为半透明角标叠放在 3D 场景角落，而非面板底部的大卡片。 */
+  compact?: boolean
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  compact: false,
+})
 
 const EMPTY_POSE: PoseDisplay = { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
 
@@ -21,8 +25,14 @@ function format(value: number): string {
 </script>
 
 <template>
-  <section class="pose-card pose-readout" aria-label="正解结果">
-    <div class="pose-readout-title">当前位姿（World 坐标值）</div>
+  <section
+    class="pose-card pose-readout"
+    :class="{ compact }"
+    aria-label="正解结果"
+  >
+    <div class="pose-readout-title">
+      {{ compact ? '位姿' : '当前位姿（World 坐标值）' }}
+    </div>
     <div class="pose-grid">
       <div class="pose-cell">
         <span>X</span><strong>{{ format(pose.positionMm[0]) }}</strong>
@@ -54,6 +64,43 @@ function format(value: number): string {
   background: transparent;
 }
 
+/* 紧凑角标：半透明圆角小卡片，叠放于 3D 场景角落，不再占据面板底部大卡片。 */
+.pose-readout.compact {
+  padding: 8px 12px 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: rgba(13, 15, 19, 0.72);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.35);
+}
+
+.pose-readout.compact .pose-readout-title {
+  margin-bottom: 4px;
+}
+
+.pose-readout.compact .pose-grid {
+  grid-template-columns: repeat(3, auto);
+  gap: 2px 10px;
+  justify-content: start;
+}
+
+.pose-readout.compact .pose-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 0;
+  border: 0;
+}
+
+.pose-readout.compact .pose-cell span {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.pose-readout.compact .pose-cell strong {
+  font-size: 12px;
+}
+
 .pose-readout-title {
   margin-bottom: 6px;
   color: var(--color-text-dim);
@@ -82,14 +129,14 @@ function format(value: number): string {
 
 .pose-cell span {
   display: block;
-  color: var(--color-text-dim);
-  font-size: 10px;
+  color: var(--color-text-faint);
+  font-size: 11px;
 }
 
 .pose-cell strong {
   color: var(--color-text);
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }

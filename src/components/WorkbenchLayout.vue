@@ -85,10 +85,6 @@ function collapsePanel(): void {
       <div class="dock-body">
         <slot name="panel" :active-function="activeFunction" :select="selectFunction" />
       </div>
-
-      <div class="dock-pose">
-        <slot name="pose" />
-      </div>
     </aside>
 
     <nav class="workbench-rail" role="tablist" aria-label="功能边栏">
@@ -166,7 +162,7 @@ function collapsePanel(): void {
 
 .dock-kicker {
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -189,13 +185,6 @@ function collapsePanel(): void {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-}
-
-/* 位姿读数：钉在面板底部，跨功能共享。 */
-.dock-pose {
-  flex: 0 0 auto;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
 }
 
 /* 窄图标边栏（常驻，KUKA iiQKA 右边缘操作栏式）。 */

@@ -1,13 +1,14 @@
 export type ScenePoint = [number, number, number]
 
+/** 轨迹缓冲初始容量（点）；仅作预分配起点，超出后缓冲区按需翻倍增长，不再截断。 */
 export const DEFAULT_TRAJECTORY_LIMIT = 200
 export const DEFAULT_TRAJECTORY_DISTANCE = 0.001
 
-/** 按最小距离采样末端轨迹，并限制内存中的最大点数。 */
+/** 按最小距离采样末端轨迹；默认不截断，传入 maxPoints 时才丢弃最旧的点。 */
 export function appendTrajectoryPoint(
   points: readonly ScenePoint[],
   point: ScenePoint,
-  maxPoints = DEFAULT_TRAJECTORY_LIMIT,
+  maxPoints = Number.POSITIVE_INFINITY,
   minDistance = DEFAULT_TRAJECTORY_DISTANCE,
 ): ScenePoint[] {
   const last = points[points.length - 1]

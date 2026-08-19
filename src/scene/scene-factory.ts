@@ -233,8 +233,9 @@ export function createSceneController(
   }
 
   const trajectoryGeometry = new THREE.BufferGeometry()
-  const trajectoryPositions = new Float32Array(DEFAULT_TRAJECTORY_LIMIT * 3)
-  const trajectoryAttribute = new THREE.BufferAttribute(trajectoryPositions, 3)
+  /** 轨迹缓冲按需翻倍增长：点数不限，长程序不再截断旧轨迹。 */
+  let trajectoryPositions = new Float32Array(DEFAULT_TRAJECTORY_LIMIT * 3)
+  let trajectoryAttribute = new THREE.BufferAttribute(trajectoryPositions, 3)
   trajectoryGeometry.setAttribute('position', trajectoryAttribute)
   trajectoryGeometry.setDrawRange(0, 0)
   const trajectoryMaterial = new THREE.LineBasicMaterial({
@@ -257,6 +258,9 @@ export function createSceneController(
     camera.aspect = width / height
     camera.updateProjectionMatrix()
     renderer.setSize(width, height, false)
+    // setSize 会重置 WebGL 缓冲，而 rAF 渲染要等下一帧才会跑——必须在本帧内
+    // 立即重绘一次，否则面板宽度过渡动画期间画布会被画上空白帧（闪烁）。
+    renderer.render(scene, camera)
   })
   let animationFrame = 0
   let toolAxes: THREE.Group | null = null
@@ -266,6 +270,12 @@ export function createSceneController(
   let disposed = false
 
   const refreshTrajectoryLine = (): void => {
+    if (trajectoryPoints.length * 3 > trajectoryPositions.length) {
+      const nextCapacity = Math.max(trajectoryPoints.length, (trajectoryPositions.length / 3) * 2)
+      trajectoryPositions = new Float32Array(nextCapacity * 3)
+      trajectoryAttribute = new THREE.BufferAttribute(trajectoryPositions, 3)
+      trajectoryGeometry.setAttribute('position', trajectoryAttribute)
+    }
     trajectoryPoints.forEach((point, index) => {
       trajectoryPositions[index * 3] = point[0]
       trajectoryPositions[index * 3 + 1] = point[1]

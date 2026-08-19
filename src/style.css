@@ -130,7 +130,7 @@ button:disabled {
 .eyebrow,
 .panel-kicker {
   margin: 0 0 8px;
-  color: var(--color-brand);
+  color: var(--color-text-dim);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -144,7 +144,7 @@ button:disabled {
   color: var(--color-success-soft);
   background: rgba(62, 207, 142, 0.1);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
@@ -172,7 +172,7 @@ button:disabled {
 
 /* Small hint/caption text shared across panels & the header. */
 .panel-hint {
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -261,7 +261,7 @@ button:disabled {
 }
 
 .step-selector > span {
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-size: 11px;
 }
 
@@ -311,7 +311,7 @@ button:disabled {
 
 .pose-card-title {
   margin-bottom: 9px;
-  color: var(--color-brand);
+  color: var(--color-text-muted);
   font-size: 11px;
   font-weight: 700;
 }
@@ -389,12 +389,14 @@ button:disabled {
    配色全部引用 token；供多个组件复用，组件内只补充布局相关 scoped 样式。
    ========================================================================== */
 
-/* 顶栏状态丸（程序状态 / PP·MP / 场景状态）。 */
+/* 顶栏状态丸（程序状态 / PP·MP / 场景状态）。与 .tkey 同高 30px，垂直 padding 归零靠 flex 居中。 */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 11px;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 11px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
   color: var(--color-text-faint);
@@ -405,7 +407,7 @@ button:disabled {
 
 .pill-mono {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -429,13 +431,15 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 8px 14px;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 12px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   transition:
     border-color 0.15s ease,
@@ -493,7 +497,7 @@ button:disabled {
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   transition:
     background 0.15s ease,
@@ -521,7 +525,7 @@ button:disabled {
   background: var(--color-surface);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   transition:
     border-color 0.15s ease,
     color 0.15s ease,
@@ -569,6 +573,6 @@ button:disabled {
 .field-label {
   display: block;
   margin-bottom: 6px;
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-size: 11px;
 }

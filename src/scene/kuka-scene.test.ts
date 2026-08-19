@@ -9,7 +9,7 @@ import {
   KUKA_MODEL_SCALE,
 } from './kuka-scene.ts'
 import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
-import { appendTrajectoryPoint } from './trajectory.ts'
+import { appendTrajectoryPoint, DEFAULT_TRAJECTORY_LIMIT } from './trajectory.ts'
 
 describe('KUKA 场景适配器', () => {
   it('公开六个 KUKA 关节节点名称和独立模型缩放', () => {
@@ -67,5 +67,14 @@ describe('KUKA 场景适配器', () => {
       [0.01, 0, 0],
       [0.02, 0, 0],
     ])
+  })
+
+  it('默认不截断：超过初始容量的长轨迹完整保留', () => {
+    let points: ReturnType<typeof appendTrajectoryPoint> = []
+    for (let i = 0; i < DEFAULT_TRAJECTORY_LIMIT + 50; i += 1) {
+      points = appendTrajectoryPoint(points, [i * 0.01, 0, 0])
+    }
+    expect(points.length).toBe(DEFAULT_TRAJECTORY_LIMIT + 50)
+    expect(points[0]).toEqual([0, 0, 0])
   })
 })

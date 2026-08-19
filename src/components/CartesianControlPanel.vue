@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import type { CartesianAxis, CoordinateSystem, PoseDisplay } from '@/robotics/types.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/robotics/types.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
@@ -10,7 +10,6 @@ import type {
 import { ORIENTATION_STEPS, POSITION_STEPS } from '@/application/cartesian-control.ts'
 
 interface Props {
-  pose: PoseDisplay
   coordinateSystem: CoordinateSystem
   positionStep: PositionStep
   orientationStep: OrientationStep
@@ -22,20 +21,11 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   move: [axis: CartesianAxis, direction: CartesianDirection, isContinuous?: boolean]
-  'set-field': [axis: CartesianAxis, value: number]
   'coordinate-change': [value: CoordinateSystem]
   'position-step-change': [value: number]
   'orientation-step-change': [value: number]
 }>()
 
-const controls: readonly { axis: CartesianAxis; label: string; unit: string; index: number }[] = [
-  { axis: 'x', label: 'X', unit: 'mm', index: 0 },
-  { axis: 'y', label: 'Y', unit: 'mm', index: 1 },
-  { axis: 'z', label: 'Z', unit: 'mm', index: 2 },
-  { axis: 'rx', label: 'RX', unit: '°', index: 0 },
-  { axis: 'ry', label: 'RY', unit: '°', index: 1 },
-  { axis: 'rz', label: 'RZ', unit: '°', index: 2 },
-]
 const coordinateSystems = ['World', 'Tool'] as const
 
 /** 动作模式：平移（X/Y/Z）或旋转（RX/RY/RZ），仅切换方向键盘映射与提示。 */
@@ -126,19 +116,6 @@ function finishPress(): void {
   if (!press) return
   if (!press.repeated) emit('move', press.axis, press.direction, false)
   stopPress()
-}
-
-function handleFieldChange(axis: CartesianAxis, event: Event): void {
-  const input = event.target as HTMLInputElement | null
-  if (!input) return
-  const rawValue = input.value.trim()
-  emit('set-field', axis, rawValue === '' ? Number.NaN : Number(rawValue))
-}
-
-function valueFor(control: (typeof controls)[number]): number {
-  return control.axis === 'x' || control.axis === 'y' || control.axis === 'z'
-    ? props.pose.positionMm[control.index]
-    : props.pose.orientationDeg[control.index]
 }
 
 onBeforeUnmount(stopPress)
@@ -269,20 +246,6 @@ onBeforeUnmount(stopPress)
       </div>
     </div>
 
-    <div class="cartesian-values">
-      <label v-for="control in controls" :key="control.axis" class="cartesian-value">
-        <span class="cartesian-value-name">{{ control.label }}（{{ control.unit }}）</span>
-        <input
-          class="cartesian-input"
-          type="number"
-          step="0.1"
-          :value="valueFor(control).toFixed(1)"
-          :aria-label="`${control.label} 数值输入`"
-          @change="handleFieldChange(control.axis, $event)"
-        />
-      </label>
-    </div>
-
     <div class="step-selector" aria-label="位置步进选择">
       <span>位置步进</span>
       <button
@@ -401,43 +364,9 @@ onBeforeUnmount(stopPress)
 .dpad-tag {
   display: grid;
   place-items: center;
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-/* 六轴数值输入格。 */
-.cartesian-values {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-
-.cartesian-value {
-  display: grid;
-  gap: 4px;
-  padding: 5px 7px;
-  border: 1px solid var(--color-border);
-  border-radius: 5px;
-  background: var(--color-editor);
-}
-
-.cartesian-value-name {
-  color: var(--color-text-dim);
-  font-size: 10px;
-}
-
-.cartesian-input {
-  width: 100%;
-  min-width: 0;
-  padding: 2px 0;
-  border: 0;
-  outline: none;
-  color: var(--color-text-strong);
-  background: transparent;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
+  font-size: 11px;
 }
 
 /* Compact layout override when nested inside the jog tab panel. */

@@ -17,23 +17,25 @@ import {
 import { useMotion } from '@/application/motion-control.ts'
 import { useProgramController } from '@/application/program-control.ts'
 import { createBuiltinRapidSource } from '@/application/builtin-program.ts'
-import { useRunLog } from '@/application/run-log.ts'
+import { useRunLog, provideRunLog } from '@/application/run-log.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
 import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
-import {
-  provideProgramPanelController,
-} from '@/application/use-program-panel-controller.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
+import { provideProgramPanelController } from '@/application/use-program-panel-controller.ts'
 import { provideRobotController } from '@/application/use-robot-controller.ts'
 
 const profile = ABB_IRB1200_PROFILE
 const sceneStatus = ref<AbbSceneStatus>('loading')
-const showGrid = ref(true)
-const showCoordinateSystems = ref(true)
-const showDhDebug = ref(true)
+const showGrid = ref(false)
+const showCoordinateSystems = ref(false)
+const showDhDebug = ref(false)
 const showTrajectory = ref(false)
-const showRobtargets = ref(true)
+const showRobtargets = ref(false)
+const showRobtargetLabels = ref(false)
 const trajectoryCount = ref(0)
+/** 程序数据中选中的 robtarget 名称；由 App 唯一持有，驱动 3D 场景高亮。 */
+const selectedTargetName = ref<string | null>(null)
 const {
   joints,
   jointStep,
@@ -54,8 +56,12 @@ const { startEasedAnimation, startSpeedLimitedAnimation, startCartesianTrajector
 function setJoint(index: number, value: number): void {
   programControl.stopActiveProgram()
   stopAnimation()
+  const before = joints.value[index]
   setJointImmediate(index, value)
+  runLog.info('运动', `J${index + 1} ${before.toFixed(1)}° → ${value.toFixed(1)}°`)
 }
+
+const JOINT_LABELS = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
   programControl.stopActiveProgram()
@@ -67,17 +73,28 @@ function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): vo
     profile.jointRanges,
   )
   if (isContinuous) startSpeedLimitedAnimation(next)
-  else startEasedAnimation(next)
+  else {
+    startEasedAnimation(next)
+    // 只有离散单步才记日志；按住连续 Jog 的 80ms 高频 tick 不做逐条记录以免刷屏。
+    runLog.info(
+      '运动',
+      `${JOINT_LABELS[index] ?? `J${index + 1}`} 单步 ${
+        direction > 0 ? '+' : '−'
+      }${jointStep.value}° → ${next[index].toFixed(1)}°`,
+    )
+  }
 }
 
 function reset(): void {
   programControl.stopActiveProgram()
   startEasedAnimation([...profile.homeJoints])
+  runLog.info('运动', '机器人回零')
 }
 
 function randomize(): void {
   programControl.stopActiveProgram()
   startEasedAnimation(randomJointAngles(profile.jointRanges))
+  runLog.info('运动', '随机生成姿态')
 }
 
 function animateCartesianTrajectory(
@@ -105,8 +122,9 @@ const programSnapshot = programControl.snapshot
 /** off-path Clear 确认的等待模式；作为本地 setup ref 以便模板自动解包传给面板。 */
 const pendingClearState = programControl.pendingClear
 
-/** 底部日志：程序状态迁移 / 诊断 / 运行时错误的派生记录。 */
+/** 底部日志：程序状态迁移 / 诊断 / 运行时错误的派生记录；provide 供任意组件直接调用 info/ok/warn/error。 */
 const runLog = useRunLog(programSnapshot)
+provideRunLog(runLog)
 
 /**
  * Program Data 派生视图：声明来自同一次解析，标量当前值来自同一 ProgramExecutor 快照。
@@ -120,11 +138,14 @@ const activeInstructionIndex = computed(() => {
   return snapshot.motionPointer ?? snapshot.programPointer
 })
 
-/** 3D 场景的 robtarget 空间标记：与 Program Data 同源（同一次解析）。 */
+/** 3D 场景的 robtarget 空间标记：与 Program Data 同源（同一次解析），并写入选中态。 */
 const robtargets = computed<readonly AbbRobTargetMarker[]>(() =>
   programData.value.filter(isRobtargetProgramData).map((entry) => ({
     name: entry.name,
     position: [entry.target.trans[0], entry.target.trans[1], entry.target.trans[2]],
+    selected:
+      selectedTargetName.value !== null &&
+      entry.name.toLocaleLowerCase() === selectedTargetName.value.toLocaleLowerCase(),
   })),
 )
 
@@ -138,7 +159,6 @@ const {
   status: cartesianStatus,
   statusMessage: cartesianStatusMessage,
   move: moveCartesian,
-  setField: setCartesianField,
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
@@ -157,6 +177,46 @@ const statusLabel = computed(() => {
 
 const motionPointerText = computed(() => programSnapshot.value.motionPointer?.toString() ?? '—')
 
+/** 程序动作包装：在委托给 ProgramController 前补一条操作日志（状态迁移日志由 useRunLog 观察快照产生）。 */
+function handlePP(): void {
+  programControl.ppToMain()
+  runLog.info('程序', 'PP 已回到 main，等待运行')
+}
+
+/** 源码整体替换（预设加载 / 手工设值）：记录来源。 */
+function handleSetSource(source: string): void {
+  const changed = source !== rapidSource.value
+  rapidSource.value = source
+  if (changed) runLog.info('源码', 'RAPID 源码已更新')
+}
+
+/** 受控编辑：成功才记日志，失败保持源码不变并报告原因。 */
+function handleApplyEdit(command: RapidEditCommand): RapidEditResult {
+  const result = programControl.applyEdit(command)
+  if (result.ok) {
+    runLog.ok('数据', `${commandLabel(command)}已更新`)
+  } else {
+    runLog.error('数据', `${commandLabel(command)}更新失败：${result.error.message}`)
+  }
+  return result
+}
+
+/** 编辑命令的可读描述，用于操作日志。 */
+function commandLabel(command: RapidEditCommand): string {
+  switch (command.type) {
+    case 'create-target':
+      return `创建目标点 ${command.name}`
+    case 'modify-position':
+      return `更新目标点 ${command.name}`
+    case 'rename-target':
+      return `重命名目标点 ${command.name} → ${command.newName}`
+    case 'delete-target':
+      return `删除目标点 ${command.name}`
+    case 'insert-motion':
+      return `插入指令 ${command.kind.toUpperCase()}`
+  }
+}
+
 /** Jog 工作区共享控制器：App 保持编排所有权（setJoint 先停程序/动画再运动）。 */
 provideRobotController({
   joints,
@@ -174,7 +234,6 @@ provideRobotController({
   reset,
   randomize,
   moveCartesian,
-  setCartesianField,
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
@@ -192,16 +251,19 @@ provideProgramPanelController({
   insertionPoints: computed(() => programControl.parsed.value.motionInsertionPoints),
   pose: toolPose,
   runtimeValues: computed(() => programSnapshot.value.variables),
-  applyEdit: programControl.applyEdit,
+  selectedTargetName,
+  applyEdit: handleApplyEdit,
+  selectTarget: (name) => {
+    selectedTargetName.value = name
+    if (name !== null) runLog.info('数据', `已选中目标点 ${name}`)
+  },
   run: () => programControl.run(),
   step: () => programControl.step(),
   stop: () => programControl.stop(),
-  ppToMain: () => programControl.ppToMain(),
+  ppToMain: handlePP,
   confirmClearToNext: () => programControl.confirmClearToNext(),
   cancelClearToNext: () => programControl.cancelClearToNext(),
-  setSource: (source) => {
-    rapidSource.value = source
-  },
+  setSource: handleSetSource,
 })
 </script>
 
@@ -220,7 +282,7 @@ provideProgramPanelController({
         @run="programControl.run()"
         @step="programControl.step()"
         @stop="programControl.stop()"
-        @pp="programControl.ppToMain()"
+        @pp="handlePP()"
         @confirm-clear="programControl.confirmClearToNext()"
         @cancel-clear="programControl.cancelClearToNext()"
       />
@@ -244,6 +306,7 @@ provideProgramPanelController({
             :trajectory-count="trajectoryCount"
             :robtargets="robtargets"
             :show-robtargets="showRobtargets"
+            :show-robtarget-labels="showRobtargetLabels"
             @status="sceneStatus = $event"
             @grid-change="showGrid = $event"
             @coordinates-change="showCoordinateSystems = $event"
@@ -251,11 +314,13 @@ provideProgramPanelController({
             @trajectory-change="showTrajectory = $event"
             @trajectory-count="trajectoryCount = $event"
             @robtargets-change="showRobtargets = $event"
+            @robtarget-labels-change="showRobtargetLabels = $event"
           />
           <div class="viewport-caption">
             <span>WORLD / BASE FRAME</span>
             <span>OrbitControls</span>
           </div>
+          <PoseReadout class="scene-pose-readout" :compact="true" />
         </div>
       </template>
 
@@ -266,10 +331,6 @@ provideProgramPanelController({
           @update:view="select"
         />
         <JogControlTabs v-show="activeFunction === 'jog'" />
-      </template>
-
-      <template #pose>
-        <PoseReadout />
       </template>
     </WorkbenchLayout>
 
@@ -290,6 +351,8 @@ provideProgramPanelController({
 }
 
 .topbar {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -357,5 +420,14 @@ provideProgramPanelController({
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.08em;
+}
+
+/* 位姿角标：紧凑叠放在 3D 场景右下角（caption 上方），不占面板空间。 */
+.scene-pose-readout {
+  position: absolute;
+  right: 14px;
+  bottom: 40px;
+  z-index: 2;
+  pointer-events: none;
 }
 </style>

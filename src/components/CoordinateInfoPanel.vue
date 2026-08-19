@@ -22,7 +22,7 @@ function formatValue(value: number): string {
         <p class="panel-kicker">COORDINATE INFO</p>
         <h2>坐标信息</h2>
       </div>
-      <span class="control-status">BASE / TOOL</span>
+      <span class="coordinate-info-tag">BASE / TOOL</span>
     </div>
 
     <div class="coordinate-info-grid">
@@ -79,22 +79,25 @@ function formatValue(value: number): string {
 
 .coordinate-info-grid {
   display: grid;
-  gap: 8px;
+}
+
+.coordinate-info-tag {
+  padding: 3px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-text-faint);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
 }
 
 .coordinate-info-card {
-  padding: 10px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-md);
-  background: rgba(20, 22, 27, 0.7);
+  padding: 10px 0;
 }
 
-.coordinate-info-base {
-  border-color: rgba(74, 168, 255, 0.3);
-}
-
-.coordinate-info-tool {
-  border-color: rgba(255, 106, 26, 0.3);
+.coordinate-info-card + .coordinate-info-card {
+  border-top: 1px solid var(--color-border);
 }
 
 .coordinate-info-heading {
@@ -108,9 +111,9 @@ function formatValue(value: number): string {
 
 .coordinate-info-heading small {
   margin-left: auto;
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.08em;
 }
 
@@ -119,12 +122,10 @@ function formatValue(value: number): string {
   height: 7px;
   border-radius: 50%;
   background: var(--color-info);
-  box-shadow: 0 0 8px rgba(74, 168, 255, 0.55);
 }
 
 .coordinate-info-tool .coordinate-info-dot {
   background: var(--color-accent-orange);
-  box-shadow: 0 0 8px rgba(255, 106, 26, 0.55);
 }
 
 .coordinate-info-values {
@@ -133,7 +134,7 @@ function formatValue(value: number): string {
   gap: 5px 8px;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .coordinate-info-values span {

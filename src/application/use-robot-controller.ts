@@ -49,7 +49,6 @@ export interface RobotController {
     direction: CartesianDirection,
     isContinuous?: boolean,
   ): void
-  setCartesianField(axis: CartesianAxis, value: number): void
   setCoordinateSystem(value: CoordinateSystem): void
   setPositionStep(value: number): void
   setOrientationStep(value: number): void

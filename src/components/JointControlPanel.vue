@@ -174,9 +174,9 @@ onBeforeUnmount(stopPress)
 }
 
 .joint-name {
-  color: var(--color-brand-soft);
+  color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -207,9 +207,9 @@ onBeforeUnmount(stopPress)
 }
 
 .joint-range {
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
@@ -220,11 +220,13 @@ onBeforeUnmount(stopPress)
   gap: 8px;
 }
 
-/* Compact layout overrides applied when nested inside the jog tab panel. */
+/* Compact layout overrides applied when nested inside the jog tab panel.
+   外层 .jog-control-tabs 已有横向 padding，内层归零避免双层内边距。 */
 .jog-tabpanel > .joint-panel {
   height: 100%;
   min-height: 0;
   gap: 10px;
+  padding: 0;
   align-content: start;
 }
 </style>
