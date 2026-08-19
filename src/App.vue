@@ -393,7 +393,7 @@ provideProgramPanelController({
 
 .topbar {
   position: relative;
-  z-index: 20;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -408,16 +408,16 @@ provideProgramPanelController({
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--color-on-brand);
   background: linear-gradient(135deg, var(--color-brand), var(--color-brand-strong));
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 900;
 }
 
 .topbar h1 {
   color: var(--color-text-strong);
-  font-size: 14px;
+  font-size: var(--text-xl);
   font-weight: 700;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -472,7 +472,7 @@ provideProgramPanelController({
   pointer-events: none;
   color: var(--color-text-dim);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-sm);
   letter-spacing: 0.08em;
 }
 
@@ -481,7 +481,7 @@ provideProgramPanelController({
   position: absolute;
   right: 14px;
   bottom: 40px;
-  z-index: 2;
+  z-index: var(--z-raised);
   pointer-events: none;
 }
 </style>

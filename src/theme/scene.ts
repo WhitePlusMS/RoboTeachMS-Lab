@@ -11,19 +11,19 @@
  */
 export const sceneEnvironment = {
   /** 场景背景：WebGL scene.background 与页面 --color-scene-bg 的唯一来源。 */
-  background: '#101827',
+  background: '#e8ecf3',
   /** 工作台台面（顶部材质）。 */
   workbenchTop: '#d5d9df',
   /** 工作台框架。 */
   workbenchFrame: '#667085',
   /** 地面网格主线。 */
-  gridColor: '#64748b',
+  gridColor: '#8b98ab',
   /** 地面网格副线。 */
-  gridColorLine: '#334155',
+  gridColorLine: '#c2cad6',
   /** 半球光天空色。 */
   hemisphereSky: '#f6f8fb',
   /** 半球光地面色。 */
-  hemisphereGround: '#4b5563',
+  hemisphereGround: '#8a94a6',
   /** 主光（白）。 */
   keyLight: '#ffffff',
   /** 补光。 */
@@ -50,14 +50,14 @@ export const abbScene = {
   fallbackDark: '#343b48',
   /** 回退几何——黄色连杆。 */
   fallbackYellow: '#f59e0b',
-  /** robtarget 点位小球（ABB 品牌橙）及其自发光。 */
-  robTarget: '#ff6a1a',
+  /** robtarget 点位小球（ABB 品牌红）及其自发光。 */
+  robTarget: '#ff000f',
   /** robtarget 名称标签底色。 */
-  labelBackground: 'rgba(14, 16, 19, 0.82)',
+  labelBackground: 'rgba(255, 255, 255, 0.88)',
   /** robtarget 名称标签描边。 */
-  labelBorder: '#333a44',
+  labelBorder: '#cdd3dc',
   /** robtarget 名称标签文字。 */
-  labelText: '#e8eaee',
+  labelText: '#2b2f38',
   /** DH 参考链连接线。 */
   dhLink: '#ff4d4f',
   /** DH 各关节原点标记色（J1..FLANGE）。 */

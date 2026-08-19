@@ -891,25 +891,25 @@ function rowSummary(entry: RapidProgramData): string {
 
 .program-data-panel h2 {
   color: var(--color-text-strong);
-  font-size: 16px;
+  font-size: var(--text-2xl);
   letter-spacing: -0.01em;
 }
 
 .program-data-hint {
   margin: -4px 0 0;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
 .program-data-error {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
   border-radius: var(--radius-sm);
   color: var(--color-danger-soft);
-  background: rgba(127, 29, 29, 0.2);
-  font-size: 12px;
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
@@ -936,12 +936,12 @@ function rowSummary(entry: RapidProgramData): string {
 
 .program-data-kind-zh {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-data-kind-en {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--color-text-dim);
   letter-spacing: 0.02em;
 }
@@ -958,8 +958,8 @@ function rowSummary(entry: RapidProgramData): string {
 
 /* 含系统预定义项的 Tab：黄色弱化描边 + 淡黄底，区分于纯程序变量 Tab。 */
 .program-data-kind-tab.has-system {
-  border-color: rgba(245, 197, 66, 0.42);
-  background: rgba(245, 197, 66, 0.08);
+  border-color: color-mix(in srgb, var(--color-warning) 42%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
 }
 
 .program-data-kind-tab.has-system:hover {
@@ -988,7 +988,7 @@ function rowSummary(entry: RapidProgramData): string {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--text-md);
   margin-bottom: 8px;
 }
 
@@ -1012,7 +1012,7 @@ function rowSummary(entry: RapidProgramData): string {
   flex: 0 0 auto;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
 }
 
@@ -1024,12 +1024,12 @@ function rowSummary(entry: RapidProgramData): string {
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: var(--color-editor);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-data-filter:focus {
   border-color: var(--color-brand-strong);
-  outline: 2px solid rgba(255, 106, 26, 0.18);
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 18%, transparent);
   outline-offset: 1px;
 }
 
@@ -1053,7 +1053,7 @@ function rowSummary(entry: RapidProgramData): string {
 .program-data-teach-title {
   margin: 0;
   color: var(--color-text-strong);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
 }
 
@@ -1061,7 +1061,7 @@ function rowSummary(entry: RapidProgramData): string {
   margin: 0;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .program-data-teach-row {
@@ -1079,12 +1079,12 @@ function rowSummary(entry: RapidProgramData): string {
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: var(--color-editor);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-family: var(--font-mono);
 }
 
 .program-data-name-input:focus {
-  outline: 2px solid rgba(255, 106, 26, 0.55);
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 55%, transparent);
   outline-offset: 1px;
 }
 
@@ -1114,15 +1114,15 @@ function rowSummary(entry: RapidProgramData): string {
 }
 
 .program-data-item.selected {
-  border-color: rgba(255, 106, 26, 0.7);
-  box-shadow: 0 0 0 1px rgba(255, 106, 26, 0.16);
+  border-color: color-mix(in srgb, var(--color-brand) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand) 16%, transparent);
 }
 
 .program-data-item.active,
 .program-data-item.active:hover {
-  border-color: rgba(245, 197, 66, 0.65);
-  box-shadow: 0 0 0 1px rgba(245, 197, 66, 0.22);
-  background: rgba(245, 197, 66, 0.05);
+  border-color: color-mix(in srgb, var(--color-warning) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 22%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
 }
 
 .program-data-row {
@@ -1143,7 +1143,7 @@ function rowSummary(entry: RapidProgramData): string {
 
 .program-data-row:hover,
 .program-data-row:focus-visible {
-  background: rgba(255, 106, 26, 0.2);
+  background: color-mix(in srgb, var(--color-brand) 20%, transparent);
   outline: none;
 }
 
@@ -1152,7 +1152,7 @@ function rowSummary(entry: RapidProgramData): string {
   overflow: hidden;
   color: var(--color-text-strong);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1162,7 +1162,7 @@ function rowSummary(entry: RapidProgramData): string {
   min-width: 0;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -1171,7 +1171,7 @@ function rowSummary(entry: RapidProgramData): string {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-pill);
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   white-space: nowrap;
 }
 
@@ -1181,7 +1181,7 @@ function rowSummary(entry: RapidProgramData): string {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-pill);
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   white-space: nowrap;
 }
 
@@ -1199,7 +1199,7 @@ function rowSummary(entry: RapidProgramData): string {
   list-style: none;
   color: var(--color-text-faint);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -1224,24 +1224,24 @@ function rowSummary(entry: RapidProgramData): string {
 .program-data-item-system {
   opacity: 0.82;
   border-color: var(--color-border);
-  background: rgba(128, 128, 128, 0.05);
+  background: color-mix(in srgb, var(--color-text-dim) 6%, transparent);
 }
 
 .program-data-item-system:hover {
-  background: rgba(128, 128, 128, 0.1);
+  background: color-mix(in srgb, var(--color-text-dim) 12%, transparent);
 }
 
 .program-data-item-system.system-selected {
   opacity: 1;
   border-color: var(--color-warning);
-  box-shadow: 0 0 0 1px rgba(245, 197, 66, 0.25);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 25%, transparent);
 }
 
 /* 「系统只读」徽章：黄色表示只读系统项，是系统的唯一强调色。 */
 .program-data-system {
-  border-color: rgba(245, 197, 66, 0.55);
+  border-color: color-mix(in srgb, var(--color-warning) 55%, transparent);
   color: var(--color-warning-soft);
-  background: rgba(245, 197, 66, 0.08);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
 }
 
 .program-data-empty {
@@ -1250,7 +1250,7 @@ function rowSummary(entry: RapidProgramData): string {
   border: 1px dashed var(--color-border-soft);
   border-radius: var(--radius-sm);
   color: var(--color-text-faint);
-  font-size: 13px;
+  font-size: var(--text-lg);
   list-style: none;
   flex: 1 1 auto;
   min-height: 0;
@@ -1268,7 +1268,7 @@ function rowSummary(entry: RapidProgramData): string {
   flex-basis: 100%;
   margin: 0;
   color: var(--color-warning);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-data-reference-links {
@@ -1284,7 +1284,7 @@ function rowSummary(entry: RapidProgramData): string {
   color: var(--color-text-faint);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-data-reference-link:hover,
@@ -1315,7 +1315,7 @@ function rowSummary(entry: RapidProgramData): string {
   align-items: center;
   gap: 5px;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-data-edit-position input {
@@ -1325,7 +1325,7 @@ function rowSummary(entry: RapidProgramData): string {
   border-radius: var(--radius-xs);
   color: var(--color-text);
   background: var(--color-editor);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-family: var(--font-mono);
 }
 
@@ -1348,14 +1348,14 @@ function rowSummary(entry: RapidProgramData): string {
 
 .program-data-fields dt {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .program-data-fields dd {
   margin: 0;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   overflow-wrap: anywhere;
 }
 

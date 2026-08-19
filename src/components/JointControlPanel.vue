@@ -156,7 +156,7 @@ onBeforeUnmount(stopPress)
 
 .joint-panel h2 {
   color: var(--color-text-strong);
-  font-size: 15px;
+  font-size: var(--text-2xl);
   letter-spacing: -0.02em;
 }
 
@@ -176,14 +176,14 @@ onBeforeUnmount(stopPress)
 .joint-name {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
 }
 
 .step-button {
   width: 30px;
   height: 30px;
-  font-size: 16px;
+  font-size: var(--text-2xl);
 }
 
 .angle-input {
@@ -196,20 +196,20 @@ onBeforeUnmount(stopPress)
   color: var(--color-text-strong);
   background: var(--color-editor);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
 .angle-input:focus {
   border-color: var(--color-brand);
-  box-shadow: 0 0 0 2px rgba(255, 106, 26, 0.18);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 18%, transparent);
 }
 
 .joint-range {
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: -0.02em;
   white-space: nowrap;
 }

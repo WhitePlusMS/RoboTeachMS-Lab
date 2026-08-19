@@ -56,7 +56,7 @@ function dismissToast(id: number): void {
   position: fixed;
   top: 64px;
   right: 16px;
-  z-index: 1000;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -74,7 +74,7 @@ function dismissToast(id: number): void {
   border-left: 3px solid var(--color-info);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--shadow-overlay);
   pointer-events: auto;
 }
 
@@ -88,6 +88,7 @@ function dismissToast(id: number): void {
 .toast-warn {
   border-left-color: var(--color-warning-strong);
 }
+
 .toast-warn .toast-icon {
   color: var(--color-warning-strong);
 }
@@ -95,6 +96,7 @@ function dismissToast(id: number): void {
 .toast-err {
   border-left-color: var(--color-danger);
 }
+
 .toast-err .toast-icon {
   color: var(--color-danger);
 }
@@ -102,6 +104,7 @@ function dismissToast(id: number): void {
 .toast-ok {
   border-left-color: var(--color-success);
 }
+
 .toast-ok .toast-icon {
   color: var(--color-success);
 }
@@ -113,14 +116,14 @@ function dismissToast(id: number): void {
 .toast-title {
   display: block;
   color: var(--color-text-strong);
-  font-size: 12.5px;
+  font-size: var(--text-lg);
   line-height: 1.35;
 }
 
 .toast-text {
   margin: 2px 0 0;
   color: var(--color-text-dim);
-  font-size: 11.5px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 

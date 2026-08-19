@@ -9,7 +9,7 @@
   /* 以下属性仅“消费”注入的 CSS 变量，不定义它们的值。 */
   color: var(--color-text-base);
   background: var(--color-bg);
-  color-scheme: dark;
+  color-scheme: light;
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -63,27 +63,27 @@ button:disabled {
 /* Shared status chip (FK READY / PATH OK / state pills). */
 .control-status {
   padding: 5px 8px;
-  border: 1px solid rgba(62, 207, 142, 0.3);
-  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+  border-radius: var(--radius-sm);
   color: var(--color-success-soft);
-  background: rgba(62, 207, 142, 0.1);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
 
 /* Program runtime state pills shared by ProgramControlPanel & ProgramDataPanel. */
 .program-state-running {
-  border-color: rgba(74, 168, 255, 0.4);
+  border-color: color-mix(in srgb, var(--color-info) 40%, transparent);
   color: var(--color-info);
-  background: rgba(74, 168, 255, 0.12);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
 }
 
 .program-state-error {
-  border-color: rgba(248, 113, 113, 0.4);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
   color: var(--color-danger-soft);
-  background: rgba(127, 29, 29, 0.3);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
 
 /* Panel title rows (name + status on the right), shared by control & program panels. */
@@ -97,7 +97,7 @@ button:disabled {
 /* Small hint/caption text shared across panels & the header. */
 .panel-hint {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -119,8 +119,8 @@ button:disabled {
 .step-button {
   width: 28px;
   height: 28px;
-  border-radius: 5px;
-  font-size: 16px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xl);
   line-height: 1;
   user-select: none;
   touch-action: none;
@@ -144,8 +144,8 @@ button:disabled {
 /* Secondary action button (shown-but-neutral). */
 .secondary-action {
   padding: 8px 10px;
-  border-radius: 5px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
 }
 
 /* Primary / danger action buttons shared across program panels. */
@@ -186,14 +186,14 @@ button:disabled {
 
 .step-selector > span {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .step-choice {
   min-width: 40px;
   padding: 5px 8px;
   border-radius: var(--radius-xs);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .step-choice.active,
@@ -209,20 +209,20 @@ button:disabled {
   align-items: center;
   gap: 6px;
   color: var(--color-text-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .frame-choice {
   padding: 5px 10px;
   border-radius: var(--radius-xs);
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 /* Degree symbol + faint labels shared by joint & cartesian rows. */
 .degree-symbol {
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 /* Shared FK result / status pose card (joint & cartesian panels). */
@@ -236,7 +236,7 @@ button:disabled {
 .pose-card-title {
   margin-bottom: 9px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
 }
 
@@ -246,7 +246,7 @@ button:disabled {
   gap: 7px 10px;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .pose-grid strong {
@@ -287,11 +287,11 @@ button:disabled {
   min-width: 0;
   padding: 8px 10px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
 }
 
@@ -325,13 +325,13 @@ button:disabled {
   border-radius: var(--radius-pill);
   color: var(--color-text-faint);
   background: var(--color-surface);
-  font-size: 12px;
+  font-size: var(--text-md);
   white-space: nowrap;
 }
 
 .pill-mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
 
@@ -363,7 +363,7 @@ button:disabled {
   color: var(--color-text);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 700;
   transition:
     border-color 0.15s ease,
@@ -372,7 +372,7 @@ button:disabled {
 }
 
 .tkey .tkey-icon {
-  font-size: 13px;
+  font-size: var(--text-lg);
 }
 
 .tkey:hover:not(:disabled) {
@@ -392,14 +392,14 @@ button:disabled {
 }
 
 .tkey-stop {
-  border-color: rgba(242, 109, 109, 0.4);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
   color: var(--color-danger);
 }
 
 .tkey-stop:hover:not(:disabled) {
   border-color: var(--color-danger);
   color: var(--color-danger);
-  background: rgba(242, 109, 109, 0.12);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
 }
 
 /* 分段控件（Jog 模式 / 坐标系 / 动作模式）。 */
@@ -408,7 +408,7 @@ button:disabled {
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--color-editor);
 }
 
@@ -417,11 +417,11 @@ button:disabled {
   min-width: 0;
   padding: 6px 10px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 600;
   transition:
     background 0.15s ease,
@@ -444,12 +444,12 @@ button:disabled {
   min-width: 42px;
   padding: 5px 8px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-faint);
   background: var(--color-surface);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   transition:
     border-color 0.15s ease,
     color 0.15s ease,
@@ -477,11 +477,11 @@ button:disabled {
   height: 26px;
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-faint);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1;
   transition:
     border-color 0.15s ease,
@@ -498,5 +498,5 @@ button:disabled {
   display: block;
   margin-bottom: 6px;
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }

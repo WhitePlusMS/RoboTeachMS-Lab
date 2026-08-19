@@ -270,7 +270,7 @@ const errorText = computed(() => {
 
 .program-panel h2 {
   color: var(--color-text-strong);
-  font-size: 19px;
+  font-size: var(--text-3xl);
   letter-spacing: -0.03em;
 }
 
@@ -284,7 +284,7 @@ const errorText = computed(() => {
 .rapid-diagnostics {
   margin: 0;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
@@ -328,21 +328,21 @@ const errorText = computed(() => {
 
 .program-stats dt {
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-stats dd {
   margin: 0;
   color: var(--color-text-strong);
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: var(--text-3xl);
   font-weight: 700;
 }
 
 .program-error {
   margin: 0;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
@@ -359,11 +359,11 @@ const errorText = computed(() => {
 
 .program-control-footer h2 {
   color: var(--color-text-strong);
-  font-size: 14px;
+  font-size: var(--text-xl);
 }
 
 .program-control-footer .program-hint-warn {
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .program-control-footer .program-actions {
@@ -374,7 +374,7 @@ const errorText = computed(() => {
 .program-control-footer .secondary-action,
 .program-control-footer .danger-action {
   padding: 7px 12px;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 /* off-path 确认块：去边框化，hairline 分隔，警告语义仅由文字颜色表达。 */
@@ -388,7 +388,7 @@ const errorText = computed(() => {
 .program-clear-confirm p {
   margin: 0;
   color: var(--color-warning-soft);
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -410,7 +410,7 @@ const errorText = computed(() => {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 40;
+  z-index: var(--z-popover);
   box-sizing: border-box;
   min-width: 280px;
   max-width: 340px;
@@ -418,12 +418,12 @@ const errorText = computed(() => {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--shadow-overlay);
 }
 
 .program-panel-transport .program-clear-confirm p {
   color: var(--color-warning-soft);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .program-panel-transport .program-clear-confirm .program-actions {
@@ -435,6 +435,6 @@ const errorText = computed(() => {
 .program-panel-transport .program-clear-confirm .primary-action,
 .program-panel-transport .program-clear-confirm .secondary-action {
   padding: 7px 14px;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 </style>

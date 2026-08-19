@@ -126,9 +126,9 @@ function format(value: number): string {
   padding: 8px 12px 9px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  background: rgba(13, 15, 19, 0.72);
+  background: var(--color-overlay-bg);
   backdrop-filter: blur(8px);
-  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.35);
+  box-shadow: var(--shadow-pop);
 }
 
 .pose-readout.compact .pose-readout-title {
@@ -155,12 +155,12 @@ function format(value: number): string {
 }
 
 .pose-readout.compact .pose-cell span {
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0.03em;
 }
 
 .pose-readout.compact .pose-cell strong {
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .pose-readout-title {
@@ -170,7 +170,7 @@ function format(value: number): string {
   gap: 10px;
   margin-bottom: 6px;
   color: var(--color-text-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 /* 姿态表示切换：标题右侧的小分段按钮，切换 RX/RY/RZ 与 RAPID 四元数。
@@ -181,7 +181,7 @@ function format(value: number): string {
   padding: 2px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm, 6px);
-  background: var(--color-surface-deep, rgba(13, 15, 19, 0.6));
+  background: var(--color-surface-deep);
   pointer-events: auto;
 }
 
@@ -191,7 +191,7 @@ function format(value: number): string {
   justify-content: center;
   padding: 2px 3px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--color-text-faint);
   line-height: 1;
@@ -245,13 +245,13 @@ function format(value: number): string {
 .pose-cell span {
   display: block;
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .pose-cell strong {
   color: var(--color-text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }

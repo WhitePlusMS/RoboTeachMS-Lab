@@ -72,7 +72,7 @@ function formatValue(value: number): string {
 
 .coordinate-info-panel h2 {
   color: var(--color-text-strong);
-  font-size: 19px;
+  font-size: var(--text-3xl);
   letter-spacing: -0.03em;
 }
 
@@ -83,11 +83,11 @@ function formatValue(value: number): string {
 .coordinate-info-tag {
   padding: 3px 7px;
   border: 1px solid var(--color-border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-faint);
   background: transparent;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
 }
 
@@ -105,14 +105,14 @@ function formatValue(value: number): string {
   gap: 6px;
   margin-bottom: 8px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .coordinate-info-heading small {
   margin-left: auto;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   letter-spacing: 0.08em;
 }
 
@@ -133,7 +133,7 @@ function formatValue(value: number): string {
   gap: 5px 8px;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .coordinate-info-values span {

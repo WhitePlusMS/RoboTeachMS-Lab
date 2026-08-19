@@ -101,11 +101,11 @@ function cancelLoad(): void {
 .lib-overlay {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  z-index: var(--z-modal);
   display: grid;
   place-items: center;
   padding: 28px;
-  background: rgba(5, 6, 8, 0.66);
+  background: var(--color-scrim);
   backdrop-filter: blur(2px);
 }
 
@@ -118,7 +118,7 @@ function cancelLoad(): void {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
   background: var(--color-surface-deep);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-modal);
 }
 
 .lib-head {
@@ -133,7 +133,7 @@ function cancelLoad(): void {
 .lib-title {
   margin: 2px 0 0;
   color: var(--color-text-strong);
-  font-size: 17px;
+  font-size: var(--text-3xl);
   font-weight: 700;
 }
 
@@ -147,7 +147,7 @@ function cancelLoad(): void {
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-xl);
   line-height: 1.4;
 }
 
@@ -160,7 +160,7 @@ function cancelLoad(): void {
   margin: 0;
   padding: 10px 18px 2px;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
@@ -197,14 +197,14 @@ function cancelLoad(): void {
 
 .lib-item-name {
   color: var(--color-text-strong);
-  font-size: 13.5px;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 
 .lib-item-desc {
   margin-top: 2px;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.4;
 }
 
@@ -215,7 +215,7 @@ function cancelLoad(): void {
   color: var(--color-text);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-lg);
   transition:
     background 0.15s ease,
     border-color 0.15s ease;

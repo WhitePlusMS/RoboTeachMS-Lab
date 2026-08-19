@@ -205,26 +205,26 @@ onBeforeUnmount(() => {
 .scene-webgl-fallback {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: var(--z-overlay);
   display: grid;
   place-content: center;
   gap: 8px;
   padding: 24px;
   color: var(--color-text-muted);
   text-align: center;
-  background: radial-gradient(circle at center, rgba(35, 39, 47, 0.94), var(--color-scene-bg) 72%);
+  background: radial-gradient(circle at center, var(--color-overlay-bg-strong), var(--color-scene-bg) 72%);
 }
 
 .scene-webgl-fallback strong {
   color: var(--color-danger-soft);
-  font-size: 14px;
+  font-size: var(--text-xl);
 }
 
 .scene-webgl-fallback p {
   max-width: 360px;
   margin: 0;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.6;
 }
 
@@ -236,7 +236,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 6px;
   max-width: calc(100% - 28px);
-  z-index: 2;
+  z-index: var(--z-raised);
 }
 
 .scene-aux-button {
@@ -244,15 +244,15 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  background: rgba(20, 22, 27, 0.82);
+  background: var(--color-overlay-bg);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-md);
   backdrop-filter: blur(8px);
 }
 
 .scene-aux-button:hover {
   color: var(--color-text-strong);
-  background: rgba(39, 44, 54, 0.85);
+  background: var(--color-overlay-bg-strong);
 }
 
 .scene-aux-button.active {
@@ -266,6 +266,6 @@ onBeforeUnmount(() => {
 }
 
 .scene-aux-clear:hover:not(:disabled) {
-  border-color: rgba(245, 197, 66, 0.5);
+  border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
 }
 </style>

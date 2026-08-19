@@ -305,7 +305,7 @@ function redo(): void {
 /* FlexPendant 式指令/操作列表：下拉浮层，右对齐锚定按钮。 */
 .program-editor-menu-list {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-sticky);
   top: calc(100% + 4px);
   right: 0;
   display: flex;
@@ -315,13 +315,13 @@ function redo(): void {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-pop);
 }
 
 .program-editor-menu-category {
   margin: 2px 8px 4px;
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -332,13 +332,13 @@ function redo(): void {
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: transparent;
-  font-size: 13px;
+  font-size: var(--text-lg);
   text-align: left;
   cursor: pointer;
 }
 
 .program-editor-menu-list [role='menuitem']:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--color-text-base) 6%, transparent);
 }
 
 .program-editor-menu-list [role='menuitem']:disabled {
@@ -350,10 +350,10 @@ function redo(): void {
   flex-basis: 100%;
   margin: 0;
   padding: 7px 9px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
   border-radius: var(--radius-sm);
   color: var(--color-danger-soft);
-  background: rgba(127, 29, 29, 0.2);
-  font-size: 12px;
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  font-size: var(--text-md);
 }
 </style>

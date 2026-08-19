@@ -291,14 +291,14 @@ const kindLabel = computed(() => {
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: var(--color-editor);
-  font: 13px/20px var(--font-mono);
+  font: var(--text-lg)/20px var(--font-mono);
   white-space: pre;
   overflow-x: auto;
   resize: vertical;
 }
 
 .rapid-source-editor:focus {
-  outline: 2px solid rgba(255, 106, 26, 0.55);
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 55%, transparent);
   outline-offset: 1px;
 }
 
@@ -332,7 +332,7 @@ const kindLabel = computed(() => {
 
 .source-gutter-inner {
   padding: 12px 0;
-  font: 13px/20px var(--font-mono);
+  font: var(--text-lg)/20px var(--font-mono);
 }
 
 .source-line {
@@ -351,13 +351,13 @@ const kindLabel = computed(() => {
 }
 
 .source-line.pp-line {
-  color: var(--color-on-brand);
+  color: var(--color-text-strong);
   background: var(--color-pp);
   font-weight: 700;
 }
 
 .source-line.mp-line {
-  color: var(--color-on-brand);
+  color: var(--color-text-strong);
   background: var(--color-orange);
   font-weight: 700;
 }
@@ -393,7 +393,7 @@ const kindLabel = computed(() => {
 .instruction-summary-empty {
   margin: 0;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .instruction-summary-fields {
@@ -413,7 +413,7 @@ const kindLabel = computed(() => {
 .instruction-summary-fields dt {
   flex: 0 0 auto;
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -422,7 +422,7 @@ const kindLabel = computed(() => {
   margin: 0;
   overflow: hidden;
   color: var(--color-text);
-  font-size: 12px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

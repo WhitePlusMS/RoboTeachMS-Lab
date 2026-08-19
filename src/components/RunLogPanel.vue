@@ -168,7 +168,7 @@ function endResize(event: PointerEvent): void {
   display: block;
   width: 44px;
   height: 3px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: var(--color-text-faint);
   opacity: 0.55;
   transition:
@@ -188,7 +188,7 @@ function endResize(event: PointerEvent): void {
   gap: 10px;
   padding: 5px 16px;
   color: var(--color-text-dim);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .log-filters {
@@ -212,7 +212,7 @@ function endResize(event: PointerEvent): void {
   overflow-y: auto;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.7;
   font-variant-numeric: tabular-nums;
 }

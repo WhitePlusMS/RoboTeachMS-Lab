@@ -257,7 +257,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
   border: 0;
   color: var(--color-text-faint);
   background: transparent;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   line-height: 1.4;
   cursor: pointer;
 }
@@ -271,7 +271,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
 .motion-argument-kind {
   color: var(--color-text-strong);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
 }
 
@@ -281,7 +281,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
   gap: 6px;
   align-items: center;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .motion-argument-operand {
@@ -300,7 +300,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
 }
 
 .motion-argument-operand.not-taught {
-  border-color: rgba(248, 113, 113, 0.5);
+  border-color: color-mix(in srgb, var(--color-danger) 50%, transparent);
   color: var(--color-danger-soft);
 }
 
@@ -329,7 +329,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
 .motion-argument-selector-title {
   margin: 0 2px 2px;
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.03em;
 }
@@ -343,14 +343,14 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
   border-radius: var(--radius-xs);
   color: var(--color-text);
   background: transparent;
-  font-size: 12px;
+  font-size: var(--text-md);
   text-align: left;
   cursor: pointer;
 }
 
 .motion-argument-option:hover,
 .motion-argument-option:focus-visible {
-  background: rgba(255, 106, 26, 0.18);
+  background: color-mix(in srgb, var(--color-brand) 18%, transparent);
   outline: none;
 }
 
@@ -363,16 +363,16 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
 .motion-argument-option-detail {
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 .motion-argument-option-badge {
   padding: 1px 6px;
-  border: 1px solid rgba(245, 197, 66, 0.55);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 55%, transparent);
   border-radius: var(--radius-pill);
   color: var(--color-warning-soft);
-  background: rgba(245, 197, 66, 0.08);
-  font-size: 10px;
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  font-size: var(--text-xs);
 }
 
 .motion-argument-option-system .motion-argument-option-name {
@@ -387,7 +387,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
   margin: 0;
   padding: 6px 2px;
   color: var(--color-text-faint);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .motion-argument-actions {
@@ -399,16 +399,16 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
 
 .motion-argument-note {
   color: var(--color-warning-soft);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .motion-argument-error {
   margin: 0;
   padding: 6px 8px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
   border-radius: var(--radius-sm);
   color: var(--color-danger-soft);
-  background: rgba(127, 29, 29, 0.2);
-  font-size: 12px;
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  font-size: var(--text-md);
 }
 </style>

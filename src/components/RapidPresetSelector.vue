@@ -76,13 +76,13 @@ function handleLoad(preset: RapidPresetProgram): void {
 }
 
 .rapid-preset-open-icon {
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1;
 }
 
 .rapid-preset-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 

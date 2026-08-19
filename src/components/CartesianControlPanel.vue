@@ -298,23 +298,23 @@ onBeforeUnmount(stopPress)
 
 .cartesian-panel h2 {
   color: var(--color-text-strong);
-  font-size: 15px;
+  font-size: var(--text-2xl);
   letter-spacing: -0.02em;
 }
 
 .cartesian-status-solved {
-  border-color: rgba(62, 207, 142, 0.4);
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
   color: var(--color-success-soft);
 }
 
 .cartesian-status-position-fallback {
-  border-color: rgba(245, 197, 66, 0.4);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
   color: var(--color-warning);
 }
 
 .cartesian-status-invalid,
 .cartesian-status-unreachable {
-  border-color: rgba(242, 109, 109, 0.4);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
   color: var(--color-danger-faint);
 }
 
@@ -348,7 +348,7 @@ onBeforeUnmount(stopPress)
   color: var(--color-text);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   user-select: none;
   touch-action: none;
   transition:
@@ -373,7 +373,7 @@ onBeforeUnmount(stopPress)
   place-items: center;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 /* Compact layout override when nested inside the jog tab panel. */

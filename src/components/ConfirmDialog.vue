@@ -116,11 +116,11 @@ watch(
 .confirm-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-toast);
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(5, 6, 8, 0.68);
+  background: var(--color-scrim);
   backdrop-filter: blur(2px);
 }
 
@@ -131,7 +131,7 @@ watch(
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
   background: var(--color-surface-deep);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-modal);
 }
 
 .confirm-head {
@@ -146,7 +146,7 @@ watch(
 .confirm-title {
   margin: 0;
   color: var(--color-text-strong);
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 700;
 }
 
@@ -160,7 +160,7 @@ watch(
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.4;
 }
 
@@ -172,7 +172,7 @@ watch(
 .confirm-body {
   padding: 14px 16px;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--text-lg);
   line-height: 1.6;
 }
 
@@ -195,7 +195,7 @@ watch(
   color: var(--color-text);
   background: var(--color-surface);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-lg);
   transition:
     background 0.15s ease,
     border-color 0.15s ease;

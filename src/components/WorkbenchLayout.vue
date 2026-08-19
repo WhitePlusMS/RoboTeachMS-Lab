@@ -164,7 +164,7 @@ function collapsePanel(): void {
 .dock-title {
   margin: 1px 0 0;
   color: var(--color-text-strong);
-  font-size: 15px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -201,11 +201,11 @@ function collapsePanel(): void {
   width: 42px;
   padding: 8px 0 6px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   color: var(--color-text-faint);
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1;
   transition:
     border-color 0.15s ease,
@@ -214,7 +214,7 @@ function collapsePanel(): void {
 }
 
 .rail-btn .rail-icon {
-  font-size: 16px;
+  font-size: var(--text-2xl);
   line-height: 1;
 }
 
