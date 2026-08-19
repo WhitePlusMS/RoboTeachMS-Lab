@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { RapidEditCommand } from '@/rapid/controlled-rapid-edit.ts'
 import { makeTaughtTargetFromPose } from '@/rapid/controlled-rapid-edit.ts'
 import type {
@@ -39,6 +39,21 @@ const emit = defineEmits<{
 const toolbarError = ref<string | null>(null)
 const addOpen = ref(false)
 const editOpen = ref(false)
+
+/** 工具栏根节点：用于判断点击是否发生在下拉菜单之外，以自动收起菜单。 */
+const rootEl = ref<HTMLElement | null>(null)
+
+/** 点击工具栏/菜单之外任意位置时收起「添加指令」「编辑」两个下拉菜单。 */
+function onOutsideMouseDown(event: MouseEvent): void {
+  const root = rootEl.value
+  if (!root) return
+  if (!(event.target instanceof Node) || root.contains(event.target)) return
+  addOpen.value = false
+  editOpen.value = false
+}
+
+onMounted(() => document.addEventListener('mousedown', onOutsideMouseDown))
+onBeforeUnmount(() => document.removeEventListener('mousedown', onOutsideMouseDown))
 
 const running = computed(() => props.controller.snapshot.value.state === 'running')
 
@@ -181,7 +196,7 @@ function redo(): void {
 </script>
 
 <template>
-  <section class="program-editor-toolbar" aria-label="程序编辑器操作">
+  <section ref="rootEl" class="program-editor-toolbar" aria-label="程序编辑器操作">
     <div class="program-editor-actions">
       <div class="program-editor-menu">
         <button
@@ -190,14 +205,15 @@ function redo(): void {
           :disabled="!canAdd"
           aria-label="添加指令"
           :aria-expanded="addOpen"
+          title="添加 MoveJ / MoveL 运动指令"
           @click="addOpen = !addOpen"
         >
           添加指令 ▾
         </button>
         <div v-if="addOpen" class="program-editor-menu-list" role="menu" aria-label="Common 指令列表">
           <p class="program-editor-menu-category">Common</p>
-          <button type="button" role="menuitem" @click="addMotion('movej')">MoveJ</button>
-          <button type="button" role="menuitem" @click="addMotion('movel')">MoveL</button>
+          <button type="button" role="menuitem" title="插入 MoveJ（关节运动）" @click="addMotion('movej')">MoveJ</button>
+          <button type="button" role="menuitem" title="插入 MoveL（直线运动）" @click="addMotion('movel')">MoveL</button>
         </div>
       </div>
 
@@ -208,6 +224,7 @@ function redo(): void {
           :disabled="running"
           aria-label="编辑"
           :aria-expanded="editOpen"
+          title="编辑光标处的选中内容"
           @click="editOpen = !editOpen"
         >
           编辑 ▾
@@ -217,6 +234,7 @@ function redo(): void {
             type="button"
             role="menuitem"
             :disabled="cursorMotionKind === null"
+            title="修改当前指令的运动参数"
             @click="openArguments"
           >
             更改选定内容
@@ -225,6 +243,7 @@ function redo(): void {
             type="button"
             role="menuitem"
             :disabled="cursorInstruction === null"
+            title="注释光标处指令"
             @click="commentInstruction"
           >
             注释
@@ -233,6 +252,7 @@ function redo(): void {
             type="button"
             role="menuitem"
             :disabled="!cursorLineCommented"
+            title="取消光标处指令的注释"
             @click="uncommentLine"
           >
             取消注释
@@ -241,6 +261,7 @@ function redo(): void {
             v-if="cursorMotionKind !== null"
             type="button"
             role="menuitem"
+            title="切换 MoveJ / MoveL 运动类型"
             @click="changeMotionKind"
           >
             {{ cursorMotionKind === 'movej' ? 'Change to MoveL' : 'Change to MoveJ' }}
@@ -253,6 +274,7 @@ function redo(): void {
         class="secondary-action"
         :disabled="!canModifyPosition"
         aria-label="修改位置"
+        title="将目标点位置更新为当前 TCP 位姿"
         @click="modifyPosition"
       >
         修改位置
@@ -262,6 +284,7 @@ function redo(): void {
         class="secondary-action"
         :disabled="running || !controller.canUndo.value"
         aria-label="撤销"
+        title="撤销上一步编辑"
         @click="undo"
       >
         ↩ 撤销
@@ -271,6 +294,7 @@ function redo(): void {
         class="secondary-action"
         :disabled="running || !controller.canRedo.value"
         aria-label="重做"
+        title="重做被撤销的编辑"
         @click="redo"
       >
         ↪ 重做
