@@ -41,6 +41,8 @@ export type AbbSceneStatus = 'loading' | 'ready' | 'error'
 export interface AbbRobTargetMarker {
   name: string
   position: readonly [number, number, number]
+  /** 当前是否在 Program Data 中被选中；必填，避免调用方遗漏高亮态。 */
+  selected: boolean
 }
 
 export interface AbbSceneOptions {
@@ -61,6 +63,8 @@ export interface AbbSceneController {
   /** 重建 robtarget 空间标记（小球 + 名称标签）；位置为 ABB 基座坐标（毫米）。 */
   setRobTargets: (targets: readonly AbbRobTargetMarker[]) => void
   setRobTargetsVisible: (visible: boolean) => void
+  /** 只隐藏名称标签、保留点位小球。 */
+  setRobTargetLabelsVisible: (visible: boolean) => void
   clearTrajectory: () => void
   dispose: () => void
 }
@@ -197,8 +201,21 @@ export function createAbbBenchmarkScene(): THREE.Scene {
 }
 
 /** robtarget 空间标记：小球 + canvas 文字标签，随 setRobTargets 全量重建。 */
-const ROBTARGET_SPHERE_RADIUS = 0.02
+const ROBTARGET_NORMAL_RADIUS = 0.02
+const ROBTARGET_SELECTED_RADIUS = 0.03
 const ROBTARGET_LABEL_HEIGHT = 0.07
+const ROBTARGET_NORMAL_EMISSIVE = 0.55
+const ROBTARGET_SELECTED_EMISSIVE = 1.4
+
+/** 纯样式函数：根据选中态返回固定半径与发光强度，便于单元测试验证。 */
+export function robtargetMarkerStyle(selected: boolean): {
+  radius: number
+  emissiveIntensity: number
+} {
+  return selected
+    ? { radius: ROBTARGET_SELECTED_RADIUS, emissiveIntensity: ROBTARGET_SELECTED_EMISSIVE }
+    : { radius: ROBTARGET_NORMAL_RADIUS, emissiveIntensity: ROBTARGET_NORMAL_EMISSIVE }
+}
 
 function createRobTargetLabel(name: string): THREE.Sprite {
   const font = '600 52px ui-monospace, SFMono-Regular, Consolas, monospace'
@@ -260,6 +277,7 @@ export function createAbbScene(
   robTargetGroup.name = 'ABB_RobTarget_Markers'
   let robTargetBaseHeightMm = 0
   let robTargetList: readonly AbbRobTargetMarker[] = []
+  let robTargetLabelsVisible = true
 
   function rebuildRobTargets(): void {
     disposeRobTargetMarkers(robTargetGroup)
@@ -271,21 +289,23 @@ export function createAbbScene(
         (z + robTargetBaseHeightMm) * 0.001,
         -y * 0.001,
       )
+      const style = robtargetMarkerStyle(target.selected)
       const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(ROBTARGET_SPHERE_RADIUS, 20, 14),
+        new THREE.SphereGeometry(style.radius, 20, 14),
         new THREE.MeshStandardMaterial({
           color: 0xff6a1a,
           emissive: 0xff6a1a,
-          emissiveIntensity: 0.55,
+          emissiveIntensity: style.emissiveIntensity,
           metalness: 0.2,
           roughness: 0.5,
         }),
       )
       sphere.position.copy(scenePosition)
       const label = createRobTargetLabel(target.name)
+      label.visible = robTargetLabelsVisible
       label.position.copy(scenePosition)
-      // 标签按序号上下交错，避免邻近点位的标签相互遮挡。
-      const labelGap = ROBTARGET_SPHERE_RADIUS + ROBTARGET_LABEL_HEIGHT * 0.7
+      // 标签位置使用实际半径计算 gap，避免选中球体放大后与标签重叠。
+      const labelGap = style.radius + ROBTARGET_LABEL_HEIGHT * 0.7
       label.position.y += index % 2 === 0 ? labelGap : -labelGap
       robTargetGroup.add(sphere, label)
     })
@@ -338,6 +358,12 @@ export function createAbbScene(
     },
     setRobTargetsVisible: (visible: boolean) => {
       robTargetGroup.visible = visible
+    },
+    setRobTargetLabelsVisible: (visible: boolean) => {
+      robTargetLabelsVisible = visible
+      for (const child of robTargetGroup.children) {
+        if (child instanceof THREE.Sprite) child.visible = visible
+      }
     },
   }
 }

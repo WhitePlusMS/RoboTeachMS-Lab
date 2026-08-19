@@ -9,6 +9,11 @@ export default defineConfig({
   expect: { timeout: 5_000 },
   fullyParallel: false,
   reporter: 'list',
+  webServer: {
+    command: 'npm run preview',
+    url: 'http://127.0.0.1:4173',
+    reuseExistingServer: !process.env.CI,
+  },
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://127.0.0.1:4173',
     viewport: { width: 1920, height: 1080 },

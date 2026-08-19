@@ -20,6 +20,7 @@ type ReadonlyRef<T> = { readonly value: T }
  * Program Data 视图（data/activeIndex/canExecute/program/insertionPoints/runtimeValues）
  * 全部从同一次 parseRapidProgram 结果派生，不建立第二份点位存储或平行 parser。
  * 动作切片（run/step/stop/ppToMain/…/applyEdit）委托给唯一 ProgramController。
+ * 点位选中态由 App 单一持有，ProgramDataPanel 是受控组件。
  */
 export interface ProgramPanelController {
   snapshot: ReadonlyRef<ProgramControllerSnapshot>
@@ -32,6 +33,8 @@ export interface ProgramPanelController {
   insertionPoints: ReadonlyRef<readonly RapidMotionInsertionPoint[]>
   pose: ReadonlyRef<Pose | null>
   runtimeValues: ReadonlyRef<ReadonlyMap<string, RapidScalarVariable>>
+  /** App 唯一持有的点位选中名称；null 表示未选中。 */
+  selectedTargetName: ReadonlyRef<string | null>
   applyEdit: (command: RapidEditCommand) => RapidEditResult
   run(): void
   step(): void
@@ -40,10 +43,13 @@ export interface ProgramPanelController {
   confirmClearToNext(): void
   cancelClearToNext(): void
   setSource(source: string): void
+  /** 更新共享选中态；ProgramDataPanel 通过该入口与 App 同步。 */
+  selectTarget(name: string | null): void
 }
 
-export const ProgramPanelControllerKey: InjectionKey<ProgramPanelController> =
-  Symbol('program-panel-controller')
+export const ProgramPanelControllerKey: InjectionKey<ProgramPanelController> = Symbol(
+  'program-panel-controller',
+)
 
 /** 由 App 在 setup 中调用一次，把右侧程序工作区共享控制器提供给 ProgramWorkspace 子树。 */
 export function provideProgramPanelController(controller: ProgramPanelController): void {

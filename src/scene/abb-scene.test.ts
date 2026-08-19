@@ -12,6 +12,7 @@ import {
   createAbbBenchmarkScene,
   findNode,
   prepareAbbModel,
+  robtargetMarkerStyle,
 } from './abb-scene.ts'
 import { extractAbbFbxCalibration } from './abb-fbx-calibration.ts'
 
@@ -122,5 +123,15 @@ describe('ABB IRB 1200 FBX 场景适配器', () => {
     expect(scene.getObjectByName('ABB_Benchmark_Workbench')).not.toBeNull()
     expect(scene.getObjectByName('Ground_Grid')).not.toBeNull()
     expect(scene.getObjectByName('BaseAxesHelper')).not.toBeNull()
+  })
+
+  it('robtarget 标记普通与选中态使用固定半径和 emissiveIntensity', () => {
+    const normal = robtargetMarkerStyle(false)
+    expect(normal.radius).toBe(0.02)
+    expect(normal.emissiveIntensity).toBe(0.55)
+
+    const selected = robtargetMarkerStyle(true)
+    expect(selected.radius).toBe(0.03)
+    expect(selected.emissiveIntensity).toBe(1.4)
   })
 })

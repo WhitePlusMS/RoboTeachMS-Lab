@@ -256,9 +256,9 @@ describe('applyEdit 单一受控编辑入口', () => {
     const { ctrl } = setupController()
     const result = ctrl.applyEdit({
       type: 'insert-motion',
-      name: 'pRest',
       kind: 'movej',
       insertionIndex: 3,
+      target: { source: 'existing', name: 'pRest' },
     })
     expect(result.ok).toBe(true)
     expect(ctrl.parsed.value.canExecute).toBe(true)
@@ -393,9 +393,9 @@ describe('停止后源码编辑的 PP 映射', () => {
 
     const result = h.ctrl.applyEdit({
       type: 'insert-motion',
-      name: 'p3',
       kind: 'movej',
       insertionIndex: 1,
+      target: { source: 'existing', name: 'p3' },
     })
     expect(result.ok).toBe(true)
     await flush()
