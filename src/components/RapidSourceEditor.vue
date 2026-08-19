@@ -13,6 +13,8 @@ interface Props {
   ppLine: number | null
   /** 运动指针（MP）所在源码行；无效为 null。 */
   mpLine: number | null
+  /** 编辑器光标所在源码行（FlexPendant 式插入锚点）；未知为 null。 */
+  cursorLine?: number | null
   /** 当前活动/待执行指令（结构化），来自 executor 快照与 parser 结果。 */
   instruction: RapidExecutableInstruction | null
   /** parser 诊断所在源码行。 */
@@ -27,7 +29,11 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const emit = defineEmits<{ 'source-change': [source: string] }>()
+const emit = defineEmits<{
+  'source-change': [source: string]
+  /** 编辑器光标（caret）所在源码行（1 起始），供 FlexPendant 式光标定位插入使用。 */
+  'cursor-line-change': [line: number]
+}>()
 
 const gutterOffset = ref(0)
 const editor = ref<HTMLTextAreaElement | null>(null)
@@ -39,9 +45,25 @@ function onScroll(event: Event): void {
   gutterOffset.value = textarea.scrollTop
 }
 
+function emitCursorLine(textarea: HTMLTextAreaElement): void {
+  const offset = textarea.selectionStart ?? 0
+  const value = textarea.value
+  let line = 1
+  for (let index = 0; index < offset && index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) line += 1
+  }
+  emit('cursor-line-change', line)
+}
+
+/** 光标活动统一入口：聚焦、鼠标点选、键盘移动、选区变化与输入都会改变 caret 位置。 */
+function onCursorActivity(event: Event): void {
+  if (event.target instanceof HTMLTextAreaElement) emitCursorLine(event.target)
+}
+
 function handleSourceInput(event: Event): void {
   if (!(event.target instanceof HTMLTextAreaElement)) return
   emit('source-change', event.target.value)
+  emitCursorLine(event.target)
 }
 
 watch(
@@ -51,13 +73,38 @@ watch(
     void nextTick(() => {
       const textarea = editor.value
       if (!textarea) return
-      textarea.focus()
+      // 先设置选区再聚焦：focus 会触发光标行上报，顺序反了会上报旧光标行。
       textarea.selectionStart = range.start.offset
       textarea.selectionEnd = range.end.offset
+      textarea.focus()
       textarea.scrollTop = Math.max(0, (range.start.line - 1) * 20 - 60)
     })
   },
 )
+
+/** 计算源码中某一行（1 起始）的起始 offset；超出末尾时返回全文长度。 */
+function lineStartOffset(source: string, line: number): number {
+  let offset = 0
+  for (let current = 1; current < line; current += 1) {
+    const next = source.indexOf('\n', offset)
+    if (next === -1) return source.length
+    offset = next + 1
+  }
+  return offset
+}
+
+/** gutter 行号点击 = 把光标移到该行（FlexPendant 点选行语义），与点击正文等效。 */
+function onGutterClick(event: MouseEvent): void {
+  const textarea = editor.value
+  if (!textarea || props.readonly) return
+  const lineElement = (event.target as HTMLElement).closest('.source-line')
+  if (!lineElement) return
+  const line = Number(lineElement.textContent)
+  if (!Number.isInteger(line) || line < 1) return
+  textarea.selectionStart = textarea.selectionEnd = lineStartOffset(props.source, line)
+  textarea.focus()
+  emit('cursor-line-change', line)
+}
 
 const motionInstruction = computed(() => {
   const instruction = props.instruction
@@ -92,13 +139,14 @@ const kindLabel = computed(() => {
 <template>
   <div class="source-editor-wrap">
     <div class="source-editor-scroll">
-      <div class="source-gutter" aria-hidden="true">
+      <div class="source-gutter" aria-hidden="true" @click="onGutterClick">
         <div class="source-gutter-inner" :style="{ transform: `translateY(${-gutterOffset}px)` }">
           <div
             v-for="line in lineCount"
             :key="line"
             class="source-line"
             :class="{
+              'cursor-line': line === props.cursorLine,
               'pp-line': line === ppLine,
               'mp-line': line === mpLine,
               'both-line': line === ppLine && line === mpLine && ppLine !== null,
@@ -121,6 +169,10 @@ const kindLabel = computed(() => {
         spellcheck="false"
         @scroll="onScroll"
         @input="handleSourceInput"
+        @focus="onCursorActivity"
+        @click="onCursorActivity"
+        @keyup="onCursorActivity"
+        @select="onCursorActivity"
       />
     </div>
 
@@ -260,6 +312,7 @@ const kindLabel = computed(() => {
   border-right: 1px solid var(--color-border-strong);
   background: var(--color-surface-deep);
   user-select: none;
+  cursor: pointer;
 }
 
 .source-gutter-inner {
@@ -273,6 +326,13 @@ const kindLabel = computed(() => {
   padding-right: 8px;
   text-align: right;
   color: var(--color-text-dim-deep);
+}
+
+/* 光标行标记放在 PP/MP 之前定义：同行冲突时 PP/MP 的整行填充优先。 */
+.source-line.cursor-line {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  box-shadow: inset 3px 0 var(--color-pp);
 }
 
 .source-line.pp-line {
@@ -317,7 +377,7 @@ const kindLabel = computed(() => {
 
 .instruction-summary-empty {
   margin: 0;
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-size: 12px;
 }
 
@@ -337,7 +397,7 @@ const kindLabel = computed(() => {
 
 .instruction-summary-fields dt {
   flex: 0 0 auto;
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
   font-size: 11px;
   white-space: nowrap;
 }

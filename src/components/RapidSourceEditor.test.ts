@@ -51,6 +51,7 @@ function mountEditor(
     readonly?: boolean
     ppLine?: number | null
     mpLine?: number | null
+    cursorLine?: number | null
     instruction?: RapidExecutableInstruction | null
   } = {},
 ) {
@@ -60,6 +61,7 @@ function mountEditor(
       readonly: overrides.readonly ?? false,
       ppLine: overrides.ppLine ?? null,
       mpLine: overrides.mpLine ?? null,
+      cursorLine: overrides.cursorLine ?? null,
       instruction: overrides.instruction ?? null,
       diagnosticLines: [],
       runtimeErrorLine: null,
@@ -90,6 +92,51 @@ describe('RapidSourceEditor 行号 gutter', () => {
     const lines = wrapper.findAll('.source-line')
     expect(lines[4].classes()).toContain('diagnostic-line')
     expect(lines[5].classes()).toContain('runtime-error-line')
+  })
+
+  it('光标行在 gutter 高亮，未知时不标记', async () => {
+    const wrapper = mountEditor({ cursorLine: 5 })
+    expect(wrapper.findAll('.source-line')[4].classes()).toContain('cursor-line')
+
+    await wrapper.setProps({ cursorLine: null })
+    expect(wrapper.findAll('.source-line').some((line) => line.classes().includes('cursor-line'))).toBe(
+      false,
+    )
+  })
+
+  it('点击或键盘移动光标时上报光标所在源码行', async () => {
+    const wrapper = mountEditor()
+    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
+
+    // 光标置于第 5 行（MoveJ 行）起始，点击上报行号。
+    textarea.selectionStart = textarea.selectionEnd = SOURCE.indexOf('MoveJ')
+    await wrapper.get('textarea').trigger('click')
+    expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([5])
+
+    // 光标移到文件末尾（ENDMODULE 行 7），keyup 上报新行号。
+    textarea.selectionStart = textarea.selectionEnd = SOURCE.length
+    await wrapper.get('textarea').trigger('keyup')
+    expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([7])
+  })
+
+  it('点击 gutter 行号把光标移到该行并上报（FlexPendant 点选行）', async () => {
+    const wrapper = mountEditor()
+    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
+
+    await wrapper.findAll('.source-line')[4].trigger('click')
+
+    expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([5])
+    // 光标落在第 5 行行首（前 4 行文本长度 + 换行符）。
+    const line5Start = SOURCE.split('\n').slice(0, 4).join('\n').length + 1
+    expect(textarea.selectionStart).toBe(line5Start)
+  })
+
+  it('编辑器只读（运行中）时 gutter 点击不移动光标', async () => {
+    const wrapper = mountEditor({ readonly: true })
+
+    await wrapper.findAll('.source-line')[4].trigger('click')
+
+    expect(wrapper.emitted('cursor-line-change')).toBeUndefined()
   })
 
   it('编辑器只读时禁用 textarea', () => {

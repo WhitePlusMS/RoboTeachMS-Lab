@@ -21,6 +21,8 @@ interface Props {
   focusRange?: RapidSourceRange | null
   /** 每次查看引用递增，即使范围对象相同也必须重新定位。 */
   focusRequestId?: number
+  /** 编辑器光标所在源码行，用于 gutter 高亮（FlexPendant 式插入锚点反馈）。 */
+  cursorLine?: number | null
 }
 
 const props = defineProps<Props>()
@@ -32,6 +34,8 @@ const emit = defineEmits<{
   stop: []
   pp: []
   'source-change': [source: string]
+  /** 透传源码编辑器光标行，供 MotionInstructionToolbar 光标定位插入。 */
+  'cursor-line-change': [line: number]
   'confirm-clear': []
   'cancel-clear': []
 }>()
@@ -163,12 +167,14 @@ const errorText = computed(() => {
         :readonly="sourceLocked"
         :pp-line="ppLine"
         :mp-line="mpLine"
+        :cursor-line="props.cursorLine ?? null"
         :instruction="currentInstruction"
         :diagnostic-lines="diagnosticLines"
         :runtime-error-line="runtimeErrorLine"
         :focus-range="props.focusRange"
         :focus-request-id="props.focusRequestId"
         @source-change="emit('source-change', $event)"
+        @cursor-line-change="emit('cursor-line-change', $event)"
       />
       <p v-if="sourceLocked" class="program-hint">程序运行期间，源程序已锁定。</p>
       <p v-else-if="awaitingNext" class="program-hint">
@@ -298,17 +304,16 @@ const errorText = computed(() => {
 
 .program-hint,
 .rapid-diagnostics {
-  margin: -6px 0 0;
+  margin: 0;
   color: var(--color-text-faint);
   font-size: 12px;
   line-height: 1.5;
 }
 
+/* 诊断列表：去边框化，hairline 分隔，仅保留极淡底色。 */
 .rapid-diagnostics {
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
+  padding: 10px 2px 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .rapid-diagnostics p,
@@ -363,15 +368,9 @@ const errorText = computed(() => {
   line-height: 1.5;
 }
 
+/* 警告提示：去边框化，仅用警告色文字表达语义。 */
 .program-hint-warn {
-  margin: -6px 0 0;
-  padding: 8px 10px;
-  border: 1px solid rgba(245, 197, 66, 0.35);
-  border-radius: var(--radius-sm);
   color: var(--color-warning-soft);
-  background: rgba(245, 197, 66, 0.08);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 /* Fixed control footer (run/step/stop/PP + clear confirm). */
@@ -385,14 +384,7 @@ const errorText = computed(() => {
   font-size: 14px;
 }
 
-.program-control-footer .panel-kicker {
-  margin-bottom: 2px;
-  font-size: 9px;
-}
-
 .program-control-footer .program-hint-warn {
-  margin: 0;
-  padding: 7px 9px;
   font-size: 11px;
 }
 
@@ -407,13 +399,12 @@ const errorText = computed(() => {
   font-size: 12px;
 }
 
+/* off-path 确认块：去边框化，hairline 分隔，警告语义仅由文字颜色表达。 */
 .program-clear-confirm {
   display: grid;
   gap: 5px;
-  padding: 7px 9px;
-  border: 1px solid rgba(245, 197, 66, 0.4);
-  border-radius: var(--radius-sm);
-  background: rgba(245, 197, 66, 0.08);
+  padding: 7px 2px 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .program-clear-confirm p {
@@ -423,8 +414,9 @@ const errorText = computed(() => {
   line-height: 1.5;
 }
 
-/* 顶栏 transport：去掉面板外壳，仅保留水平键组与状态丸。 */
+/* 顶栏 transport：去掉面板外壳，仅保留水平键组与状态丸；作为浮窗定位上下文。 */
 .program-panel-transport {
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -435,12 +427,50 @@ const errorText = computed(() => {
   background: transparent;
 }
 
+/* 顶栏 transport 内的程序状态丸与 .tkey/.pill 同高对齐。 */
+.program-panel-transport .control-status {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 10px;
+}
+
 .program-panel-transport .transport-hint {
   max-width: 360px;
   margin: 0;
 }
 
+/* transport off-path 确认：浮窗卡片，脱离顶栏文档流向下展开，不挤压同行控件。 */
 .program-panel-transport .program-clear-confirm {
-  flex-basis: 100%;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  box-sizing: border-box;
+  min-width: 280px;
+  max-width: 340px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+}
+
+.program-panel-transport .program-clear-confirm p {
+  color: var(--color-warning-soft);
+  font-size: 12px;
+}
+
+.program-panel-transport .program-clear-confirm .program-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.program-panel-transport .program-clear-confirm .primary-action,
+.program-panel-transport .program-clear-confirm .secondary-action {
+  padding: 7px 14px;
+  font-size: 12px;
 }
 </style>

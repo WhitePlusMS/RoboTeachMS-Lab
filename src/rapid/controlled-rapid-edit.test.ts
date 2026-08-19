@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { applyRapidEdit, formatRobTarget } from './controlled-rapid-edit.ts'
+import {
+  applyRapidEdit,
+  formatRobTarget,
+  makeTaughtTargetFromPose,
+} from './controlled-rapid-edit.ts'
 import {
   isRapidMotionInstruction,
   isRobtargetProgramData,
   parseRapidProgram,
   type RapidProgramDataTarget,
 } from './rapid-parser.ts'
+import type { Pose } from '@/robotics/types.ts'
 
 const BASE = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -76,6 +81,23 @@ describe('新建目标', () => {
     if (result.ok) return
     expect(result.error.code).toBe('duplicate-name')
   })
+
+  it('跨类型重名（VAR num 占用 p10）被拒绝', () => {
+    const source = `MODULE Demo
+    VAR num p10 := 1;
+    CONST robtarget pA := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ pA,v100,fine,tool0;
+    ENDPROC
+ENDMODULE`
+    const result = applyRapidEdit(source, {
+      type: 'create-target',
+      name: 'p10',
+      target: target([0, 0, 0]),
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('duplicate-name')
+  })
 })
 
 describe('Modify Position', () => {
@@ -141,6 +163,23 @@ describe('重命名', () => {
     if (result.ok) return
     expect(result.error.code).toBe('duplicate-name')
   })
+
+  it('重命名为跨类型已存在名称被拒绝', () => {
+    const source = `MODULE Demo
+    VAR num p10 := 1;
+    CONST robtarget pA := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ pA,v100,fine,tool0;
+    ENDPROC
+ENDMODULE`
+    const result = applyRapidEdit(source, {
+      type: 'rename-target',
+      name: 'pA',
+      newName: 'p10',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('duplicate-name')
+  })
 })
 
 describe('删除目标', () => {
@@ -161,15 +200,28 @@ describe('删除目标', () => {
     if (result.ok) return
     expect(result.error.code).toBe('target-referenced')
   })
+
+  it('CRLF 源码删除后不引入裸 LF', () => {
+    const crlfSource = BASE.replace(/\n/g, '\r\n')
+    const result = applyRapidEdit(crlfSource, { type: 'delete-target', name: 'pRest' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.result.source).toContain('\r\n')
+    expect(result.result.source.replace(/\r\n/g, '').includes('\n')).toBe(false)
+    expect(result.result.source.replace(/\r\n/g, '').includes('\r')).toBe(false)
+    const next = parse(result.result.source)
+    expect(next.canExecute).toBe(true)
+  })
 })
 
 describe('插入运动指令', () => {
-  it('在 main 末尾插入引用现有目标的 MoveJ，参数为 v100,fine,tool0', () => {
+  it('选择已有点位在 main 末尾插入 MoveJ，参数为 v100,fine,tool0', () => {
     const result = applyRapidEdit(BASE, {
       type: 'insert-motion',
-      name: 'pRest',
       kind: 'movej',
       insertionIndex: 1,
+      target: { source: 'existing', name: 'pRest' },
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -184,32 +236,106 @@ describe('插入运动指令', () => {
     expect(inserted.speed.v_tcp).toBe(100)
   })
 
-  it('插入 MoveL 且缺失目标返回 undefined-target', () => {
-    const ok = applyRapidEdit(BASE, {
+  it('选择当前位置在同一次结果中同时创建 p10 并插入 MoveJ', () => {
+    const result = applyRapidEdit(BASE, {
       type: 'insert-motion',
-      name: 'pRest',
-      kind: 'movel',
-      insertionIndex: 1,
-    })
-    expect(ok.ok).toBe(true)
-    if (ok.ok) expect(parse(ok.result.source).program[1].kind).toBe('movel')
-
-    const missing = applyRapidEdit(BASE, {
-      type: 'insert-motion',
-      name: 'nope',
       kind: 'movej',
       insertionIndex: 1,
+      target: { source: 'current', target: target([123, 456, 789]) },
     })
-    expect(missing.ok).toBe(false)
-    if (!missing.ok) expect(missing.error.code).toBe('undefined-target')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const next = parse(result.result.source)
+    expect(next.canExecute).toBe(true)
+    expect(next.program).toHaveLength(2)
+    const inserted = next.program[1]
+    if (!inserted || !isRapidMotionInstruction(inserted)) throw new Error('插入结果应为运动指令')
+    expect(inserted.kind).toBe('movej')
+    expect(inserted.sourceText).toContain('p10')
+    const inserted1 = next.program[1]
+    if (!inserted1 || !isRapidMotionInstruction(inserted1)) throw new Error('插入结果应为运动指令')
+    expect(inserted1.operands.target).toBe('p10')
+    const p10 = robtargets(next).find((d) => d.name === 'p10')
+    expect(p10?.target.trans).toEqual([123, 456, 789])
+  })
+
+  it('p10/p20 被占用时自动命名为 p30', () => {
+    const source = `MODULE Demo
+    CONST robtarget p10 := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget p20 := [[0,0,10],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ p10,v100,fine,tool0;
+    ENDPROC
+ENDMODULE`
+    const result = applyRapidEdit(source, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 1,
+      target: { source: 'current', target: target([1, 2, 3]) },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const next = parse(result.result.source)
+    expect(robtargets(next).map((d) => d.name)).toContain('p30')
+    const inserted2 = next.program[1]
+    if (!inserted2 || !isRapidMotionInstruction(inserted2)) throw new Error('插入结果应为运动指令')
+    expect(inserted2.operands.target).toBe('p30')
+  })
+
+  it('p10 被 VAR num P10 占用时跳过', () => {
+    const source = `MODULE Demo
+    VAR num P10 := 1;
+    CONST robtarget pA := [[0,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveJ pA,v100,fine,tool0;
+    ENDPROC
+ENDMODULE`
+    const result = applyRapidEdit(source, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 1,
+      target: { source: 'current', target: target([1, 2, 3]) },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const next = parse(result.result.source)
+    const inserted3 = next.program[1]
+    if (!inserted3 || !isRapidMotionInstruction(inserted3)) throw new Error('插入结果应为运动指令')
+    expect(inserted3.operands.target).toBe('p20')
+  })
+
+  it('选择当前位置插入 MoveL 且缺失已有目标仍成功（不依赖已有点位）', () => {
+    const result = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      kind: 'movel',
+      insertionIndex: 1,
+      target: { source: 'current', target: target([0, 0, 0]) },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(parse(result.result.source).program[1].kind).toBe('movel')
+  })
+
+  it('选择已有点位缺失返回 undefined-target', () => {
+    const result = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 1,
+      target: { source: 'existing', name: 'nope' },
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('undefined-target')
   })
 
   it('按指定插入位置插入到第一条运动之前，并返回 PP 下标位移提示', () => {
     const result = applyRapidEdit(BASE, {
       type: 'insert-motion',
-      name: 'pRest',
       kind: 'movej',
       insertionIndex: 0,
+      target: { source: 'existing', name: 'pRest' },
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -218,6 +344,111 @@ describe('插入运动指令', () => {
     const next = parse(result.result.source)
     expect(next.program[0].sourceText).toContain('pRest')
     expect(next.program[1].sourceText).toContain('pApproach')
+  })
+
+  it('声明 offset 小于运动 offset 时两段位置仍正确', () => {
+    const result = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 0,
+      target: { source: 'current', target: target([1, 2, 3]) },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const next = parse(result.result.source)
+    const p10 = robtargets(next).find((d) => d.name === 'p10')
+    expect(p10).toBeDefined()
+    expect(next.program[0].sourceText).toContain('p10')
+    expect(next.program[1].sourceText).toContain('pApproach')
+  })
+
+  it('CRLF 源码插入后不引入裸 LF', () => {
+    const crlfSource = BASE.replace(/\n/g, '\r\n')
+    const result = applyRapidEdit(crlfSource, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 1,
+      target: { source: 'current', target: target([1, 2, 3]) },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.result.source).toContain('\r\n')
+    expect(result.result.source).not.toMatch(/[^\r]\n/)
+  })
+
+  it('无效 insertionIndex 失败且源码不变', () => {
+    const result = applyRapidEdit(BASE, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 99,
+      target: { source: 'existing', name: 'pRest' },
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('invalid-insertion-position')
+  })
+})
+
+describe('插入运动指令的源码格式化（沿用邻居缩进、独立换行）', () => {
+  // 2 空格基础缩进 + WHILE 嵌套（WHILE 体内 6 空格），复现用户真实程序布局。
+  const NESTED = `MODULE M
+  CONST robtarget pHome := [[451,0,807],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pCorner0 := [[351,-200,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pCorner1 := [[651,-200,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  PROC main()
+    MoveJ pHome, v100, fine, tool0;
+    WHILE TRUE DO
+      MoveJ pCorner0, v50, fine, tool0;
+      MoveL pCorner1, v50, fine, tool0;
+    ENDWHILE
+  ENDPROC
+ENDMODULE`
+
+  it('新运动语句行缩进与锚点行一致，原行缩进不被破坏', () => {
+    const result = applyRapidEdit(NESTED, {
+      type: 'insert-motion',
+      kind: 'movej',
+      insertionIndex: 2,
+      target: { source: 'existing', name: 'pCorner0' },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const lines = result.result.source.split('\n')
+    // 新语句插在锚点 MoveJ pCorner0 之前；选已有点位时新行为 MoveJ pCorner0,v100,...。
+    const idx = lines.findIndex((l) => l.trim() === 'MoveJ pCorner0,v100,fine,tool0;')
+    expect(idx).toBeGreaterThan(-1)
+    expect(lines[idx].length - lines[idx].trimStart().length).toBe(6)
+    // 原锚点行与其后 MoveL 仍保持 6 空格缩进。
+    const anchor = lines[idx + 1]
+    expect(anchor.trim()).toBe('MoveJ pCorner0, v50, fine, tool0;')
+    expect(anchor.length - anchor.trimStart().length).toBe(6)
+    const next = lines[idx + 2]
+    expect(next.trim().startsWith('MoveL pCorner1')).toBe(true)
+    expect(next.length - next.trimStart().length).toBe(6)
+    // 插入语句没有把原行挤到行首（无裸 LF 粘连）。
+    expect(lines.join('\n')).not.toMatch(/MoveJ pCorner0,v100[^\n]+\nMoveL/m)
+  })
+
+  it('选择当前位置时自动新建的 robtarget 声明为独立行，不与 PROC main 粘连', () => {
+    const result = applyRapidEdit(NESTED, {
+      type: 'insert-motion',
+      kind: 'movel',
+      insertionIndex: 2,
+      target: { source: 'current', target: target([100, 200, 300]) },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const source = result.result.source
+    expect(source).toMatch(/^\s{2}CONST robtarget p10 := [^;]+;\s*$/m)
+    // 声明行与 PROC main() 不在同一行。
+    expect(source).not.toMatch(/robtarget p10 := [^;]*;PROC main/)
+    expect(/CONST robtarget p10 :=\s*\S+;\s*\n\s*PROC main\(\)/.test(source)).toBe(true)
+    // 新声明的缩进沿用模块级（2 空格）。
+    const decl = source.split('\n').find((l) => l.includes('CONST robtarget p10'))
+    expect(decl && decl.length - decl.trimStart().length).toBe(2)
   })
 })
 
@@ -236,7 +467,12 @@ ENDMODULE
       { type: 'modify-position', name: 'p1', target: target([1, 1, 1]) },
       { type: 'rename-target', name: 'p1', newName: 'pX' },
       { type: 'delete-target', name: 'p1' },
-      { type: 'insert-motion', name: 'p1', kind: 'movej', insertionIndex: 1 },
+      {
+        type: 'insert-motion',
+        kind: 'movej',
+        insertionIndex: 1,
+        target: { source: 'existing', name: 'p1' },
+      },
     ] as const
     for (const command of commands) {
       const result = applyRapidEdit(BROKEN, command as never)
@@ -255,5 +491,42 @@ describe('值格式化', () => {
       extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9],
     })
     expect(text).toBe('[[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]]')
+  })
+})
+
+describe('makeTaughtTargetFromPose', () => {
+  it('单位旋转生成 [1,0,0,0] 与零 robconf、未使用外部轴', () => {
+    const pose: Pose = {
+      position: [100, 200, 300],
+      euler: [0, 0, 0],
+      rotation: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+    }
+    const taught = makeTaughtTargetFromPose(pose)
+    expect(taught.trans).toEqual([100, 200, 300])
+    expect(taught.rot).toEqual([1, 0, 0, 0])
+    expect(taught.robconf).toEqual([0, 0, 0, 0])
+    expect(taught.extax).toEqual([9e9, 9e9, 9e9, 9e9, 9e9, 9e9])
+  })
+
+  it('非单位旋转按 ABB 顺序 [w,x,y,z] 输出', () => {
+    // 绕 Z 轴旋转 90 度的旋转矩阵。
+    const pose: Pose = {
+      position: [0, 0, 0],
+      euler: [0, 0, 90],
+      rotation: [
+        [0, -1, 0],
+        [1, 0, 0],
+        [0, 0, 1],
+      ],
+    }
+    const taught = makeTaughtTargetFromPose(pose)
+    expect(taught.rot[0]).toBeCloseTo(Math.SQRT1_2, 6)
+    expect(taught.rot[3]).toBeCloseTo(Math.SQRT1_2, 6)
+    expect(taught.rot[1]).toBeCloseTo(0, 6)
+    expect(taught.rot[2]).toBeCloseTo(0, 6)
   })
 })
