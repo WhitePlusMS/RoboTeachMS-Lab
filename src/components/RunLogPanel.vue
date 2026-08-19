@@ -10,10 +10,10 @@ const props = defineProps<Props>()
 
 type LogFilter = 'all' | 'warn' | 'err'
 
-const FILTERS: ReadonlyArray<{ key: LogFilter; label: string }> = [
-  { key: 'all', label: '全部' },
-  { key: 'warn', label: '警告' },
-  { key: 'err', label: '错误' },
+const FILTERS: ReadonlyArray<{ key: LogFilter; label: string; title: string }> = [
+  { key: 'all', label: '全部', title: '显示全部日志' },
+  { key: 'warn', label: '警告', title: '仅显示警告与错误' },
+  { key: 'err', label: '错误', title: '仅显示错误' },
 ]
 
 const filter = ref<LogFilter>('all')
@@ -115,6 +115,7 @@ function endResize(event: PointerEvent): void {
           class="choice log-filter"
           :class="{ on: filter === item.key }"
           :aria-pressed="filter === item.key"
+          :title="item.title"
           @click="filter = item.key"
         >
           {{ item.label }}
@@ -125,6 +126,7 @@ function endResize(event: PointerEvent): void {
         class="icon-btn log-toggle"
         :aria-label="collapsed ? '展开日志' : '收起日志'"
         :aria-expanded="!collapsed"
+        :title="collapsed ? '展开日志' : '收起日志'"
         @click="collapsed = !collapsed"
       >
         {{ collapsed ? '▸' : '▾' }}

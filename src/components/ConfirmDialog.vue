@@ -86,7 +86,7 @@ watch(
         >
           <header class="confirm-head">
             <h3 class="confirm-title">{{ title }}</h3>
-            <button type="button" class="confirm-close" aria-label="关闭" @click="close">
+            <button type="button" class="confirm-close" aria-label="关闭" title="关闭" @click="close">
               <X :size="15" />
             </button>
           </header>
@@ -96,11 +96,17 @@ watch(
             </slot>
           </div>
           <footer class="confirm-foot">
-            <button type="button" class="preset-btn" @click="onCancel">{{ cancelText }}</button>
+            <button
+              type="button"
+              class="preset-btn"
+              title="取消此次操作"
+              @click="onCancel"
+            >{{ cancelText }}</button>
             <button
               type="button"
               class="preset-btn"
               :class="danger ? 'preset-btn-danger' : 'preset-btn-primary'"
+              :title="danger ? `确认执行（${confirmText}，不可撤销）` : `确认执行（${confirmText}）`"
               @click="onConfirm"
             >
               {{ confirmText }}

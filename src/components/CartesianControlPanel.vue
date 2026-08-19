@@ -152,6 +152,7 @@ onBeforeUnmount(stopPress)
           type="button"
           :class="{ on: props.coordinateSystem === frame }"
           :aria-pressed="props.coordinateSystem === frame"
+          :title="`切换到 ${frame} 坐标系`"
           @click="emit('coordinate-change', frame)"
         >
           {{ frame }}
@@ -166,6 +167,7 @@ onBeforeUnmount(stopPress)
           type="button"
           :class="{ on: mode === 'trans' }"
           :aria-pressed="mode === 'trans'"
+          title="平移模式：沿 X/Y/Z 移动"
           @click="mode = 'trans'"
         >
           平移
@@ -174,6 +176,7 @@ onBeforeUnmount(stopPress)
           type="button"
           :class="{ on: mode === 'rot' }"
           :aria-pressed="mode === 'rot'"
+          title="旋转模式：绕 RX/RY/RZ 转动"
           @click="mode = 'rot'"
         >
           旋转
@@ -189,6 +192,7 @@ onBeforeUnmount(stopPress)
           <button
             type="button"
             :aria-label="dpad.up.name"
+            :title="`${dpad.up.name}（按住连续）`"
             @pointerdown="startPress(dpad.up.axis, dpad.up.direction)"
             @pointerup="finishPress"
             @pointerleave="finishPress"
@@ -200,6 +204,7 @@ onBeforeUnmount(stopPress)
           <button
             type="button"
             :aria-label="dpad.left.name"
+            :title="`${dpad.left.name}（按住连续）`"
             @pointerdown="startPress(dpad.left.axis, dpad.left.direction)"
             @pointerup="finishPress"
             @pointerleave="finishPress"
@@ -211,6 +216,7 @@ onBeforeUnmount(stopPress)
           <button
             type="button"
             :aria-label="dpad.right.name"
+            :title="`${dpad.right.name}（按住连续）`"
             @pointerdown="startPress(dpad.right.axis, dpad.right.direction)"
             @pointerup="finishPress"
             @pointerleave="finishPress"
@@ -222,6 +228,7 @@ onBeforeUnmount(stopPress)
           <button
             type="button"
             :aria-label="dpad.down.name"
+            :title="`${dpad.down.name}（按住连续）`"
             @pointerdown="startPress(dpad.down.axis, dpad.down.direction)"
             @pointerup="finishPress"
             @pointerleave="finishPress"
@@ -235,6 +242,7 @@ onBeforeUnmount(stopPress)
           <button
             type="button"
             :aria-label="dpad.zUp.name"
+            :title="`${dpad.zUp.name}（按住连续）`"
             @pointerdown="startPress(dpad.zUp.axis, dpad.zUp.direction)"
             @pointerup="finishPress"
             @pointerleave="finishPress"
@@ -245,6 +253,7 @@ onBeforeUnmount(stopPress)
           <button
             type="button"
             :aria-label="dpad.zDown.name"
+            :title="`${dpad.zDown.name}（按住连续）`"
             @pointerdown="startPress(dpad.zDown.axis, dpad.zDown.direction)"
             @pointerup="finishPress"
             @pointerleave="finishPress"
@@ -263,6 +272,7 @@ onBeforeUnmount(stopPress)
         :key="`position-${step}`"
         type="button"
         :class="['step-choice', { active: props.positionStep === step }]"
+        :title="`设为位置步进 ${step} mm`"
         @click="emit('position-step-change', step)"
       >
         {{ step }} mm
@@ -276,6 +286,7 @@ onBeforeUnmount(stopPress)
         :key="`orientation-${step}`"
         type="button"
         :class="['step-choice', { active: props.orientationStep === step }]"
+        :title="`设为姿态步进 ${step}°`"
         @click="emit('orientation-step-change', step)"
       >
         {{ step }}°

@@ -64,7 +64,7 @@ function cancelLoad(): void {
           <div>
             <h3 class="lib-title">预设程序库</h3>
           </div>
-          <button type="button" class="lib-close" aria-label="关闭" @click="close">
+          <button type="button" class="lib-close" aria-label="关闭" title="关闭" @click="close">
             <X :size="15" />
           </button>
         </header>
@@ -77,7 +77,14 @@ function cancelLoad(): void {
               <div class="lib-item-name">{{ preset.name }}</div>
               <div class="lib-item-desc">{{ preset.description }}</div>
             </div>
-            <button type="button" class="preset-btn" @click="requestLoad(preset)">使用</button>
+            <button
+              type="button"
+              class="preset-btn"
+              :title="`载入预设「${preset.name}」到源码编辑器`"
+              @click="requestLoad(preset)"
+            >
+              使用
+            </button>
           </li>
         </ul>
 

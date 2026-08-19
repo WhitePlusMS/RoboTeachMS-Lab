@@ -41,6 +41,7 @@ function dismissToast(id: number): void {
             type="button"
             class="toast-close"
             aria-label="关闭通知"
+            title="关闭通知"
             @click="dismissToast(toast.id)"
           >
             <X :size="13" />

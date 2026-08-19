@@ -84,10 +84,22 @@ onBeforeUnmount(stopPress)
     </div>
 
     <div class="panel-actions">
-      <button type="button" class="secondary-action home-action" @click="emit('reset')">
+      <button
+        type="button"
+        class="secondary-action home-action"
+        title="机器人回到零位姿态"
+        @click="emit('reset')"
+      >
         <Home :size="14" />回零
       </button>
-      <button type="button" class="secondary-action" @click="emit('random')">随机姿态</button>
+      <button
+        type="button"
+        class="secondary-action"
+        title="随机生成一组关节姿态"
+        @click="emit('random')"
+      >
+        随机姿态
+      </button>
     </div>
 
     <div class="joint-list">
@@ -97,6 +109,7 @@ onBeforeUnmount(stopPress)
           type="button"
           class="step-button"
           :aria-label="`J${index + 1} 减小角度`"
+          :title="`J${index + 1} 减小角度（按住连续）`"
           @pointerdown="startPress(index, -1)"
           @pointerup="finishPress"
           @pointerleave="finishPress"
@@ -118,6 +131,7 @@ onBeforeUnmount(stopPress)
           type="button"
           class="step-button"
           :aria-label="`J${index + 1} 增加角度`"
+          :title="`J${index + 1} 增加角度（按住连续）`"
           @pointerdown="startPress(index, 1)"
           @pointerup="finishPress"
           @pointerleave="finishPress"
@@ -139,6 +153,7 @@ onBeforeUnmount(stopPress)
         type="button"
         :class="['step-choice', { active: props.jointStep === step }]"
         :aria-pressed="props.jointStep === step"
+        :title="`设为步进 ${step}°`"
         @click="emit('step-change', step)"
       >
         {{ step }}°

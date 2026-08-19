@@ -129,6 +129,7 @@ onBeforeUnmount(() => {
         type="button"
         :class="['scene-aux-button', { active: props.showGrid }]"
         :aria-pressed="props.showGrid"
+        title="显示/隐藏地面网格"
         @click="emit('grid-change', !props.showGrid)"
       >
         网格
@@ -137,6 +138,7 @@ onBeforeUnmount(() => {
         type="button"
         :class="['scene-aux-button', { active: props.showCoordinateSystems }]"
         :aria-pressed="props.showCoordinateSystems"
+        title="显示/隐藏基座与工具坐标系"
         @click="emit('coordinates-change', !props.showCoordinateSystems)"
       >
         基座/工具坐标
@@ -145,6 +147,7 @@ onBeforeUnmount(() => {
         type="button"
         :class="['scene-aux-button', { active: props.showDhDebug }]"
         :aria-pressed="props.showDhDebug"
+        title="显示/隐藏 DH 参考链"
         @click="emit('dh-debug-change', !props.showDhDebug)"
       >
         DH参考链
@@ -153,6 +156,7 @@ onBeforeUnmount(() => {
         type="button"
         :class="['scene-aux-button', { active: props.showTrajectory }]"
         :aria-pressed="props.showTrajectory"
+        title="显示/隐藏 TCP 运行轨迹"
         @click="emit('trajectory-change', !props.showTrajectory)"
       >
         轨迹
@@ -161,6 +165,7 @@ onBeforeUnmount(() => {
         type="button"
         :class="['scene-aux-button', { active: props.showRobtargets }]"
         :aria-pressed="props.showRobtargets"
+        title="显示/隐藏 robtarget 点位标记"
         @click="emit('robtargets-change', !props.showRobtargets)"
       >
         点位
@@ -170,7 +175,7 @@ onBeforeUnmount(() => {
         :class="['scene-aux-button', { active: props.showRobtargets && props.showRobtargetLabels }]"
         :aria-pressed="props.showRobtargetLabels"
         :disabled="!props.showRobtargets"
-        title="点位名称标签"
+        title="显示/隐藏点位名称标签（需先开启点位）"
         @click="emit('robtarget-labels-change', !props.showRobtargetLabels)"
       >
         标签
@@ -179,6 +184,7 @@ onBeforeUnmount(() => {
         type="button"
         class="scene-aux-button scene-aux-clear"
         :disabled="props.trajectoryCount === 0"
+        title="清空已记录的 TCP 轨迹"
         @click="clearTrajectory"
       >
         清空轨迹
@@ -239,12 +245,15 @@ onBeforeUnmount(() => {
   z-index: var(--z-raised);
 }
 
+/* 场景辅助按钮：半透明毛玻璃底，blur 清晰可见。
+   背景用 color-mix 从 --color-overlay-bg 派生低透明度玻璃（原 token 是 0.88 近不透明白，
+   直接用作背景会把 backdrop-filter 模糊盖住、毛玻璃失效）。 */
 .scene-aux-button {
   padding: 7px 11px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  background: var(--color-overlay-bg);
+  background: color-mix(in srgb, var(--color-overlay-bg) 60%, transparent);
   cursor: pointer;
   font-size: var(--text-md);
   backdrop-filter: blur(8px);
@@ -252,7 +261,7 @@ onBeforeUnmount(() => {
 
 .scene-aux-button:hover {
   color: var(--color-text-strong);
-  background: var(--color-overlay-bg-strong);
+  background: color-mix(in srgb, var(--color-overlay-bg-strong) 60%, transparent);
 }
 
 .scene-aux-button.active {

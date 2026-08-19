@@ -147,6 +147,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         type="button"
         class="motion-argument-close"
         aria-label="关闭参数面板"
+        title="关闭参数面板"
         @click="emit('close')"
       >
         ×
@@ -162,6 +163,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         type="button"
         class="motion-argument-option"
         :aria-pressed="motion.instruction.operands.target.toLocaleLowerCase('en-US') === target.name.toLocaleLowerCase('en-US')"
+        :title="`选择目标点 ${target.name}`"
         @click="chooseExistingTarget(target.name)"
       >
         <span class="motion-argument-option-name">{{ target.name }}</span>
@@ -171,6 +173,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         v-if="controller.pose.value"
         type="button"
         class="motion-argument-option motion-argument-option-new"
+        title="新建点位并记录当前 TCP 位置"
         @click="chooseNewTarget"
       >
         <span class="motion-argument-option-name">新建点位（记录当前位置）</span>
@@ -191,6 +194,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         class="motion-argument-option"
         :class="{ 'motion-argument-option-system': entry.system }"
         :aria-pressed="motion.instruction.operands.speed.toLocaleLowerCase('en-US') === entry.name.toLocaleLowerCase('en-US')"
+        :title="`选择速度 ${entry.name}`"
         @click="chooseDataOperand('speed', entry.name)"
       >
         <span class="motion-argument-option-name">{{ entry.name }}</span>
@@ -212,6 +216,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         class="motion-argument-option"
         :class="{ 'motion-argument-option-system': entry.system }"
         :aria-pressed="motion.instruction.operands.zone.toLocaleLowerCase('en-US') === entry.name.toLocaleLowerCase('en-US')"
+        :title="`选择转弯区 ${entry.name}`"
         @click="chooseDataOperand('zone', entry.name)"
       >
         <span class="motion-argument-option-name">{{ entry.name }}</span>

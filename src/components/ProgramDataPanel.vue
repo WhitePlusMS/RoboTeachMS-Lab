@@ -533,6 +533,7 @@ function rowSummary(entry: RapidProgramData): string {
           'has-system': kindHasSystem[kind.kind] === true,
         }"
         :aria-selected="activeKind === kind.kind"
+        :title="`查看${kind.zh}数据（${kind.en}）`"
         @click="activeKind = kind.kind"
       >
         <span class="program-data-kind-zh">{{ kind.zh }}</span>
@@ -581,7 +582,14 @@ function rowSummary(entry: RapidProgramData): string {
             spellcheck="false"
             @keyup.enter="createTarget"
           />
-          <button type="button" class="primary-action" @click="createTarget">新建点位</button>
+          <button
+            type="button"
+            class="primary-action"
+            title="用输入的名称新建一个 robtarget 点位"
+            @click="createTarget"
+          >
+            新建点位
+          </button>
         </div>
       </div>
 
@@ -606,6 +614,7 @@ function rowSummary(entry: RapidProgramData): string {
             :aria-pressed="
               selectedTarget?.name.toLocaleLowerCase() === target.name.toLocaleLowerCase()
             "
+            :title="`选择点位 ${target.name}`"
             @click="selectTarget(target.name)"
           >
             <span class="program-data-row-name">{{ target.name }}</span>
@@ -630,6 +639,7 @@ function rowSummary(entry: RapidProgramData): string {
                 :key="`${range.start.offset}-${index}`"
                 type="button"
                 class="program-data-reference-link"
+                :title="`在源码中定位该引用（行 ${range.start.line}）`"
                 @click="emit('view-reference', range)"
               >
                 查看引用 · 行 {{ range.start.line }}
@@ -664,7 +674,12 @@ function rowSummary(entry: RapidProgramData): string {
             </dl>
 
             <div v-if="props.canExecute" class="program-data-inline-actions">
-              <button type="button" class="secondary-action" @click="modifyPosition">
+              <button
+                type="button"
+                class="secondary-action"
+                title="将本点位位置更新为当前 TCP 位姿"
+                @click="modifyPosition"
+              >
                 Modify Position（更新位置）
               </button>
               <template v-if="editingPosition">
@@ -682,14 +697,30 @@ function rowSummary(entry: RapidProgramData): string {
                     <input v-model="editTransDraft.z" type="text" aria-label="Z" />
                   </label>
                 </div>
-                <button type="button" class="secondary-action" @click="commitEditPosition">
+                <button
+                  type="button"
+                  class="secondary-action"
+                  title="确认修改本点位位置"
+                  @click="commitEditPosition"
+                >
                   确认
                 </button>
-                <button type="button" class="secondary-action" @click="cancelEditPosition">
+                <button
+                  type="button"
+                  class="secondary-action"
+                  title="取消位置修改"
+                  @click="cancelEditPosition"
+                >
                   取消
                 </button>
               </template>
-              <button v-else type="button" class="secondary-action" @click="startEditPosition">
+              <button
+                v-else
+                type="button"
+                class="secondary-action"
+                title="手动输入本点位的新位置"
+                @click="startEditPosition"
+              >
                 编辑位置
               </button>
               <template v-if="renaming">
@@ -701,18 +732,37 @@ function rowSummary(entry: RapidProgramData): string {
                   @keyup.enter="commitRename"
                   @keyup.esc="cancelRename"
                 />
-                <button type="button" class="secondary-action" @click="commitRename">
+                <button
+                  type="button"
+                  class="secondary-action"
+                  title="确认重命名本点位"
+                  @click="commitRename"
+                >
                   确认重命名
                 </button>
-                <button type="button" class="secondary-action" @click="cancelRename">取消</button>
+                <button
+                  type="button"
+                  class="secondary-action"
+                  title="取消重命名"
+                  @click="cancelRename"
+                >
+                  取消
+                </button>
               </template>
-              <button v-else type="button" class="secondary-action" @click="startRename">
+              <button
+                v-else
+                type="button"
+                class="secondary-action"
+                title="重命名本点位"
+                @click="startRename"
+              >
                 重命名
               </button>
               <button
                 type="button"
                 class="danger-action"
                 :class="{ 'delete-armed': deleteArmed }"
+                :title="deleteArmed ? '再次点击确认删除本点位' : '删除本点位（需二次确认）'"
                 @click="deleteTarget"
               >
                 {{ deleteArmed ? '确认删除？' : '删除' }}
@@ -764,6 +814,7 @@ function rowSummary(entry: RapidProgramData): string {
             :aria-pressed="
               selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase()
             "
+            :title="`选择 ${activeKind} 数据 ${entry.name}`"
             @click="selectReadonly(entry.name)"
           >
             <span class="program-data-row-name">{{ entry.name }}</span>
@@ -803,6 +854,7 @@ function rowSummary(entry: RapidProgramData): string {
                 :key="`${range.start.offset}-${index}`"
                 type="button"
                 class="program-data-reference-link"
+                :title="`在源码中定位该引用（行 ${range.start.line}）`"
                 @click="emit('view-reference', range)"
               >
                 查看引用 · 行 {{ range.start.line }}
@@ -832,6 +884,7 @@ function rowSummary(entry: RapidProgramData): string {
             :aria-pressed="
               selectedReadonly?.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase()
             "
+            :title="`选择 ${activeKind} 数据 ${entry.name}`"
             @click="selectReadonly(entry.name)"
           >
             <span class="program-data-row-name">{{ entry.name }}</span>
@@ -869,6 +922,7 @@ function rowSummary(entry: RapidProgramData): string {
                 :key="`${range.start.offset}-${index}`"
                 type="button"
                 class="program-data-reference-link"
+                :title="`在源码中定位该引用（行 ${range.start.line}）`"
                 @click="emit('view-reference', range)"
               >
                 查看引用 · 行 {{ range.start.line }}
@@ -1126,10 +1180,9 @@ function rowSummary(entry: RapidProgramData): string {
 }
 
 .program-data-row {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  align-content: start;
   width: 100%;
   min-width: 0;
   gap: 8px;
@@ -1148,6 +1201,7 @@ function rowSummary(entry: RapidProgramData): string {
 }
 
 .program-data-row-name {
+  flex: 0 0 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-strong);
@@ -1159,20 +1213,29 @@ function rowSummary(entry: RapidProgramData): string {
 }
 
 .program-data-row-coord {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .program-data-label {
+  flex: 0 0 auto;
   padding: 2px 8px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-pill);
   color: var(--color-text-faint);
   font-size: var(--text-md);
   white-space: nowrap;
+}
+
+/* 存储标签（const/pers/var）更紧凑：收窄字距，使系统预定义行（含「系统只读」+「const」两枚药丸）可在一行内放下。 */
+.program-data-storage {
+  padding-inline: 5px;
 }
 
 .program-data-system-badge {

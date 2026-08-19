@@ -96,6 +96,7 @@ function collapsePanel(): void {
         :class="{ on: panelOpen && activeFunction === item.fn }"
         :aria-label="item.label"
         :aria-selected="panelOpen && activeFunction === item.fn"
+        :title="item.label"
         @click="selectFunction(item.fn)"
       >
         <span class="rail-icon" aria-hidden="true">
@@ -104,7 +105,7 @@ function collapsePanel(): void {
         {{ item.text }}
       </button>
       <div class="rail-sep" aria-hidden="true"></div>
-      <button type="button" class="rail-btn" aria-label="收起面板" @click="collapsePanel">
+      <button type="button" class="rail-btn" aria-label="收起面板" title="收起面板" @click="collapsePanel">
         <span class="rail-icon" aria-hidden="true"><PanelRightClose :size="16" /></span>
         收起
       </button>

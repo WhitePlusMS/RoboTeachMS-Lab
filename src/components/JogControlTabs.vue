@@ -129,6 +129,7 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :aria-selected="activeTab === 'joint'"
         aria-controls="jog-panel-joint"
         :tabindex="activeTab === 'joint' ? 0 : -1"
+        title="关节模式：逐轴调整各关节角度"
         @click="selectTab('joint')"
         @keydown="handleTabKeydown($event, 'joint')"
       >
@@ -144,6 +145,7 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :aria-selected="activeTab === 'cartesian'"
         aria-controls="jog-panel-cartesian"
         :tabindex="activeTab === 'cartesian' ? 0 : -1"
+        title="笛卡尔模式：按坐标移动 TCP"
         @click="selectTab('cartesian')"
         @keydown="handleTabKeydown($event, 'cartesian')"
       >

@@ -121,12 +121,15 @@ function format(value: number): string {
   background: transparent;
 }
 
-/* 紧凑角标：半透明圆角小卡片，叠放于 3D 场景角落，不再占据面板底部大卡片。 */
+/* 紧凑角标：半透明圆角小卡片，叠放于 3D 场景角落，不再占据面板底部大卡片。
+   背景用 color-mix 从 --color-overlay-bg 派生低透明度玻璃底，保留足够的透光
+   让背面 backdrop-filter 的模糊清晰可见（--color-overlay-bg 本身是 0.88 近不透明白，
+   直接用会盖住模糊、毛玻璃失效——见主题提交 f02e46a 的回归）。 */
 .pose-readout.compact {
   padding: 8px 12px 9px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  background: var(--color-overlay-bg);
+  background: color-mix(in srgb, var(--color-overlay-bg) 60%, transparent);
   backdrop-filter: blur(8px);
   box-shadow: var(--shadow-pop);
 }
