@@ -331,6 +331,16 @@ const argumentInstruction = computed<{
   scrollbar-gutter: stable;
 }
 
+/* 内容填满右列：编辑器吃满剩余高度，摘要条钉在列底（VS Code 式布局）。
+   必须用 height（确定高度）而非 min-height：否则面板高度被内容撑大，
+   flex:1 失去约束，长代码时外层会出现第二条滚动条。 */
+.program-rapid-scroll > .program-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0; /* 编辑器与面板融为一体，不再套卡片（覆盖 .program-panel-content 的内边距） */
+}
+
 .program-workspace-tabpanel > .program-data-panel {
   min-height: 100%;
 }
