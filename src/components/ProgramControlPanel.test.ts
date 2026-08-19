@@ -30,7 +30,7 @@ function mountPanel(value: ProgramControllerSnapshot, pendingClear: 'run' | 'ste
 describe('ProgramControlPanel 按钮可用性与命令映射', () => {
   it('idle 时运行/单步/PP available，停止禁用；运行按钮发出 run', async () => {
     const wrapper = mountPanel(snapshot())
-    const [run, step, stop, pp] = wrapper.findAll('button')
+    const [run, step, stop, pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeUndefined()
     expect(step.attributes('disabled')).toBeUndefined()
     expect(stop.attributes('disabled')).toBeDefined()
@@ -42,7 +42,7 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
 
   it('running 时只有停止可用，运行/单步/PP 禁用', () => {
     const wrapper = mountPanel(snapshot({ state: 'running', motionPointer: 0 }))
-    const [run, step, stop, pp] = wrapper.findAll('button')
+    const [run, step, stop, pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeDefined()
     expect(step.attributes('disabled')).toBeDefined()
     expect(stop.attributes('disabled')).toBeUndefined()
@@ -51,7 +51,7 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
 
   it('stopped 时可继续运行/单步/PP to Main', async () => {
     const wrapper = mountPanel(snapshot({ state: 'stopped', programPointer: 2 }))
-    const [run, step, stop, pp] = wrapper.findAll('button')
+    const [run, step, stop, pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeUndefined()
     expect(step.attributes('disabled')).toBeUndefined()
     expect(stop.attributes('disabled')).toBeDefined()
@@ -63,7 +63,7 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
 
   it('completed 后 PP to Main 可用，运行/单步禁用并可发出 pp', async () => {
     const wrapper = mountPanel(snapshot({ state: 'completed', programPointer: 3 }))
-    const [run, , , pp] = wrapper.findAll('button')
+    const [run, , , pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeDefined()
     expect(pp.attributes('disabled')).toBeUndefined()
 
@@ -80,18 +80,16 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
   })
 })
 
-describe('ProgramControlPanel 状态与指针显示', () => {
-  it('显示状态、程序指针与运动指针', () => {
+describe('ProgramControlPanel 状态显示', () => {
+  it('显示运行状态', () => {
     const wrapper = mountPanel(snapshot({ state: 'running', programPointer: 2, motionPointer: 2 }))
     expect(wrapper.text()).toContain('运行中')
-    expect(wrapper.get('[aria-label="程序快照"]').text()).toContain('程序指针')
-    expect(wrapper.get('[aria-label="程序快照"]').text()).toContain('运动指针')
   })
 
-  it('无活动指令时运动指针显示占位', () => {
+  it('程序快照条已移除（PP/MP 读数由顶栏 pill 承载）', () => {
     const wrapper = mountPanel(snapshot({ state: 'idle' }))
     expect(wrapper.text()).toContain('空闲')
-    expect(wrapper.get('[aria-label="程序快照"]').text()).toContain('—')
+    expect(wrapper.find('[aria-label="程序快照"]').exists()).toBe(false)
   })
 
   it('显示规划错误信息', () => {
@@ -151,23 +149,52 @@ describe('ProgramControlPanel 状态与指针显示', () => {
         ],
       }),
     )
-    const [run, step] = wrapper.findAll('button')
+    const [run, step] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeDefined()
     expect(step.attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('ProgramControlPanel 指令摘要条', () => {
+  const LONG_SOURCE = Array.from({ length: 12 }, () => '').join('\n')
+
+  function mountWithCursor(line: number | null) {
+    return mount(ProgramControlPanel, {
+      props: {
+        snapshot: snapshot({ state: 'running', programPointer: 0, motionPointer: 0 }),
+        source: LONG_SOURCE,
+        program: programWith([5, 6], ['pHome', 'pWork']),
+        pendingClear: null,
+        cursorLine: line,
+      },
+    })
+  }
+
+  it('摘要跟随光标所在行而非程序指针', async () => {
+    const wrapper = mountWithCursor(5)
+    expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('pHome')
+
+    await wrapper.setProps({ cursorLine: 6 })
+    expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('pWork')
+  })
+
+  it('光标在无指令行时显示空态', () => {
+    const wrapper = mountWithCursor(1)
+    expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('无活动指令')
   })
 })
 
 describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
   it('PP 无法映射时禁用运行与单步', () => {
     const wrapper = mountPanel(snapshot({ state: 'stopped', needsPPtoMain: true }))
-    const [run, step] = wrapper.findAll('button')
+    const [run, step] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeDefined()
     expect(step.attributes('disabled')).toBeDefined()
   })
 
   it('off-path 时运行按钮仍可用以触发确认', () => {
     const wrapper = mountPanel(snapshot({ state: 'stopped', offPath: true }))
-    const [run] = wrapper.findAll('button')
+    const [run] = wrapper.findAll('.program-control-footer > .program-actions > button')
     expect(run.attributes('disabled')).toBeUndefined()
   })
 
@@ -187,7 +214,11 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
         ],
       }),
     )
-    expect(wrapper.findAll('button')[0].attributes('disabled')).toBeDefined()
+    expect(
+      wrapper.findAll('.program-control-footer > .program-actions > button')[0].attributes(
+        'disabled',
+      ),
+    ).toBeDefined()
   })
 
   it('off-path 待确认时展示 Clear 确认并发出 confirm/取消事件', async () => {
@@ -199,7 +230,7 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
     await confirmButton!.trigger('click')
     expect(wrapper.emitted('confirm-clear')).toHaveLength(1)
 
-    const cancelButton = wrapper.findAll('button').find((b) => b.text() === '取消')
+    const cancelButton = confirm.findAll('button').find((b) => b.text() === '取消')
     await cancelButton!.trigger('click')
     expect(wrapper.emitted('cancel-clear')).toHaveLength(1)
   })
@@ -259,14 +290,15 @@ describe('ProgramControlPanel PP/MP gutter 与结构化指令', () => {
     expect(lines[8].classes()).toContain('both-line')
   })
 
-  it('进行中显示当前运动指令的结构化摘要', () => {
+  it('摘要条显示光标行指令（光标优先于程序指针）', () => {
     const program = programWith([8, 9], ['pA', 'pB'])
     const wrapper = mount(ProgramControlPanel, {
       props: {
-        snapshot: snapshot({ state: 'running', motionPointer: 1, programPointer: 1 }),
+        snapshot: snapshot({ state: 'running', motionPointer: 0, programPointer: 0 }),
         source: LONG_SOURCE,
         program,
         pendingClear: null,
+        cursorLine: 9,
       },
     })
     expect(wrapper.get('[aria-label="当前结构化指令"]').text()).toContain('pB')

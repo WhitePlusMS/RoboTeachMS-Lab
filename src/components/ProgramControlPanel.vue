@@ -79,9 +79,20 @@ const mpLine = computed(() =>
     ? null
     : (props.program[props.snapshot.motionPointer]?.sourceRange.start.line ?? null),
 )
-// 当前结构化指令：活动运动优先，否则是下一条待执行指令。
+// 活动/下一条待执行指令（程序指针语义），仅供 fly-by 提示使用。
 const activeIndex = computed(() => props.snapshot.motionPointer ?? props.snapshot.programPointer)
 const currentInstruction = computed(() => props.program[activeIndex.value] ?? null)
+// 光标所在行的结构化指令：摘要条跟随用户选择，而非程序指针。
+const cursorInstruction = computed(() => {
+  const line = props.cursorLine
+  if (line === null || line === undefined) return null
+  return (
+    props.program.find(
+      (instruction) =>
+        instruction.sourceRange.start.line <= line && line <= instruction.sourceRange.end.line,
+    ) ?? null
+  )
+})
 /** 当前活动/下一条指令若使用非 fine（fly-by）zone，返回 zone 名（如 z50），否则 null；用于提示未模拟路径融合。 */
 const flyByZone = computed(() => {
   const instruction = currentInstruction.value
@@ -93,7 +104,6 @@ const diagnosticLines = computed(() =>
 )
 const runtimeErrorLine = computed(() => props.snapshot.error?.sourceRange?.start.line ?? null)
 
-const motionPointerText = computed(() => props.snapshot.motionPointer?.toString() ?? '—')
 const errorText = computed(() => {
   const error = props.snapshot.error
   if (!error) return '—'
@@ -116,16 +126,40 @@ const errorText = computed(() => {
     <!-- 顶栏 transport：示教器式运行键组 + off-path 确认 -->
     <template v-if="display === 'transport'">
       <div class="tgroup">
-        <button type="button" class="tkey tkey-run" :disabled="!canRun" @click="emit('run')">
+        <button
+          type="button"
+          class="tkey tkey-run"
+          :disabled="!canRun"
+          title="运行程序（从 PP 位置开始执行）"
+          @click="emit('run')"
+        >
           <span class="tkey-icon" aria-hidden="true"><Play :size="13" /></span>运行
         </button>
-        <button type="button" class="tkey" :disabled="!canStep" @click="emit('step')">
+        <button
+          type="button"
+          class="tkey"
+          :disabled="!canStep"
+          title="单步执行下一条指令"
+          @click="emit('step')"
+        >
           <span class="tkey-icon" aria-hidden="true"><StepForward :size="13" /></span>单步
         </button>
-        <button type="button" class="tkey tkey-stop" :disabled="!canStop" @click="emit('stop')">
+        <button
+          type="button"
+          class="tkey tkey-stop"
+          :disabled="!canStop"
+          title="停止当前程序"
+          @click="emit('stop')"
+        >
           <span class="tkey-icon" aria-hidden="true"><Square :size="12" /></span>停止
         </button>
-        <button type="button" class="tkey" :disabled="!canPpToMain" @click="emit('pp')">
+        <button
+          type="button"
+          class="tkey"
+          :disabled="!canPpToMain"
+          title="PP 回到 Main，把程序指针重置到开头"
+          @click="emit('pp')"
+        >
           <span class="tkey-icon" aria-hidden="true"><Rewind :size="13" /></span>PP to Main
         </button>
         <span class="control-status" :class="`program-state-${props.snapshot.state}`">
@@ -136,8 +170,17 @@ const errorText = computed(() => {
       <div v-if="showOffPathConfirm" class="program-clear-confirm" aria-label="偏离路径确认">
         <p>{{ confirmLabel }}（ABB Clear 语义）。</p>
         <div class="program-actions">
-          <button type="button" class="primary-action" @click="emit('confirm-clear')">确认</button>
-          <button type="button" class="secondary-action" @click="emit('cancel-clear')">取消</button>
+          <button
+            type="button"
+            class="primary-action"
+            title="确认：从当前位置规划并执行到下一目标（Clear 语义）"
+            @click="emit('confirm-clear')"
+          >
+            确认
+          </button>
+          <button type="button" class="secondary-action" title="取消本次操作" @click="emit('cancel-clear')">
+            取消
+          </button>
         </div>
       </div>
     </template>
@@ -158,7 +201,7 @@ const errorText = computed(() => {
         :pp-line="ppLine"
         :mp-line="mpLine"
         :cursor-line="props.cursorLine ?? null"
-        :instruction="currentInstruction"
+        :instruction="cursorInstruction"
         :diagnostic-lines="diagnosticLines"
         :runtime-error-line="runtimeErrorLine"
         :focus-range="props.focusRange"
@@ -172,17 +215,6 @@ const errorText = computed(() => {
         当前指令使用 {{ flyByZone }}（非 fine，fly-by）：当前 MVP 未模拟 ABB
         路径融合，采用精确停点近似。
       </p>
-
-      <dl class="program-stats" aria-label="程序快照">
-        <div>
-          <dt>程序指针</dt>
-          <dd>{{ props.snapshot.programPointer }}</dd>
-        </div>
-        <div>
-          <dt>运动指针</dt>
-          <dd>{{ motionPointerText }}</dd>
-        </div>
-      </dl>
 
       <div
         v-if="props.snapshot.diagnostics.length > 0"
@@ -215,19 +247,38 @@ const errorText = computed(() => {
 
         <!-- 需 PP to Main / 偏离路径等瞬态提示已由 toast+日志承载，此处不常驻占位。 -->
         <div class="program-actions">
-          <button type="button" class="primary-action" :disabled="!canRun" @click="emit('run')">
+          <button
+            type="button"
+            class="primary-action"
+            :disabled="!canRun"
+            title="运行程序（从 PP 位置开始执行）"
+            @click="emit('run')"
+          >
             运行
           </button>
-          <button type="button" class="secondary-action" :disabled="!canStep" @click="emit('step')">
+          <button
+            type="button"
+            class="secondary-action"
+            :disabled="!canStep"
+            title="单步执行下一条指令"
+            @click="emit('step')"
+          >
             单步
           </button>
-          <button type="button" class="danger-action" :disabled="!canStop" @click="emit('stop')">
+          <button
+            type="button"
+            class="danger-action"
+            :disabled="!canStop"
+            title="停止当前程序"
+            @click="emit('stop')"
+          >
             停止
           </button>
           <button
             type="button"
             class="secondary-action"
             :disabled="!canPpToMain"
+            title="PP 回到 Main，把程序指针重置到开头"
             @click="emit('pp')"
           >
             PP to Main
@@ -237,10 +288,20 @@ const errorText = computed(() => {
         <div v-if="showOffPathConfirm" class="program-clear-confirm" aria-label="偏离路径确认">
           <p>{{ confirmLabel }}（ABB Clear 语义）。</p>
           <div class="program-actions">
-            <button type="button" class="primary-action" @click="emit('confirm-clear')">
+            <button
+              type="button"
+              class="primary-action"
+              title="确认：从当前位置规划并执行到下一目标（Clear 语义）"
+              @click="emit('confirm-clear')"
+            >
               确认
             </button>
-            <button type="button" class="secondary-action" @click="emit('cancel-clear')">
+            <button
+              type="button"
+              class="secondary-action"
+              title="取消本次操作"
+              @click="emit('cancel-clear')"
+            >
               取消
             </button>
           </div>
@@ -280,6 +341,17 @@ const errorText = computed(() => {
   gap: 8px;
 }
 
+/* 面板内边距已由编辑器全出血布局接管（padding 0），辅助块自己保留左右边距。 */
+.program-panel-content > .program-hint,
+.program-panel-content > .rapid-diagnostics,
+.program-panel-content > .program-error {
+  margin-inline: 16px;
+}
+
+.program-panel-content > :last-child {
+  margin-bottom: 12px;
+}
+
 .program-hint,
 .rapid-diagnostics {
   margin: 0;
@@ -302,41 +374,6 @@ const errorText = computed(() => {
 .rapid-diagnostics ul {
   padding-left: 18px;
   color: var(--color-danger-soft);
-}
-
-/* 指针读数：无边框 hairline 条带，不再每格一个盒子。 */
-.program-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
-  margin: 0;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.program-stats div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 8px 2px;
-}
-
-.program-stats div + div {
-  padding-left: 14px;
-  border-left: 1px solid var(--color-border);
-}
-
-.program-stats dt {
-  color: var(--color-text-faint);
-  font-size: var(--text-md);
-}
-
-.program-stats dd {
-  margin: 0;
-  color: var(--color-text-strong);
-  font-family: var(--font-mono);
-  font-size: var(--text-3xl);
-  font-weight: 700;
 }
 
 .program-error {
