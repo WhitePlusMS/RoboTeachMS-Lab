@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue'
+import { X } from '@lucide/vue'
 
 interface Props {
   /** 是否显示弹窗（受控）。 */
@@ -85,7 +86,9 @@ watch(
         >
           <header class="confirm-head">
             <h3 class="confirm-title">{{ title }}</h3>
-            <button type="button" class="confirm-close" aria-label="关闭" @click="close">✕</button>
+            <button type="button" class="confirm-close" aria-label="关闭" @click="close">
+              <X :size="15" />
+            </button>
           </header>
           <div class="confirm-body">
             <slot>
@@ -148,6 +151,9 @@ watch(
 }
 
 .confirm-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 2px 8px;
   border: 0;
   border-radius: var(--radius-sm);

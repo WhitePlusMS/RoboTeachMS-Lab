@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { X } from '@lucide/vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { RAPID_PRESET_PROGRAMS, type RapidPresetProgram } from '@/application/preset-programs.ts'
 
@@ -61,10 +62,11 @@ function cancelLoad(): void {
       <div class="lib-panel" role="dialog" aria-modal="true" aria-label="预设程序库">
         <header class="lib-head">
           <div>
-            <div class="lib-kicker">RAPID TEMPLATES</div>
             <h3 class="lib-title">预设程序库</h3>
           </div>
-          <button type="button" class="lib-close" aria-label="关闭" @click="close">✕</button>
+          <button type="button" class="lib-close" aria-label="关闭" @click="close">
+            <X :size="15" />
+          </button>
         </header>
 
         <p class="lib-intro">从测试用例集中选择一个可运行示例模板载入源码编辑器。</p>
@@ -128,13 +130,6 @@ function cancelLoad(): void {
   border-bottom: 1px solid var(--color-border);
 }
 
-.lib-kicker {
-  color: var(--color-text-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-}
-
 .lib-title {
   margin: 2px 0 0;
   color: var(--color-text-strong);
@@ -143,6 +138,9 @@ function cancelLoad(): void {
 }
 
 .lib-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 2px 8px;
   border: 0;
   border-radius: var(--radius-sm);

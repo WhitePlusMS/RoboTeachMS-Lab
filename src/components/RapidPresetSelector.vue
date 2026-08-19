@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { Library } from '@lucide/vue'
 import PresetLibraryDialog from './PresetLibraryDialog.vue'
 import type { RapidPresetProgram } from '@/application/preset-programs.ts'
 
@@ -44,7 +45,7 @@ function handleLoad(preset: RapidPresetProgram): void {
       title="打开预设程序库，选择可运行示例模板"
       @click="openLibrary"
     >
-      <span class="rapid-preset-open-icon" aria-hidden="true">▦</span>
+      <span class="rapid-preset-open-icon" aria-hidden="true"><Library :size="14" /></span>
       预设程序
     </button>
     <p v-if="running" class="rapid-preset-hint rapid-preset-hint-warn">

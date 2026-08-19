@@ -26,7 +26,7 @@ describe('WorkbenchLayout 边栏驱动的面板壳层', () => {
     expect(wrapper.get('[aria-label="程序数据 Program Data"]').attributes('aria-selected')).toBe(
       'false',
     )
-    expect(wrapper.get('[aria-label="手动 Jog"]')).toBeTruthy()
+    expect(wrapper.get('[aria-label="手动控制"]')).toBeTruthy()
     expect(wrapper.get('[aria-label="收起面板"]')).toBeTruthy()
   })
 
@@ -48,8 +48,8 @@ describe('WorkbenchLayout 边栏驱动的面板壳层', () => {
       'false',
     )
 
-    // 重新点开 Jog。
-    await wrapper.get('[aria-label="手动 Jog"]').trigger('click')
+    // 重新点开手动控制（Jog）。
+    await wrapper.get('[aria-label="手动控制"]').trigger('click')
     expect(wrapper.get('.workbench-layout').classes()).not.toContain('panel-closed')
     expect(wrapper.get('[data-testid="panel-content"]').text()).toBe('当前功能：jog')
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
+import { Home } from '@lucide/vue'
 import type { JointAngles } from '@/robotics/types.ts'
 import type { JointRange } from '@/robotics/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'
@@ -77,14 +78,15 @@ onBeforeUnmount(stopPress)
   <section class="joint-panel" aria-labelledby="joint-panel-title">
     <div class="panel-title-row">
       <div>
-        <p class="panel-kicker">JOINT SPACE CONTROL</p>
         <h2 id="joint-panel-title">六轴关节控制</h2>
       </div>
       <span class="control-status">FK READY</span>
     </div>
 
     <div class="panel-actions">
-      <button type="button" class="secondary-action" @click="emit('reset')">⌂ 回零</button>
+      <button type="button" class="secondary-action home-action" @click="emit('reset')">
+        <Home :size="14" />回零
+      </button>
       <button type="button" class="secondary-action" @click="emit('random')">随机姿态</button>
     </div>
 
@@ -218,6 +220,13 @@ onBeforeUnmount(stopPress)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.home-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 /* Compact layout overrides applied when nested inside the jog tab panel.

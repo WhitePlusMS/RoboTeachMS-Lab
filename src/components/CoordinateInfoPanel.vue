@@ -19,7 +19,6 @@ function formatValue(value: number): string {
   <section class="coordinate-info-panel" aria-label="基坐标和工具坐标信息">
     <div class="panel-title-row">
       <div>
-        <p class="panel-kicker">COORDINATE INFO</p>
         <h2>坐标信息</h2>
       </div>
       <span class="coordinate-info-tag">BASE / TOOL</span>

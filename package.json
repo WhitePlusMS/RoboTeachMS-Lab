@@ -17,6 +17,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@lucide/vue": "^1.32.0",
     "ml-matrix": "^6.15.0",
     "three": "^0.185.1",
     "vue": "^3.5.40"

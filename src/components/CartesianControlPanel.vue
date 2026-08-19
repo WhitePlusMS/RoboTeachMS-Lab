@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
+import type { Component } from 'vue'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  RotateCw,
+} from '@lucide/vue'
 import type { CartesianAxis, CoordinateSystem } from '@/robotics/types.ts'
 import type {
   CartesianDirection,
@@ -35,7 +46,7 @@ const mode = ref<CartMode>('trans')
 interface DpadKey {
   axis: CartesianAxis
   direction: CartesianDirection
-  icon: string
+  icon: Component
   name: string
 }
 
@@ -54,22 +65,22 @@ const DPAD_CONFIGS: Record<CartMode, DpadConfig> = {
   trans: {
     tag: 'XY',
     hint: '方向键 · X / Y 平移，右侧 Z 升降',
-    up: { axis: 'y', direction: 1, icon: '↑', name: 'Y 增加' },
-    down: { axis: 'y', direction: -1, icon: '↓', name: 'Y 减小' },
-    left: { axis: 'x', direction: -1, icon: '←', name: 'X 减小' },
-    right: { axis: 'x', direction: 1, icon: '→', name: 'X 增加' },
-    zUp: { axis: 'z', direction: 1, icon: '⇧', name: 'Z 增加' },
-    zDown: { axis: 'z', direction: -1, icon: '⇩', name: 'Z 减小' },
+    up: { axis: 'y', direction: 1, icon: ArrowUp, name: 'Y 增加' },
+    down: { axis: 'y', direction: -1, icon: ArrowDown, name: 'Y 减小' },
+    left: { axis: 'x', direction: -1, icon: ArrowLeft, name: 'X 减小' },
+    right: { axis: 'x', direction: 1, icon: ArrowRight, name: 'X 增加' },
+    zUp: { axis: 'z', direction: 1, icon: ChevronUp, name: 'Z 增加' },
+    zDown: { axis: 'z', direction: -1, icon: ChevronDown, name: 'Z 减小' },
   },
   rot: {
     tag: 'R',
     hint: '方向键 · RX / RY 旋转，右侧 RZ 正反转',
-    up: { axis: 'rx', direction: 1, icon: '↑', name: 'RX 增加' },
-    down: { axis: 'rx', direction: -1, icon: '↓', name: 'RX 减小' },
-    left: { axis: 'ry', direction: -1, icon: '←', name: 'RY 减小' },
-    right: { axis: 'ry', direction: 1, icon: '→', name: 'RY 增加' },
-    zUp: { axis: 'rz', direction: 1, icon: '↻', name: 'RZ 增加' },
-    zDown: { axis: 'rz', direction: -1, icon: '↺', name: 'RZ 减小' },
+    up: { axis: 'rx', direction: 1, icon: ArrowUp, name: 'RX 增加' },
+    down: { axis: 'rx', direction: -1, icon: ArrowDown, name: 'RX 减小' },
+    left: { axis: 'ry', direction: -1, icon: ArrowLeft, name: 'RY 减小' },
+    right: { axis: 'ry', direction: 1, icon: ArrowRight, name: 'RY 增加' },
+    zUp: { axis: 'rz', direction: 1, icon: RotateCw, name: 'RZ 增加' },
+    zDown: { axis: 'rz', direction: -1, icon: RotateCcw, name: 'RZ 减小' },
   },
 }
 
@@ -125,7 +136,6 @@ onBeforeUnmount(stopPress)
   <section class="cartesian-panel" aria-labelledby="cartesian-panel-title">
     <div class="panel-title-row">
       <div>
-        <p class="panel-kicker">CARTESIAN CONTROL</p>
         <h2 id="cartesian-panel-title">笛卡尔位姿控制</h2>
       </div>
       <span class="control-status" :class="`cartesian-status-${props.status}`">
@@ -184,7 +194,7 @@ onBeforeUnmount(stopPress)
             @pointerleave="finishPress"
             @pointercancel="finishPress"
           >
-            {{ dpad.up.icon }}
+            <component :is="dpad.up.icon" :size="16" />
           </button>
           <span></span>
           <button
@@ -195,7 +205,7 @@ onBeforeUnmount(stopPress)
             @pointerleave="finishPress"
             @pointercancel="finishPress"
           >
-            {{ dpad.left.icon }}
+            <component :is="dpad.left.icon" :size="16" />
           </button>
           <span class="dpad-tag">{{ dpad.tag }}</span>
           <button
@@ -206,7 +216,7 @@ onBeforeUnmount(stopPress)
             @pointerleave="finishPress"
             @pointercancel="finishPress"
           >
-            {{ dpad.right.icon }}
+            <component :is="dpad.right.icon" :size="16" />
           </button>
           <span></span>
           <button
@@ -217,7 +227,7 @@ onBeforeUnmount(stopPress)
             @pointerleave="finishPress"
             @pointercancel="finishPress"
           >
-            {{ dpad.down.icon }}
+            <component :is="dpad.down.icon" :size="16" />
           </button>
           <span></span>
         </div>
@@ -230,7 +240,7 @@ onBeforeUnmount(stopPress)
             @pointerleave="finishPress"
             @pointercancel="finishPress"
           >
-            {{ dpad.zUp.icon }}
+            <component :is="dpad.zUp.icon" :size="16" />
           </button>
           <button
             type="button"
@@ -240,7 +250,7 @@ onBeforeUnmount(stopPress)
             @pointerleave="finishPress"
             @pointercancel="finishPress"
           >
-            {{ dpad.zDown.icon }}
+            <component :is="dpad.zDown.icon" :size="16" />
           </button>
         </div>
       </div>

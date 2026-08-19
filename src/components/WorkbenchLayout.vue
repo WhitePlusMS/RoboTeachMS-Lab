@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import type { Component } from 'vue'
+import { Database, FileCode, Joystick, Maximize2, PanelRightClose, X } from '@lucide/vue'
 
 /** 右侧功能面板可切换的功能集合；由窄图标边栏驱动。 */
 type WorkbenchFunction = 'rapid' | 'data' | 'jog'
 
 const RAIL_ITEMS: ReadonlyArray<{
   fn: WorkbenchFunction
-  icon: string
+  icon: Component
   text: string
   label: string
 }> = [
-  { fn: 'rapid', icon: '⌨', text: 'RAPID', label: 'RAPID 程序' },
-  { fn: 'data', icon: '▦', text: '数据', label: '程序数据 Program Data' },
-  { fn: 'jog', icon: '✥', text: 'Jog', label: '手动 Jog' },
+  { fn: 'rapid', icon: FileCode, text: 'RAPID', label: 'RAPID 程序' },
+  { fn: 'data', icon: Database, text: '数据', label: '程序数据 Program Data' },
+  { fn: 'jog', icon: Joystick, text: '控制', label: '手动控制' },
 ]
 
 const TITLES: Record<WorkbenchFunction, string> = {
@@ -23,7 +25,7 @@ const TITLES: Record<WorkbenchFunction, string> = {
 
 const activeFunction = ref<WorkbenchFunction>('rapid')
 const panelOpen = ref(true)
-/** ⤢ 半屏加宽：RAPID 默认已 50vw，其余功能可临时加宽到同一上限。 */
+/** 半屏加宽：RAPID 默认已 50vw，其余功能可临时加宽到同一上限。 */
 const panelWide = ref(false)
 
 const dockTitle = computed(() => TITLES[activeFunction.value])
@@ -55,10 +57,7 @@ function collapsePanel(): void {
 
     <aside v-show="panelOpen" class="workbench-dock" aria-label="工作区面板">
       <div class="dock-head">
-        <div>
-          <div class="dock-kicker">WORKBENCH</div>
-          <h2 class="dock-title">{{ dockTitle }}</h2>
-        </div>
+        <h2 class="dock-title">{{ dockTitle }}</h2>
         <div class="dock-head-actions">
           <button
             type="button"
@@ -68,7 +67,7 @@ function collapsePanel(): void {
             title="展开到半屏"
             @click="panelWide = !panelWide"
           >
-            ⤢
+            <Maximize2 :size="15" />
           </button>
           <button
             type="button"
@@ -77,7 +76,7 @@ function collapsePanel(): void {
             title="收起面板"
             @click="collapsePanel"
           >
-            ✕
+            <X :size="15" />
           </button>
         </div>
       </div>
@@ -99,12 +98,14 @@ function collapsePanel(): void {
         :aria-selected="panelOpen && activeFunction === item.fn"
         @click="selectFunction(item.fn)"
       >
-        <span class="rail-icon" aria-hidden="true">{{ item.icon }}</span>
+        <span class="rail-icon" aria-hidden="true">
+          <component :is="item.icon" :size="16" />
+        </span>
         {{ item.text }}
       </button>
       <div class="rail-sep" aria-hidden="true"></div>
       <button type="button" class="rail-btn" aria-label="收起面板" @click="collapsePanel">
-        <span class="rail-icon" aria-hidden="true">⇥</span>
+        <span class="rail-icon" aria-hidden="true"><PanelRightClose :size="16" /></span>
         收起
       </button>
     </nav>
@@ -158,13 +159,6 @@ function collapsePanel(): void {
   gap: 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--color-border);
-}
-
-.dock-kicker {
-  color: var(--color-text-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
 }
 
 .dock-title {

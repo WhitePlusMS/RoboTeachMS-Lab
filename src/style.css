@@ -126,16 +126,6 @@ button:disabled {
    Shared global utilities & primitives (used by more than one component).
    ========================================================================== */
 
-/* Small overline kickers (App header, panel headings). */
-.eyebrow,
-.panel-kicker {
-  margin: 0 0 8px;
-  color: var(--color-text-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-}
-
 /* Shared status chip (FK READY / PATH OK / state pills). */
 .control-status {
   padding: 5px 8px;
@@ -544,7 +534,7 @@ button:disabled {
   font-weight: 700;
 }
 
-/* 小图标按钮（面板头部 ⤢ / ✕、日志收起）。 */
+/* 小图标按钮（面板头部展开/收起、日志收起）。 */
 .icon-btn {
   display: inline-flex;
   align-items: center;
