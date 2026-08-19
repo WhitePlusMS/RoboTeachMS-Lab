@@ -108,7 +108,30 @@ function animateCartesianTrajectory(
   startCartesianTrajectory(trajectory, isContinuous ? 140 : undefined)
 }
 
-const rapidSource = ref(createBuiltinRapidSource())
+/** RAPID 源码在 localStorage 的键名；用于跨刷新/重开浏览器保留用户编辑。 */
+const RAPID_SOURCE_STORAGE_KEY = 'abb-robot-lab:rapid-source'
+
+/** 读取持久化的 RAPID 源码；无有效内容时回退到内置示例。localStorage 可能不可用（隐私/测试环境），静默降级。 */
+function loadPersistedRapidSource(): string {
+  try {
+    const stored = localStorage.getItem(RAPID_SOURCE_STORAGE_KEY)
+    if (typeof stored === 'string' && stored.trim() !== '') return stored
+  } catch {
+    /* localStorage 不可用时忽略，使用内置默认。 */
+  }
+  return createBuiltinRapidSource()
+}
+
+/** 保存 RAPID 源码到 localStorage；失败静默忽略，不打断编辑。 */
+function persistRapidSource(source: string): void {
+  try {
+    localStorage.setItem(RAPID_SOURCE_STORAGE_KEY, source)
+  } catch {
+    /* 存储不可用（隐私模式/配额满）时忽略。 */
+  }
+}
+
+const rapidSource = ref(loadPersistedRapidSource())
 
 /** RAPID 源程序控制器；解析结果只在运行时生成，运动链从同一 profile 获取模型与限制。 */
 const programControl = useProgramController({
@@ -209,7 +232,10 @@ function handlePP(): void {
 function handleSetSource(source: string): void {
   const changed = source !== rapidSource.value
   rapidSource.value = source
-  if (changed) runLog.info('源码', 'RAPID 源码已更新')
+  if (changed) {
+    persistRapidSource(source)
+    runLog.info('源码', 'RAPID 源码已更新')
+  }
 }
 
 /** 受控编辑：成功才记日志，失败保持源码不变并报告原因。 */
@@ -355,10 +381,6 @@ provideProgramPanelController({
               @robtargets-change="showRobtargets = $event"
               @robtarget-labels-change="showRobtargetLabels = $event"
             />
-            <div class="viewport-caption">
-              <span>WORLD / BASE FRAME</span>
-              <span>OrbitControls</span>
-            </div>
             <PoseReadout class="scene-pose-readout" :compact="true" />
           </div>
           <RunLogPanel :entries="runLog.entries.value" />
@@ -462,25 +484,11 @@ provideProgramPanelController({
   background: var(--color-scene-bg);
 }
 
-.viewport-caption {
-  position: absolute;
-  right: 16px;
-  bottom: 12px;
-  left: 16px;
-  display: flex;
-  justify-content: space-between;
-  pointer-events: none;
-  color: var(--color-text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  letter-spacing: 0.08em;
-}
-
-/* 位姿角标：紧凑叠放在 3D 场景右下角（caption 上方），不占面板空间。 */
+/* 位姿角标：紧凑叠放在 3D 场景右下角（原 viewport-caption 位置），不占面板空间。 */
 .scene-pose-readout {
   position: absolute;
   right: 14px;
-  bottom: 40px;
+  bottom: 12px;
   z-index: var(--z-raised);
   pointer-events: none;
 }
