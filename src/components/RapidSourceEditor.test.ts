@@ -2,6 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import RapidSourceEditor from './RapidSourceEditor.vue'
+import type { EditorView } from '@codemirror/view'
 import type {
   RapidExecutableInstruction,
   RapidConditionalInstruction,
@@ -69,85 +70,117 @@ function mountEditor(
   })
 }
 
-describe('RapidSourceEditor 行号 gutter', () => {
-  it('渲染与源码行数一致的 gutter 行号', () => {
+interface ExposedVm {
+  getView(): EditorView | null
+}
+
+/** 取组件暴露的 EditorView；CodeMirror 更新在其事务处理后，等一个宏任务让 DOM/标记落定。 */
+async function getView<T extends ExposedVm>(wrapper: ReturnType<typeof mountEditor>): Promise<EditorView> {
+  const view = (wrapper.vm as unknown as T).getView()
+  if (!view) throw new Error('CodeMirror view 尚未初始化')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  return view
+}
+
+/** 主机里 CodeMirror 的行号 gutter 单元格列表（含类别 class）。 */
+function gutterCells(wrapper: ReturnType<typeof mountEditor>): Array<{ line: number; classes: string }> {
+  const host = wrapper.get('.rapid-codemirror').element
+  return Array.from(host.querySelectorAll('.cm-gutterElement')).map((el) => ({
+    line: Number(el.textContent),
+    classes: (el as HTMLElement).className,
+  }))
+}
+
+describe('RapidSourceEditor（CodeMirror）行号 gutter', () => {
+  it('渲染与源码行数一致的 gutter 行号', async () => {
     const wrapper = mountEditor()
-    expect(wrapper.findAll('.source-line')).toHaveLength(SOURCE.split('\n').length)
+    await getView(wrapper)
+    expect(gutterCells(wrapper).length).toBe(SOURCE.split('\n').length)
   })
 
-  it('PP 行标记蓝色、MP 行标记橙色，同一行两者并存', () => {
+  it('PP/MP 行标记、同行 both 渐变', async () => {
     const wrapper = mountEditor({ ppLine: 5, mpLine: 6 })
-    const lines = wrapper.findAll('.source-line')
-    expect(lines[4].classes()).toContain('pp-line')
-    expect(lines[5].classes()).toContain('mp-line')
+    await getView(wrapper)
+    let cells = gutterCells(wrapper)
+    expect(cells.find((c) => c.line === 5)?.classes).toContain('pp-line')
+    expect(cells.find((c) => c.line === 6)?.classes).toContain('mp-line')
 
     const both = mountEditor({ ppLine: 5, mpLine: 5 })
-    const bothLines = both.findAll('.source-line')
-    expect(bothLines[4].classes()).toContain('both-line')
+    await getView(both)
+    cells = gutterCells(both)
+    expect(cells.find((c) => c.line === 5)?.classes).toContain('both-line')
   })
 
-  it('parser 诊断和运行时错误分别在 gutter 标记对应行', async () => {
-    const wrapper = mountEditor({})
+  it('诊断与运行时错误行在 gutter 标记对应行', async () => {
+    const wrapper = mountEditor()
     await wrapper.setProps({ diagnosticLines: [5], runtimeErrorLine: 6 })
-    const lines = wrapper.findAll('.source-line')
-    expect(lines[4].classes()).toContain('diagnostic-line')
-    expect(lines[5].classes()).toContain('runtime-error-line')
+    await getView(wrapper)
+    const cells = gutterCells(wrapper)
+    expect(cells.find((c) => c.line === 5)?.classes).toContain('diagnostic-line')
+    expect(cells.find((c) => c.line === 6)?.classes).toContain('runtime-line')
   })
 
   it('光标行在 gutter 高亮，未知时不标记', async () => {
     const wrapper = mountEditor({ cursorLine: 5 })
-    expect(wrapper.findAll('.source-line')[4].classes()).toContain('cursor-line')
+    await getView(wrapper)
+    expect(gutterCells(wrapper).find((c) => c.line === 5)?.classes).toContain('cursor-line')
 
     await wrapper.setProps({ cursorLine: null })
-    expect(wrapper.findAll('.source-line').some((line) => line.classes().includes('cursor-line'))).toBe(
-      false,
-    )
-  })
-
-  it('点击或键盘移动光标时上报光标所在源码行', async () => {
-    const wrapper = mountEditor()
-    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
-
-    // 光标置于第 5 行（MoveJ 行）起始，点击上报行号。
-    textarea.selectionStart = textarea.selectionEnd = SOURCE.indexOf('MoveJ')
-    await wrapper.get('textarea').trigger('click')
-    expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([5])
-
-    // 光标移到文件末尾（ENDMODULE 行 7），keyup 上报新行号。
-    textarea.selectionStart = textarea.selectionEnd = SOURCE.length
-    await wrapper.get('textarea').trigger('keyup')
-    expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([7])
+    await getView(wrapper)
+    expect(gutterCells(wrapper).some((c) => c.classes.includes('cursor-line'))).toBe(false)
   })
 
   it('点击 gutter 行号把光标移到该行并上报（FlexPendant 点选行）', async () => {
     const wrapper = mountEditor()
-    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
-
-    await wrapper.findAll('.source-line')[4].trigger('click')
-
+    await getView(wrapper)
+    const host = wrapper.get('.rapid-codemirror').element
+    const cell = Array.from(host.querySelectorAll('.cm-gutterElement')).find(
+      (el) => Number(el.textContent) === 5,
+    ) as HTMLElement | undefined
+    expect(cell).toBeTruthy()
+    cell?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([5])
-    // 光标落在第 5 行行首（前 4 行文本长度 + 换行符）。
-    const line5Start = SOURCE.split('\n').slice(0, 4).join('\n').length + 1
-    expect(textarea.selectionStart).toBe(line5Start)
   })
 
-  it('编辑器只读（运行中）时 gutter 点击不移动光标', async () => {
+  it('编辑器只读（运行中）时点击 gutter 不移动光标', async () => {
     const wrapper = mountEditor({ readonly: true })
-
-    await wrapper.findAll('.source-line')[4].trigger('click')
-
+    const view = await getView(wrapper)
+    const host = wrapper.get('.rapid-codemirror').element
+    const cell = Array.from(host.querySelectorAll('.cm-gutterElement')).find(
+      (el) => Number(el.textContent) === 5,
+    ) as HTMLElement | undefined
+    cell?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.emitted('cursor-line-change')).toBeUndefined()
+    expect(view.state.readOnly).toBe(true)
   })
 
-  it('编辑器只读时禁用 textarea', () => {
-    const wrapper = mountEditor({ readonly: true })
-    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  it('运行期只读可切换：readOnly 状态随 prop 变化', async () => {
+    const wrapper = mountEditor()
+    let view = await getView(wrapper)
+    expect(view.state.readOnly).toBe(false)
+    await wrapper.setProps({ readonly: true })
+    view = await getView(wrapper)
+    expect(view.state.readOnly).toBe(true)
   })
 
   it('编辑发出 source-change', async () => {
     const wrapper = mountEditor()
-    await wrapper.get('textarea').setValue('MODULE X ENDMODULE')
-    expect(wrapper.emitted('source-change')?.[0]).toEqual(['MODULE X ENDMODULE'])
+    const view = await getView(wrapper)
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'MODULE X\nENDMODULE' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wrapper.emitted('source-change')?.[0]).toEqual(['MODULE X\nENDMODULE'])
+  })
+
+  it('光标移动上报所在源码行', async () => {
+    const wrapper = mountEditor()
+    const view = await getView(wrapper)
+    const doc = view.state.doc
+    const pos = doc.line(5).from
+    view.dispatch({ selection: { anchor: pos, head: pos } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wrapper.emitted('cursor-line-change')?.at(-1)).toEqual([5])
   })
 })
 

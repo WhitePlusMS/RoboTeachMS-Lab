@@ -1,10 +1,29 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  Compartment,
+  EditorState,
+  RangeSet,
+  StateEffect,
+  StateField,
+} from '@codemirror/state'
+import {
+  EditorView,
+  GutterMarker,
+  drawSelection,
+  gutterLineClass,
+  keymap,
+  lineNumbers,
+  rectangularSelection,
+  scrollPastEnd,
+} from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import {
   isRapidMotionInstruction,
   type RapidExecutableInstruction,
   type RapidSourceRange,
 } from '@/rapid/rapid-parser.ts'
+import { rapid } from '@/rapid/rapid-highlight.ts'
 
 interface Props {
   source: string
@@ -15,7 +34,7 @@ interface Props {
   mpLine: number | null
   /** 编辑器光标所在源码行（FlexPendant 式插入锚点）；未知为 null。 */
   cursorLine?: number | null
-  /** 当前活动/待执行指令（结构化），来自 executor 快照与 parser 结果。 */
+  /** 光标所在行的结构化指令（摘要条内容），来自 parser 结果。 */
   instruction: RapidExecutableInstruction | null
   /** parser 诊断所在源码行。 */
   diagnosticLines: readonly number[]
@@ -37,88 +56,228 @@ const emit = defineEmits<{
   'line-activate': [line: number]
 }>()
 
-const gutterOffset = ref(0)
-const editor = ref<HTMLTextAreaElement | null>(null)
+const host = ref<HTMLDivElement | null>(null)
+let view: EditorView | null = null
 
-const lineCount = computed(() => (props.source === '' ? 1 : props.source.split('\n').length))
+/** 自动换行开关：用 Compartment 动态切换 EditorView.lineWrapping。 */
+const wrapOn = ref(true)
+const wrapCompartment = new Compartment()
+/** 只读开关：运行期间锁定编辑，用 Compartment 动态切换。 */
+const readonlyCompartment = new Compartment()
 
-function onScroll(event: Event): void {
-  const textarea = event.target as HTMLTextAreaElement
-  gutterOffset.value = textarea.scrollTop
-}
-
-function emitCursorLine(textarea: HTMLTextAreaElement): void {
-  const offset = textarea.selectionStart ?? 0
-  const value = textarea.value
-  let line = 1
-  for (let index = 0; index < offset && index < value.length; index += 1) {
-    if (value.charCodeAt(index) === 10) line += 1
+/**
+ * gutter 行标记：只为对应行的行号单元格附加 elementClass。
+ * 遵循 GutterMarker 约定——只提供 elementClass、不提供 toDOM，
+ * 这样不会插入 widget，而是把 class 挂到行号单元格上。
+ * 注意：必须覆盖基类的 elementClass 而非另起字段，CodeMirror 才读取得到。
+ */
+class LineMarker extends GutterMarker {
+  override elementClass: string
+  constructor(className: string) {
+    super()
+    this.elementClass = className
   }
-  emit('cursor-line-change', line)
-}
-
-/** 光标活动统一入口：聚焦、鼠标点选、键盘移动、选区变化与输入都会改变 caret 位置。 */
-function onCursorActivity(event: Event): void {
-  if (event.target instanceof HTMLTextAreaElement) emitCursorLine(event.target)
-}
-
-/** 双击 = FlexPendant 双击指令打开参数编辑；上报双击时 caret 所在行。 */
-function onLineActivate(event: MouseEvent): void {
-  if (!(event.target instanceof HTMLTextAreaElement)) return
-  const offset = event.target.selectionStart ?? 0
-  const value = event.target.value
-  let line = 1
-  for (let index = 0; index < offset && index < value.length; index += 1) {
-    if (value.charCodeAt(index) === 10) line += 1
+  override eq(other: GutterMarker): boolean {
+    return other instanceof LineMarker && other.elementClass === this.elementClass
   }
-  emit('line-activate', line)
 }
 
-function handleSourceInput(event: Event): void {
-  if (!(event.target instanceof HTMLTextAreaElement)) return
-  emit('source-change', event.target.value)
-  emitCursorLine(event.target)
+/** 标记刷新 effect：携带 (行号, 合并后的 gutter 类别 class 字符串)。 */
+const markersEffect = StateEffect.define<Array<{ line: number; className: string }>>()
+
+/**
+ * gutter 行标记 StateField：把 PP/MP/诊断/运行时/光标行渲染到
+ * gutterLineClass facet，使对应行号单元格获得类别 class。
+ */
+const gutterMarkerField = StateField.define<RangeSet<GutterMarker>>({
+  create: () => RangeSet.empty,
+  update: (set, tr) => {
+    // 先随 doc 变更映射旧标记（保持行号对应），再应用新标记 effect（用新 doc 坐标重建）。
+    let next = set.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (effect.is(markersEffect)) {
+        const ranges = effect.value.map((entry) => {
+          const line = Math.max(1, Math.min(entry.line, tr.state.doc.lines))
+          return new LineMarker(entry.className).range(tr.state.doc.line(line).from)
+        })
+        next = RangeSet.of(ranges, true)
+      }
+    }
+    return next
+  },
+  provide: (field) => gutterLineClass.from(field),
+})
+
+/** 由 props 重算 gutter 标记并派发 effect。同格多类别合并成一个 class 字符串（CSS 依序覆盖）。 */
+function syncGutterMarkers(): void {
+  const current = view
+  if (!current) return
+  const merged = new Map<number, string[]>()
+  const add = (line: number, cls: string): void => {
+    if (line < 1) return
+    const list = merged.get(line) ?? []
+    if (!list.includes(cls)) list.push(cls)
+    merged.set(line, list)
+  }
+  const pp = props.ppLine
+  const mp = props.mpLine
+  if (pp !== null) add(pp, 'pp-line')
+  if (mp !== null) {
+    if (pp !== null && pp === mp) {
+      // 同行既 PP 又 MP → 用 both（渐变），去掉分条 pp-line。
+      const list = (merged.get(pp) ?? []).filter((c) => c !== 'pp-line')
+      list.push('both-line')
+      merged.set(pp, list)
+    } else {
+      add(mp, 'mp-line')
+    }
+  }
+  for (const line of props.diagnosticLines) add(line, 'diagnostic-line')
+  if (props.runtimeErrorLine !== null) add(props.runtimeErrorLine, 'runtime-line')
+  if (props.cursorLine !== null && props.cursorLine !== undefined) add(props.cursorLine, 'cursor-line')
+  const entries = Array.from(merged.entries()).map(([line, classList]) => ({
+    line,
+    className: classList.join(' '),
+  }))
+  current.dispatch({ effects: markersEffect.of(entries) })
 }
 
+/** 组装 CodeMirror 扩展（首次创建即固定，之后通过 Compartment 动态变更能力）。 */
+function buildExtensions() {
+  return [
+    lineNumbers({ formatNumber: (n: number) => String(n) }),
+    wrapCompartment.of(wrapOn.value ? EditorView.lineWrapping : []),
+    readonlyCompartment.of([
+      EditorState.readOnly.of(props.readonly),
+      EditorView.editable.of(!props.readonly),
+    ]),
+    gutterMarkerField,
+    rapid,
+    history(),
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+    drawSelection(),
+    rectangularSelection(),
+    scrollPastEnd(),
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) emit('source-change', update.state.doc.toString())
+      // 无论输入还是移动光标，caret 行都可能变化，均需同步上报（旧 textarea 在 input/click/keyup 均上报）。
+      if (update.docChanged || update.selectionSet) emitCursorLine()
+    }),
+    EditorView.domEventHandlers({
+      dblclick: (event: MouseEvent) => emitLineActivate(event),
+      // FlexPendant 点选行语义：点击 gutter 行号把光标移到该行（只读时不动）。
+      mousedown: (event: MouseEvent) => {
+        if (props.readonly) return false
+        const target = event.target as HTMLElement
+        if (!target.closest('.cm-lineNumbers')) return false
+        const cell = target.closest('.cm-gutterElement') as HTMLElement | null
+        if (!cell) return false
+        const line = Number(cell.textContent)
+        if (!Number.isInteger(line) || line < 1) return false
+        const current = view
+        if (!current) return false
+        event.preventDefault()
+        const caret = current.state.doc.line(Math.min(line, current.state.doc.lines)).from
+        current.dispatch({ selection: { anchor: caret, head: caret } })
+        current.focus()
+        emit('cursor-line-change', line)
+        return true
+      },
+    }),
+  ]
+}
+
+function emitCursorLine(): void {
+  const current = view
+  if (!current) return
+  const head = current.state.selection.main.head
+  emit('cursor-line-change', current.state.doc.lineAt(head).number)
+}
+
+/** 双击：屏幕坐标 → 源码行 → line-activate（FlexPendant Change Selected 语义）。 */
+function emitLineActivate(event: MouseEvent): void {
+  const current = view
+  if (!current) return
+  const pos = current.posAtCoords({ x: event.clientX, y: event.clientY })
+  if (pos === null) return
+  emit('line-activate', current.state.doc.lineAt(pos).number)
+}
+
+function mountEditor(): void {
+  if (!host.value || view) return
+  view = new EditorView({
+    parent: host.value,
+    state: EditorState.create({ doc: props.source, extensions: buildExtensions() }),
+  })
+  syncGutterMarkers()
+}
+
+/** 外部源码变化（预设加载 / localStorage 恢复 / 手动替换）：与当前 doc 不一致则整文替换。 */
 watch(
-  () => [props.focusRange, props.focusRequestId] as const,
-  ([range]) => {
-    if (!range) return
-    void nextTick(() => {
-      const textarea = editor.value
-      if (!textarea) return
-      // 先设置选区再聚焦：focus 会触发光标行上报，顺序反了会上报旧光标行。
-      textarea.selectionStart = range.start.offset
-      textarea.selectionEnd = range.end.offset
-      textarea.focus()
-      textarea.scrollTop = Math.max(0, (range.start.line - 1) * 20 - 60)
+  () => props.source,
+  (next) => {
+    const current = view
+    if (!current) return
+    if (current.state.doc.toString() === next) return
+    current.dispatch({
+      changes: { from: 0, to: current.state.doc.length, insert: next },
+    })
+    syncGutterMarkers()
+  },
+)
+
+/** 只读状态变化：切换只读 Compartment（运行期间锁定编辑）。 */
+watch(
+  () => props.readonly,
+  (next) => {
+    view?.dispatch({
+      effects: readonlyCompartment.reconfigure([
+        EditorState.readOnly.of(next),
+        EditorView.editable.of(!next),
+      ]),
     })
   },
 )
 
-/** 计算源码中某一行（1 起始）的起始 offset；超出末尾时返回全文长度。 */
-function lineStartOffset(source: string, line: number): number {
-  let offset = 0
-  for (let current = 1; current < line; current += 1) {
-    const next = source.indexOf('\n', offset)
-    if (next === -1) return source.length
-    offset = next + 1
-  }
-  return offset
-}
+/** 换行开关：切换 lineWrapping Compartment。 */
+watch(wrapOn, (next) => {
+  view?.dispatch({ effects: wrapCompartment.reconfigure(next ? EditorView.lineWrapping : []) })
+})
 
-/** gutter 行号点击 = 把光标移到该行（FlexPendant 点选行语义），与点击正文等效。 */
-function onGutterClick(event: MouseEvent): void {
-  const textarea = editor.value
-  if (!textarea || props.readonly) return
-  const lineElement = (event.target as HTMLElement).closest('.source-line')
-  if (!lineElement) return
-  const line = Number(lineElement.textContent)
-  if (!Number.isInteger(line) || line < 1) return
-  textarea.selectionStart = textarea.selectionEnd = lineStartOffset(props.source, line)
-  textarea.focus()
-  emit('cursor-line-change', line)
-}
+/** 行标记（PP/MP/诊断/运行时/光标）变化时刷新 gutter。 */
+watch(
+  () =>
+    [props.ppLine, props.mpLine, props.cursorLine, props.diagnosticLines, props.runtimeErrorLine] as
+      const,
+  () => syncGutterMarkers(),
+)
+
+/** Program Data 查看引用：定位到源码范围（选取 + 滚动可见），并上报光标行。 */
+watch(
+  () => [props.focusRange, props.focusRequestId] as const,
+  ([range]) => {
+    const current = view
+    if (!range || !current) return
+    const start = range.start.offset
+    const end = range.end.offset
+    current.dispatch({
+      selection: { anchor: start, head: end },
+      scrollIntoView: true,
+    })
+    emit('cursor-line-change', current.state.doc.lineAt(start).number)
+  },
+)
+
+onMounted(() => mountEditor())
+onBeforeUnmount(() => {
+  view?.destroy()
+  view = null
+})
+
+/** 测试/诊断用：暴露底层 EditorView，便于确定性发起 dispatch。 */
+defineExpose({
+  getView: () => view,
+})
 
 const motionInstruction = computed(() => {
   const instruction = props.instruction
@@ -153,42 +312,7 @@ const kindLabel = computed(() => {
 <template>
   <div class="source-editor-wrap">
     <div class="source-editor-scroll">
-      <div class="source-gutter" aria-hidden="true" @click="onGutterClick">
-        <div class="source-gutter-inner" :style="{ transform: `translateY(${-gutterOffset}px)` }">
-          <div
-            v-for="line in lineCount"
-            :key="line"
-            class="source-line"
-            :class="{
-              'cursor-line': line === props.cursorLine,
-              'pp-line': line === ppLine,
-              'mp-line': line === mpLine,
-              'both-line': line === ppLine && line === mpLine && ppLine !== null,
-              'diagnostic-line': props.diagnosticLines.includes(line),
-              'runtime-error-line': line === props.runtimeErrorLine,
-            }"
-          >
-            {{ line }}
-          </div>
-        </div>
-      </div>
-      <textarea
-        ref="editor"
-        class="rapid-source-editor"
-        aria-label="RAPID 源程序"
-        :value="props.source"
-        :disabled="props.readonly"
-        rows="14"
-        wrap="off"
-        spellcheck="false"
-        @scroll="onScroll"
-        @input="handleSourceInput"
-        @focus="onCursorActivity"
-        @click="onCursorActivity"
-        @dblclick="onLineActivate"
-        @keyup="onCursorActivity"
-        @select="onCursorActivity"
-      />
+      <div ref="host" class="rapid-codemirror" />
     </div>
 
     <div class="instruction-summary" aria-label="当前结构化指令">
@@ -277,153 +401,211 @@ const kindLabel = computed(() => {
           <dd>提前退出当前循环</dd>
         </div>
       </dl>
+      <!-- 换行开关：VS Code 状态栏语义（开 = soft wrap，关 = 横向滚动）。 -->
+      <button
+        type="button"
+        class="wrap-toggle"
+        :aria-pressed="wrapOn"
+        title="自动换行"
+        @click="wrapOn = !wrapOn"
+      >
+        换行
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.rapid-source-editor {
-  width: 100%;
-  min-height: 220px;
-  box-sizing: border-box;
-  padding: 12px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-  background: var(--color-editor);
-  font: var(--text-lg)/20px var(--font-mono);
-  white-space: pre;
-  overflow-x: auto;
-  resize: vertical;
-}
-
-.rapid-source-editor:focus {
-  outline: 2px solid color-mix(in srgb, var(--color-brand) 55%, transparent);
-  outline-offset: 1px;
-}
-
-.rapid-source-editor:disabled {
-  color: var(--color-text-faint);
-  background: var(--color-surface);
-}
-
 .source-editor-wrap {
-  display: grid;
-  gap: 10px;
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
 }
 
+/* 编辑器与面板融为一体：无内嵌卡片边框，状态条以 hairline 分隔。 */
 .source-editor-scroll {
   display: flex;
-  align-items: stretch;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-sm);
+  flex: 1;
+  min-height: 0;
   background: var(--color-editor);
   overflow: hidden;
 }
 
-.source-editor-scroll .source-gutter {
-  flex: 0 0 44px;
-  overflow: hidden;
-  border-right: 1px solid var(--color-border-strong);
-  background: var(--color-surface-deep);
-  user-select: none;
-  cursor: pointer;
+.source-editor-scroll:focus-within {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-brand) 55%, transparent);
 }
 
-.source-gutter-inner {
-  padding: 12px 0;
-  font: var(--text-lg)/20px var(--font-mono);
-}
-
-.source-line {
-  height: 20px;
-  line-height: 20px;
-  padding-right: 8px;
-  text-align: right;
-  color: var(--color-text-dim-deep);
-}
-
-/* 光标行标记放在 PP/MP 之前定义：同行冲突时 PP/MP 的整行填充优先。 */
-.source-line.cursor-line {
-  color: var(--color-text);
-  background: var(--color-surface-raised);
-  box-shadow: inset 3px 0 var(--color-pp);
-}
-
-.source-line.pp-line {
-  color: var(--color-text-strong);
-  background: var(--color-pp);
-  font-weight: 700;
-}
-
-.source-line.mp-line {
-  color: var(--color-text-strong);
-  background: var(--color-orange);
-  font-weight: 700;
-}
-
-.source-line.both-line {
-  background: linear-gradient(90deg, var(--color-orange) 0 50%, var(--color-pp) 50% 100%);
-}
-
-.source-line.diagnostic-line {
-  box-shadow: inset 4px 0 var(--color-danger-strong);
-}
-
-.source-line.runtime-error-line {
-  color: var(--color-on-fill);
-  background: var(--color-error-bg);
-  box-shadow: inset 4px 0 var(--color-error-edge);
-}
-
-.source-editor-scroll .rapid-source-editor {
+.rapid-codemirror {
   flex: 1;
   min-width: 0;
-  border: 0;
-  border-radius: 0;
+  min-height: 220px;
+  overflow: hidden;
 }
 
+/* IDE 状态栏：贴附编辑器底边的 hairline 条，不再是浮动卡片。 */
 .instruction-summary {
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--color-border);
   background: var(--color-surface-deep);
 }
 
 .instruction-summary-empty {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   color: var(--color-text-faint);
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
 
 .instruction-summary-fields {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px 12px;
+  display: flex;
+  flex: 1;
+  gap: 4px 14px;
+  min-width: 0;
   margin: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
 }
 
 .instruction-summary-fields div {
   display: flex;
+  flex: 0 0 auto;
   align-items: baseline;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
 .instruction-summary-fields dt {
   flex: 0 0 auto;
   color: var(--color-text-faint);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
 .instruction-summary-fields dd {
   min-width: 0;
+  max-width: 260px;
   margin: 0;
   overflow: hidden;
   color: var(--color-text);
-  font-size: var(--text-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 换行开关（状态栏右端，VS Code 状态栏项语义）。 */
+.wrap-toggle {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xs);
+  color: var(--color-text-faint);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.wrap-toggle:hover {
+  border-color: var(--color-brand);
+  color: var(--color-text);
+}
+
+.wrap-toggle[aria-pressed='true'] {
+  border-color: var(--color-brand);
+  color: var(--color-brand-soft);
+  background: var(--color-brand-dim);
+}
+</style>
+
+<!-- CodeMirror 注入 DOM 无法被 scoped 作用域命中，需用非 scoped 全局规则做编辑器主题。
+     所有颜色引用主题 token，保持单一数据源。选择器以 .source-editor-scroll 宿主限定，避免串扰页面其他部分。
+     CodeMirror 自带类名为第三方 camelCase 命名（.cm-lineNumbers 等），无法 kebab-ize，故局部关闭该规则。 -->
+<style>
+/* stylelint-disable selector-class-pattern */
+.source-editor-scroll .cm-editor {
+  height: 100%;
+  color: var(--color-text);
+  background: var(--color-editor);
+}
+
+.source-editor-scroll .cm-editor.cm-focused {
+  outline: none;
+}
+
+.source-editor-scroll .cm-scroller {
+  font: var(--text-lg)/20px var(--font-mono);
+}
+
+.source-editor-scroll .cm-content {
+  caret-color: var(--color-text);
+  padding: 12px 0;
+}
+
+.source-editor-scroll .cm-line {
+  padding: 0 12px;
+}
+
+/* 行号 gutter：与旧编辑器一致（浅灰底 + 深灰数字）。 */
+.source-editor-scroll .cm-gutters {
+  border-right: 1px solid var(--color-border-strong);
+  background: var(--color-surface-deep);
+  color: var(--color-text-dim-deep);
+}
+
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement {
+  min-width: 34px;
+  padding: 0 8px 0 6px;
+  text-align: right;
+}
+
+/* 光标行：gutter 左侧 3px 品牌黄 bar（与旧编辑器 cursor-line 一致）。 */
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement.cursor-line {
+  background: var(--color-surface-raised);
+  box-shadow: inset 3px 0 var(--color-pp);
+}
+
+/* PP 行（黄底深字），both 额外渐变底由下方规则覆盖。 */
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement.pp-line {
+  color: var(--color-text-strong);
+  background: var(--color-pp);
+  font-weight: 700;
+}
+
+/* MP 行（橙底深字）。 */
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement.mp-line {
+  color: var(--color-text-strong);
+  background: var(--color-orange);
+  font-weight: 700;
+}
+
+/* 同行既 PP 又 MP：渐变橙→黄（与旧编辑器 both-line 一致）。 */
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement.both-line {
+  background: linear-gradient(90deg, var(--color-orange) 0 50%, var(--color-pp) 50% 100%);
+}
+
+/* 诊断行：左侧 4px 深红 bar。 */
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement.diagnostic-line {
+  color: var(--color-danger-strong);
+  box-shadow: inset 4px 0 var(--color-danger-strong);
+}
+
+/* 运行时错误行：整格红底白字。 */
+.source-editor-scroll .cm-lineNumbers .cm-gutterElement.runtime-line {
+  color: var(--color-on-fill);
+  background: var(--color-error-bg);
+  box-shadow: inset 4px 0 var(--color-error-edge);
+}
+
+/* 选中文本：浅品牌色底。 */
+.source-editor-scroll .cm-editor ::selection {
+  background: color-mix(in srgb, var(--color-brand) 18%, transparent);
 }
 </style>

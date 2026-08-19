@@ -92,6 +92,14 @@ export interface DesignTokens {
   '--color-primary-hover-bg': string
   '--color-danger-hover-bg': string
 
+  // 语法高亮（RAPID 编辑器；ABB 官方浅色配色，见 rapid-highlight）
+  '--hl-keyword': string
+  '--hl-comment': string
+  '--hl-string': string
+  '--hl-number': string
+  '--hl-constant': string
+  '--hl-type': string
+
   // 浮层 / 遮罩 / 阴影（标高）
   '--color-scrim': string
   '--color-overlay-bg': string
@@ -187,6 +195,15 @@ export const tokens: DesignTokens = {
   '--color-pp': '#f5c542', // PP line（配深字）
   '--color-primary-hover-bg': 'rgba(255, 0, 15, 0.07)',
   '--color-danger-hover-bg': 'rgba(220, 38, 38, 0.08)',
+
+  // 语法高亮：ABB 官方 RAPID 配色（关键字蓝、注释绿、字符串/常量粉、数字青、类型紫），
+  // 文字黑由 --color-text 继承；浅底配深色确保对比度。
+  '--hl-keyword': '#1f4fd8',
+  '--hl-comment': '#15803d',
+  '--hl-string': '#c2136a',
+  '--hl-number': '#0d9488',
+  '--hl-constant': '#a21caf',
+  '--hl-type': '#6d28d9',
 
   // 浮层 / 遮罩 / 阴影（标高；状态色 alpha 变体不预设，组件用
   // color-mix(in srgb, var(--color-*) N%, transparent) 从基础 token 派生）
