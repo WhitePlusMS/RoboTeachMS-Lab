@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { Axis3d, Rotate3d } from '@lucide/vue'
 import type { PoseDisplay } from '@/robotics/types.ts'
 import { injectRobotController } from '@/application/use-robot-controller.ts'
+import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
+import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 
 interface Props {
   /** 独立挂载（测试）时直接传入；真实应用里优先使用共享机器人控制器的 pose。 */
@@ -19,6 +22,24 @@ const EMPTY_POSE: PoseDisplay = { positionMm: [0, 0, 0], orientationDeg: [0, 0, 
 const controller = injectRobotController()
 const pose = computed(() => controller?.pose.value ?? props.pose ?? EMPTY_POSE)
 
+/** 姿态表示方式：false=欧拉角(RX/RY/RZ)、true=ABB RAPID 四元数(q1/q2/q3/q4，q1 为标量 w)。 */
+const orientationAsQuat = ref(false)
+
+/**
+ * 由欧拉角(RX/RY/RZ，ZYX 顺序)换算为 RAPID 四元数 [q1,q2,q3,q4]（q1=w），
+ * 与 RAPID robtarget.rot 记录形状一致，便于与源码点位对照。
+ */
+const rapidQuat = computed<[number, number, number, number]>(() => {
+  const deg = pose.value.orientationDeg
+  const rotation = eulerZYXToMatrix(deg.map((value) => (value * Math.PI) / 180) as [
+    number,
+    number,
+    number,
+  ])
+  const [qx, qy, qz, qw] = rotationMatrixToQuaternion(rotation)
+  return [qw, qx, qy, qz]
+})
+
 function format(value: number): string {
   return value.toFixed(1)
 }
@@ -31,7 +52,27 @@ function format(value: number): string {
     aria-label="正解结果"
   >
     <div class="pose-readout-title">
-      {{ compact ? '位姿' : '当前位姿（World 坐标值）' }}
+      <span>{{ compact ? '位姿' : '当前位姿（World 坐标值）' }}</span>
+      <div class="orientation-toggle" role="group" aria-label="姿态表示方式">
+        <button
+          type="button"
+          :class="{ active: !orientationAsQuat }"
+          :aria-label="'欧拉角 RX/RY/RZ'"
+          :title="'欧拉角 RX/RY/RZ'"
+          @click="orientationAsQuat = false"
+        >
+          <Axis3d :size="13" />
+        </button>
+        <button
+          type="button"
+          :class="{ active: orientationAsQuat }"
+          :aria-label="'RAPID 四元数 q1..q4'"
+          :title="'RAPID 四元数 q1..q4'"
+          @click="orientationAsQuat = true"
+        >
+          <Rotate3d :size="13" />
+        </button>
+      </div>
     </div>
     <div class="pose-grid">
       <div class="pose-cell">
@@ -43,6 +84,8 @@ function format(value: number): string {
       <div class="pose-cell">
         <span>Z</span><strong>{{ format(pose.positionMm[2]) }}</strong>
       </div>
+    </div>
+    <div v-if="!orientationAsQuat" class="pose-grid">
       <div class="pose-cell">
         <span>RX</span><strong>{{ format(pose.orientationDeg[0]) }}</strong>
       </div>
@@ -51,6 +94,20 @@ function format(value: number): string {
       </div>
       <div class="pose-cell">
         <span>RZ</span><strong>{{ format(pose.orientationDeg[2]) }}</strong>
+      </div>
+    </div>
+    <div v-else class="pose-grid quat-grid">
+      <div class="pose-cell">
+        <span>q1</span><strong>{{ format(rapidQuat[0]) }}</strong>
+      </div>
+      <div class="pose-cell">
+        <span>q2</span><strong>{{ format(rapidQuat[1]) }}</strong>
+      </div>
+      <div class="pose-cell">
+        <span>q3</span><strong>{{ format(rapidQuat[2]) }}</strong>
+      </div>
+      <div class="pose-cell">
+        <span>q4</span><strong>{{ format(rapidQuat[3]) }}</strong>
       </div>
     </div>
   </section>
@@ -84,6 +141,11 @@ function format(value: number): string {
   justify-content: start;
 }
 
+.pose-readout.compact .pose-grid.quat-grid {
+  grid-template-columns: repeat(4, auto);
+  margin-top: 3px;
+}
+
 .pose-readout.compact .pose-cell {
   display: inline-flex;
   align-items: baseline;
@@ -102,9 +164,43 @@ function format(value: number): string {
 }
 
 .pose-readout-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 6px;
   color: var(--color-text-dim);
   font-size: 11px;
+}
+
+/* 姿态表示切换：标题右侧的小分段按钮，切换 RX/RY/RZ 与 RAPID 四元数。
+   置于场景角标（pointer-events:none）内时，仅按钮自身可点击，其余区域仍穿透画布。 */
+.orientation-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-deep, rgba(13, 15, 19, 0.6));
+  pointer-events: auto;
+}
+
+.orientation-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-faint);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.orientation-toggle button.active {
+  background: var(--color-accent, #3b82f6);
+  color: #fff;
 }
 
 /* 六格读数：X/Y/Z/RX/RY/RZ，跨功能共享的统一格式；无盒子，hairline 分隔。 */
@@ -112,6 +208,25 @@ function format(value: number): string {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px 0;
+}
+
+/* 四元数模式：q1..q4 单行四列，与 X/Y/Z 行分隔，保持排版整洁。 */
+.pose-grid.quat-grid {
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 4px;
+}
+
+/* 非紧凑四元数行：四列等宽，标签与格线统一（紧凑角标保持细线无边框）。 */
+.pose-readout:not(.compact) .pose-grid.quat-grid .pose-cell {
+  padding-left: 10px;
+}
+
+.pose-readout:not(.compact) .pose-grid.quat-grid .pose-cell:first-child {
+  padding-left: 0;
+}
+
+.pose-readout:not(.compact) .pose-grid.quat-grid .pose-cell:not(:first-child) {
+  border-left: 1px solid var(--color-border);
 }
 
 .pose-cell {
