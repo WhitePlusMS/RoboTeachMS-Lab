@@ -61,18 +61,6 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
     expect(wrapper.emitted('step')).toHaveLength(1)
   })
 
-  it('stopped 且下一条仍在程序内时显示等待下一步提示', () => {
-    const wrapper = mountPanel(
-      snapshot({ state: 'stopped', programPointer: 1, stopReason: 'step-completed' }),
-    )
-    expect(wrapper.text()).toContain('等待下一步')
-  })
-
-  it('用户停止后的 stopped 状态不误显示单步等待提示', () => {
-    const wrapper = mountPanel(snapshot({ state: 'stopped', stopReason: 'user-stop' }))
-    expect(wrapper.text()).not.toContain('等待下一步')
-  })
-
   it('completed 后 PP to Main 可用，运行/单步禁用并可发出 pp', async () => {
     const wrapper = mountPanel(snapshot({ state: 'completed', programPointer: 3 }))
     const [run, , , pp] = wrapper.findAll('button')
@@ -170,19 +158,17 @@ describe('ProgramControlPanel 状态与指针显示', () => {
 })
 
 describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
-  it('PP 无法映射时禁用运行与单步并提示先 PP to Main', () => {
+  it('PP 无法映射时禁用运行与单步', () => {
     const wrapper = mountPanel(snapshot({ state: 'stopped', needsPPtoMain: true }))
     const [run, step] = wrapper.findAll('button')
     expect(run.attributes('disabled')).toBeDefined()
     expect(step.attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('请先执行 PP to Main')
   })
 
-  it('off-path 时显示偏离提示，但运行按钮仍可用以触发确认', () => {
+  it('off-path 时运行按钮仍可用以触发确认', () => {
     const wrapper = mountPanel(snapshot({ state: 'stopped', offPath: true }))
     const [run] = wrapper.findAll('button')
     expect(run.attributes('disabled')).toBeUndefined()
-    expect(wrapper.text()).toContain('偏离原程序路径')
   })
 
   it('存在静态诊断时即使 idle 也不能运行', () => {

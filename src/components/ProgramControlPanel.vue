@@ -52,10 +52,6 @@ const STATE_LABEL: Record<ProgramControllerSnapshot['state'], string> = {
 }
 
 const stateLabel = computed(() => STATE_LABEL[props.snapshot.state])
-/** 等待下一步提示：程序已停止且下一执行位置仍在程序内（执行器在末条单步后置为 completed）。 */
-const awaitingNext = computed(
-  () => props.snapshot.state === 'stopped' && props.snapshot.stopReason === 'step-completed',
-)
 const sourceLocked = computed(() => props.snapshot.state === 'running')
 const runnable = computed(
   () => props.snapshot.state === 'idle' || props.snapshot.state === 'stopped',
@@ -136,15 +132,7 @@ const errorText = computed(() => {
           {{ stateLabel }}
         </span>
       </div>
-      <p v-if="props.snapshot.needsPPtoMain" class="program-hint program-hint-warn transport-hint">
-        停止后源码无法稳定映射当前程序指针：请先执行 PP to Main 以从 main 重新建立执行位置。
-      </p>
-      <p
-        v-else-if="props.snapshot.offPath && !showOffPathConfirm"
-        class="program-hint program-hint-warn transport-hint"
-      >
-        机器人已被手动 Jog，偏离原程序路径：再次运行/单步将从当前位置规划到下一目标。
-      </p>
+      <!-- 需 PP to Main / 偏离路径等瞬态提示已由 toast+日志承载，此处不常驻占位。 -->
       <div v-if="showOffPathConfirm" class="program-clear-confirm" aria-label="偏离路径确认">
         <p>{{ confirmLabel }}（ABB Clear 语义）。</p>
         <div class="program-actions">
@@ -179,10 +167,7 @@ const errorText = computed(() => {
         @cursor-line-change="emit('cursor-line-change', $event)"
         @line-activate="emit('line-activate', $event)"
       />
-      <p v-if="sourceLocked" class="program-hint">程序运行期间，源程序已锁定。</p>
-      <p v-else-if="awaitingNext" class="program-hint">
-        单步已完成，等待下一步；可继续单步或运行。
-      </p>
+      <!-- 源程序锁定 / 等待下一步等瞬态提示已由 toast+日志承载，此处不常驻占位。 -->
       <p v-if="flyByZone" class="program-hint program-hint-warn">
         当前指令使用 {{ flyByZone }}（非 fine，fly-by）：当前 MVP 未模拟 ABB
         路径融合，采用精确停点近似。
@@ -228,16 +213,7 @@ const errorText = computed(() => {
           </span>
         </div>
 
-        <p v-if="props.snapshot.needsPPtoMain" class="program-hint program-hint-warn">
-          停止后源码无法稳定映射当前程序指针：请先执行 PP to Main 以从 main 重新建立执行位置。
-        </p>
-        <p
-          v-if="props.snapshot.offPath && !showOffPathConfirm"
-          class="program-hint program-hint-warn"
-        >
-          机器人已被手动 Jog，偏离原程序路径：再次运行/单步将从当前位置规划到下一目标。
-        </p>
-
+        <!-- 需 PP to Main / 偏离路径等瞬态提示已由 toast+日志承载，此处不常驻占位。 -->
         <div class="program-actions">
           <button type="button" class="primary-action" :disabled="!canRun" @click="emit('run')">
             运行
@@ -427,12 +403,6 @@ const errorText = computed(() => {
   border: 0;
   border-radius: 0;
   background: transparent;
-}
-
-/* 顶栏 transport 内的程序状态丸与 .tkey/.pill 同高对齐。 */
-.program-panel-transport .transport-hint {
-  max-width: 360px;
-  margin: 0;
 }
 
 /* transport off-path 确认：浮窗卡片，脱离顶栏文档流向下展开，不挤压同行控件。 */

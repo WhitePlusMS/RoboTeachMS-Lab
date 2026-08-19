@@ -144,8 +144,6 @@ onBeforeUnmount(stopPress)
         {{ step }}°
       </button>
     </div>
-
-    <p class="panel-hint">点击步进按钮单次调整，按住按钮可连续调整。</p>
   </section>
 </template>
 

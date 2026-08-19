@@ -284,9 +284,6 @@ onBeforeUnmount(stopPress)
 
     <div class="pose-card" aria-label="笛卡尔控制状态">
       <div class="pose-card-title">{{ props.statusMessage }}</div>
-      <p class="panel-hint">
-        当前显示为世界坐标值，方向键按 {{ props.coordinateSystem }} 坐标系执行。
-      </p>
     </div>
   </section>
 </template>

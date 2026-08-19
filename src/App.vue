@@ -6,6 +6,7 @@ import ProgramControlPanel from '@/components/ProgramControlPanel.vue'
 import ProgramWorkspace from '@/components/ProgramWorkspace.vue'
 import RunLogPanel from '@/components/RunLogPanel.vue'
 import SceneViewport from '@/components/SceneViewport.vue'
+import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
 import type { JointAngles } from '@/robotics/types.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
@@ -18,6 +19,8 @@ import { useMotion } from '@/application/motion-control.ts'
 import { useProgramController } from '@/application/program-control.ts'
 import { createBuiltinRapidSource } from '@/application/builtin-program.ts'
 import { useRunLog, provideRunLog } from '@/application/run-log.ts'
+import { provideToasts, useToasts } from '@/application/toast.ts'
+import { useStatusToasts } from '@/application/status-toasts.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
 import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
@@ -125,6 +128,15 @@ const pendingClearState = programControl.pendingClear
 /** 底部日志：程序状态迁移 / 诊断 / 运行时错误的派生记录；provide 供任意组件直接调用 info/ok/warn/error。 */
 const runLog = useRunLog(programSnapshot)
 provideRunLog(runLog)
+
+// 瞬态状态提示：创建全局 toast 控制器，并把程序状态切换映射为 toast（日志已同步记录）。
+const toasts = useToasts()
+provideToasts(toasts)
+useStatusToasts(programSnapshot, toasts)
+
+// 静态教学说明（原常驻卡片下方提示）：启动时写入日志一次，使卡片区域不再占用固定空间。
+runLog.info('说明', '关节面板：点击步进按钮单次调整，按住按钮可连续调整。')
+runLog.info('说明', '笛卡尔面板：方向键执行按当前选择的坐标系（World/Tool）。')
 
 /**
  * Program Data 派生视图：声明来自同一次解析，标量当前值来自同一 ProgramExecutor 快照。
@@ -331,31 +343,34 @@ provideProgramPanelController({
 
     <WorkbenchLayout>
       <template #center>
-        <div class="viewport-stage">
-          <SceneViewport
-            :joints="joints"
-            :show-grid="showGrid"
-            :show-coordinate-systems="showCoordinateSystems"
-            :show-dh-debug="showDhDebug"
-            :show-trajectory="showTrajectory"
-            :trajectory-count="trajectoryCount"
-            :robtargets="robtargets"
-            :show-robtargets="showRobtargets"
-            :show-robtarget-labels="showRobtargetLabels"
-            @status="sceneStatus = $event"
-            @grid-change="showGrid = $event"
-            @coordinates-change="showCoordinateSystems = $event"
-            @dh-debug-change="showDhDebug = $event"
-            @trajectory-change="showTrajectory = $event"
-            @trajectory-count="trajectoryCount = $event"
-            @robtargets-change="showRobtargets = $event"
-            @robtarget-labels-change="showRobtargetLabels = $event"
-          />
-          <div class="viewport-caption">
-            <span>WORLD / BASE FRAME</span>
-            <span>OrbitControls</span>
+        <div class="center-col">
+          <div class="viewport-stage">
+            <SceneViewport
+              :joints="joints"
+              :show-grid="showGrid"
+              :show-coordinate-systems="showCoordinateSystems"
+              :show-dh-debug="showDhDebug"
+              :show-trajectory="showTrajectory"
+              :trajectory-count="trajectoryCount"
+              :robtargets="robtargets"
+              :show-robtargets="showRobtargets"
+              :show-robtarget-labels="showRobtargetLabels"
+              @status="sceneStatus = $event"
+              @grid-change="showGrid = $event"
+              @coordinates-change="showCoordinateSystems = $event"
+              @dh-debug-change="showDhDebug = $event"
+              @trajectory-change="showTrajectory = $event"
+              @trajectory-count="trajectoryCount = $event"
+              @robtargets-change="showRobtargets = $event"
+              @robtarget-labels-change="showRobtargetLabels = $event"
+            />
+            <div class="viewport-caption">
+              <span>WORLD / BASE FRAME</span>
+              <span>OrbitControls</span>
+            </div>
+            <PoseReadout class="scene-pose-readout" :compact="true" />
           </div>
-          <PoseReadout class="scene-pose-readout" :compact="true" />
+          <RunLogPanel :entries="runLog.entries.value" />
         </div>
       </template>
 
@@ -369,15 +384,15 @@ provideProgramPanelController({
       </template>
     </WorkbenchLayout>
 
-    <RunLogPanel :entries="runLog.entries.value" />
+    <ToastHost />
   </main>
 </template>
 
 <style scoped>
-/* 骨架：56px 顶栏 + 主区 + 底部日志栏。 */
+/* 骨架：56px 顶栏 + 主区（中央列内嵌 Three.js 视口与底部日志）。 */
 .shell {
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) auto;
+  grid-template-rows: 56px minmax(0, 1fr);
   width: 100%;
   height: 100dvh;
   min-height: 0;
@@ -432,15 +447,28 @@ provideProgramPanelController({
   box-shadow: 0 0 8px var(--color-danger);
 }
 
-/* 中央 3D 视口：满幅铺底，caption 浮在底部。 */
-.viewport-stage {
-  position: relative;
+/* 中央列：Three.js 视口在上方弹性铺满，日志栏固定在底部（仅占中央视图宽度）。
+   右侧边栏与整个中央列等高，因此日志不会横贯到边栏下方。 */
+.center-col {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: radial-gradient(130% 100% at 50% 24%, #171d27 0%, #10141b 52%, #0b0e13 100%);
+}
+
+/* 中央 3D 视口：铺满中央列剩余高度，caption 浮在底部。
+   背景取 --color-scene-bg（唯一来源为 theme/scene.ts 的场景背景，
+   与 WebGL scene.background 严格一致，避免同一块背景多处各写各的）。 */
+.viewport-stage {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-scene-bg);
 }
 
 .viewport-caption {
