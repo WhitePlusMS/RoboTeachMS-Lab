@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Check } from '@lucide/vue'
+import { ArrowRight, Bot, Check, Terminal } from '@lucide/vue'
 
 const emit = defineEmits<{
   start: []
@@ -10,7 +10,7 @@ const assetPath = (name: string): string => baseUrl + name
 
 const features = [
   {
-    icon: '🦾',
+    icon: Bot,
     image: assetPath('images/hero-robot.png'),
     title: '机械臂结构与运动控制',
     description:
@@ -18,7 +18,7 @@ const features = [
     items: ['六个关节独立调节', '正逆运动学实时反馈', '回零、随机姿态与末端位姿显示'],
   },
   {
-    icon: '⌘',
+    icon: Terminal,
     image: assetPath('images/hero-preview.png'),
     title: 'RAPID 程序示教与执行',
     description:
@@ -28,14 +28,6 @@ const features = [
       '语法、数据与运动诊断',
       '运行、单步、停止与 PP to Main',
     ],
-  },
-  {
-    icon: '◎',
-    image: assetPath('images/hero-grasp.png'),
-    title: '点位示教与末端操作',
-    description:
-      '使用平移或旋转操作轴直接调整末端目标，记录当前姿态为 robtarget，并在三维场景中查看命名点位与运动轨迹。',
-    items: ['World / Tool 坐标系控制', '末端平移与旋转拖拽', 'robtarget 记录、修改与高亮'],
   },
 ]
 
@@ -171,7 +163,9 @@ const steps = [
               <img :src="feature.image" :alt="feature.title" />
             </div>
             <div class="feature-copy">
-              <div class="feature-icon" aria-hidden="true">{{ feature.icon }}</div>
+              <div class="feature-icon" aria-hidden="true">
+                <component :is="feature.icon" :size="32" :stroke-width="1.8" />
+              </div>
               <h3>{{ feature.title }}</h3>
               <p>{{ feature.description }}</p>
               <ul>
