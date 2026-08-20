@@ -42,6 +42,10 @@ export interface SceneDisplayConfig {
 export interface SceneRuntime {
   readonly scene: THREE.Scene
   readonly model: THREE.Group | null
+  readonly camera: THREE.PerspectiveCamera
+  readonly domElement: HTMLCanvasElement
+  /** 相机轨道控制器；厂商附加交互（如操作轴拖拽）需在拖拽时临时禁用其 enabled 以避免冲突。 */
+  readonly controls: OrbitControls
   readonly coordinateSystemsVisible: boolean
   readonly currentJoints: JointAngles
 }
@@ -231,11 +235,17 @@ export function createSceneController(
     coordinateSystemsVisible: initialCoordinateVisibility,
     currentJoints: [...config.defaultJoints] as JointAngles,
   }
+  const camera = configureCamera(container, display)
+  const renderer = configureRenderer(container, display.ariaLabel)
+  const controls = configureControls(camera, renderer, display)
   const runtime: SceneRuntime = {
     scene,
     get model() {
       return shared.model
     },
+    camera,
+    domElement: renderer.domElement,
+    controls,
     get coordinateSystemsVisible() {
       return shared.coordinateSystemsVisible
     },
@@ -261,9 +271,6 @@ export function createSceneController(
   trajectoryLine.visible = showTrajectory
   scene.add(trajectoryLine)
 
-  const camera = configureCamera(container, display)
-  const renderer = configureRenderer(container, display.ariaLabel)
-  const controls = configureControls(camera, renderer, display)
   const resizeObserver = new ResizeObserver(() => {
     const width = Math.max(container.clientWidth, 1)
     const height = Math.max(container.clientHeight, 1)

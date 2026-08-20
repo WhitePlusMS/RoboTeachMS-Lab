@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { ABB_DEFAULT_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
 import { abbScene } from '@/theme/scene.ts'
@@ -10,6 +10,7 @@ import {
   findNode as findNodeShared,
   type SceneDisplayConfig,
 } from './scene-factory.ts'
+import { AbbTransformGizmo, type TransformGizmoMode } from './abb-transform-gizmo.ts'
 
 export const ABB_MODEL_URL = '/models/ABB_IRB1200_5_90.fbx'
 /** FBX 资产的单位基线是厘米；项目场景使用米，位姿面板再转换为毫米。 */
@@ -53,6 +54,12 @@ export interface AbbSceneOptions {
   showCoordinateSystems?: boolean
   showDhDebug?: boolean
   showTrajectory?: boolean
+  /** 末端拖拽操作轴：对目标 ABB Pose 求解 IK，成功应用关节并返回 true，不可达返回 false。 */
+  onGizmoSolve?: (pose: Pose) => boolean
+  onGizmoDragStart?: () => void
+  onGizmoDragEnd?: () => void
+  /** 拖拽是否允许（默认 true；程序运行期间可设为 false 以禁用手柄）。 */
+  gizmoInteractive?: () => boolean
 }
 
 export interface AbbSceneController {
@@ -66,6 +73,10 @@ export interface AbbSceneController {
   setRobTargetsVisible: (visible: boolean) => void
   /** 只隐藏名称标签、保留点位小球。 */
   setRobTargetLabelsVisible: (visible: boolean) => void
+  /** 显示/隐藏末端法兰拖拽操作轴。 */
+  enableTransformGizmo: (enabled: boolean) => void
+  /** 切换操作轴模式：'translate'（XYZ 平移）或 'rotate'（RX/RY/RZ 旋转）。 */
+  setTransformGizmoMode: (mode: TransformGizmoMode) => void
   clearTrajectory: () => void
   dispose: () => void
 }
@@ -312,6 +323,9 @@ export function createAbbScene(
     })
   }
 
+  const onGizmoSolve = options.onGizmoSolve
+  const gizmoInteractive = options.gizmoInteractive
+
   const { controller, runtime } = createSceneController(container, {
     display: ABB_DISPLAY,
     defaultJoints: [...ABB_DEFAULT_JOINTS],
@@ -334,6 +348,7 @@ export function createAbbScene(
       if (typeof fbxBaseHeightMm === 'number') {
         dhDebugChain.setBaseHeightMm(fbxBaseHeightMm)
         robTargetBaseHeightMm = fbxBaseHeightMm
+        transformGizmo?.setBaseHeightMm(fbxBaseHeightMm)
         rebuildRobTargets()
       }
       console.info(
@@ -341,12 +356,32 @@ export function createAbbScene(
       )
     },
     onJointUpdated: (joints) => dhDebugChain.update(joints),
-    onDispose: () => disposeRobTargetMarkers(robTargetGroup),
+    onDispose: () => {
+      transformGizmo?.dispose()
+      transformGizmo = null
+      disposeRobTargetMarkers(robTargetGroup)
+    },
   })
 
   dhDebugChain.group.visible = showDhDebug
   runtime.scene.add(dhDebugChain.group)
   runtime.scene.add(robTargetGroup)
+
+  // 末端拖拽操作轴：只在提供 IK 求解回调时启用（否则保持为空，控制器方法变为安全 no-op）。
+  let transformGizmo: AbbTransformGizmo | null = onGizmoSolve
+    ? new AbbTransformGizmo({
+        scene: runtime.scene,
+        camera: runtime.camera,
+        domElement: runtime.domElement,
+        orbitControls: runtime.controls,
+        flangeNodeName: ABB_FLANGE_NODE_NAME,
+        getModel: () => runtime.model,
+        solveTargetPose: onGizmoSolve,
+        onDragStart: options.onGizmoDragStart,
+        onDragEnd: options.onGizmoDragEnd,
+        isInteractive: gizmoInteractive,
+      })
+    : null
 
   return {
     ...controller,
@@ -365,6 +400,12 @@ export function createAbbScene(
       for (const child of robTargetGroup.children) {
         if (child instanceof THREE.Sprite) child.visible = visible
       }
+    },
+    enableTransformGizmo: (enabled: boolean) => {
+      transformGizmo?.setEnabled(enabled)
+    },
+    setTransformGizmoMode: (mode: TransformGizmoMode) => {
+      transformGizmo?.setMode(mode)
     },
   }
 }

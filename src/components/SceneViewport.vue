@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
 import {
   createAbbScene,
   type AbbRobTargetMarker,
   type AbbSceneController,
   type AbbSceneStatus,
 } from '@/scene/abb-scene.ts'
+import type { TransformGizmoMode } from '@/scene/abb-transform-gizmo.ts'
 
 const props = withDefaults(
   defineProps<{
@@ -21,11 +22,25 @@ const props = withDefaults(
     showRobtargets?: boolean
     /** robtarget 名称标签是否随点位小球一起显示。 */
     showRobtargetLabels?: boolean
+    /** 是否显示末端法兰拖拽操作轴。 */
+    transformGizmoEnabled?: boolean
+    /** 操作轴模式：'translate'（XYZ 平移）或 'rotate'（RX/RY/RZ 旋转）。 */
+    transformGizmoMode?: TransformGizmoMode
+    /** 拖拽目标 ABB Pose 的 IK 求解器：成功并应用返回 true，不可达返回 false。 */
+    onGizmoSolve?: (pose: Pose) => boolean
+    /** 拖拽开始回调（用于停止动画/程序）。 */
+    onGizmoDragStart?: () => void
+    /** 拖拽结束回调。 */
+    onGizmoDragEnd?: () => void
+    /** 是否允许拖拽（程序运行期间可设为 false）。 */
+    gizmoInteractive?: () => boolean
   }>(),
   {
     robtargets: () => [],
     showRobtargets: false,
     showRobtargetLabels: false,
+    transformGizmoEnabled: false,
+    transformGizmoMode: 'translate',
   },
 )
 
@@ -38,6 +53,8 @@ const emit = defineEmits<{
   'trajectory-count': [value: number]
   'robtargets-change': [value: boolean]
   'robtarget-labels-change': [value: boolean]
+  'transform-gizmo-change': [value: boolean]
+  'gizmo-mode-change': [value: TransformGizmoMode]
 }>()
 
 const viewport = ref<HTMLDivElement | null>(null)
@@ -54,11 +71,17 @@ onMounted(() => {
       showCoordinateSystems: props.showCoordinateSystems,
       showDhDebug: props.showDhDebug,
       showTrajectory: props.showTrajectory,
+      onGizmoSolve: props.onGizmoSolve,
+      onGizmoDragStart: props.onGizmoDragStart,
+      onGizmoDragEnd: props.onGizmoDragEnd,
+      gizmoInteractive: props.gizmoInteractive,
     })
     controller.setJoints(props.joints)
     controller.setRobTargets(props.robtargets)
     controller.setRobTargetsVisible(props.showRobtargets)
     controller.setRobTargetLabelsVisible(props.showRobtargetLabels)
+    controller.enableTransformGizmo(props.transformGizmoEnabled)
+    controller.setTransformGizmoMode(props.transformGizmoMode)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     sceneError.value = message.includes('WebGL')
@@ -104,6 +127,16 @@ watch(
 watch(
   () => props.showRobtargetLabels,
   (visible) => controller?.setRobTargetLabelsVisible(visible),
+)
+
+watch(
+  () => props.transformGizmoEnabled,
+  (enabled) => controller?.enableTransformGizmo(enabled),
+)
+
+watch(
+  () => props.transformGizmoMode,
+  (mode) => controller?.setTransformGizmoMode(mode),
 )
 
 onBeforeUnmount(() => {
@@ -180,6 +213,41 @@ onBeforeUnmount(() => {
       >
         标签
       </button>
+      <span
+        class="scene-aux-group scene-aux-gizmo-group"
+        role="group"
+        aria-label="末端拖拽操作轴"
+      >
+        <button
+          type="button"
+          :class="['scene-aux-button', { active: props.transformGizmoEnabled }]"
+          :aria-pressed="props.transformGizmoEnabled"
+          title="显示/隐藏机械臂末端拖拽操作轴。开启后可抓取法兰末端拖动（平移/旋转）到空间任意可到达位姿"
+          @click="emit('transform-gizmo-change', !props.transformGizmoEnabled)"
+        >
+          操作轴
+        </button>
+        <template v-if="props.transformGizmoEnabled">
+          <button
+            type="button"
+            :class="['scene-aux-button', 'scene-aux-gizmo-mode', { active: props.transformGizmoMode === 'translate' }]"
+            :aria-pressed="props.transformGizmoMode === 'translate'"
+            title="平移模式：拖动三轴箭头移动末端位置 X / Y / Z"
+            @click="emit('gizmo-mode-change', 'translate')"
+          >
+            平移
+          </button>
+          <button
+            type="button"
+            :class="['scene-aux-button', 'scene-aux-gizmo-mode', { active: props.transformGizmoMode === 'rotate' }]"
+            :aria-pressed="props.transformGizmoMode === 'rotate'"
+            title="旋转模式：拖动圆弧手柄旋转末端姿态 RX / RY / RZ"
+            @click="emit('gizmo-mode-change', 'rotate')"
+          >
+            旋转
+          </button>
+        </template>
+      </span>
       <button
         type="button"
         class="scene-aux-button scene-aux-clear"
@@ -276,5 +344,16 @@ onBeforeUnmount(() => {
 
 .scene-aux-clear:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+}
+
+/* 末端拖拽操作轴按钮组：子按钮（平移/旋转）在开启后与主按钮同排紧凑排列。 */
+.scene-aux-gizmo-group {
+  display: flex;
+  gap: 6px;
+}
+
+.scene-aux-gizmo-mode {
+  padding-inline: 9px;
+  font-size: var(--text-sm);
 }
 </style>

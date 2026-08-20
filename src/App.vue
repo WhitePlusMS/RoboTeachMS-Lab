@@ -8,7 +8,8 @@ import RunLogPanel from '@/components/RunLogPanel.vue'
 import SceneViewport from '@/components/SceneViewport.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles, Pose } from '@/robotics/types.ts'
+import { solveIK } from '@/robotics/ik-solver.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
 import {
   adjustJointAngle,
@@ -197,6 +198,21 @@ const robtargets = computed<readonly AbbRobTargetMarker[]>(() =>
 /** 当前 ABB 基座 tool0 TCP（Pose：位置 + 旋转矩阵）；由 FK 派生，供点位示教使用。 */
 const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
 
+/**
+ * 末端法兰拖拽操作轴：在 3D 场景把机械臂末端（法兰/TCP）拖拽到空间任意可到达位姿。
+ * 拖拽产生目标 ABB Pose → DH IK 逆解 → 写入关节。状态由 App 唯一持有并驱动 SceneViewport。
+ * 拖拽开始（onGizmoDragStart）已停活动程序与动画，这里只负责求解与写入，避免每 tick 重复 stop。
+ */
+const transformGizmoEnabled = ref(false)
+const transformGizmoMode = ref<'translate' | 'rotate'>('translate')
+
+function solveGizmoTarget(pose: Pose): boolean {
+  const solved = solveIK(pose, joints.value, profile.model, {}, profile.jointRanges)
+  if (!solved) return false
+  setJointsImmediate(solved)
+  return true
+}
+
 const {
   coordinateSystem,
   positionStep,
@@ -372,6 +388,12 @@ provideProgramPanelController({
               :robtargets="robtargets"
               :show-robtargets="showRobtargets"
               :show-robtarget-labels="showRobtargetLabels"
+              :transform-gizmo-enabled="transformGizmoEnabled"
+              :transform-gizmo-mode="transformGizmoMode"
+              :on-gizmo-solve="solveGizmoTarget"
+              :on-gizmo-drag-start="() => { programControl.stopActiveProgram(); stopAnimation() }"
+              :on-gizmo-drag-end="() => undefined"
+              :gizmo-interactive="() => programSnapshot.state !== 'running'"
               @status="sceneStatus = $event"
               @grid-change="showGrid = $event"
               @coordinates-change="showCoordinateSystems = $event"
@@ -380,6 +402,8 @@ provideProgramPanelController({
               @trajectory-count="trajectoryCount = $event"
               @robtargets-change="showRobtargets = $event"
               @robtarget-labels-change="showRobtargetLabels = $event"
+              @transform-gizmo-change="transformGizmoEnabled = $event"
+              @gizmo-mode-change="transformGizmoMode = $event"
             />
             <PoseReadout class="scene-pose-readout" :compact="true" />
           </div>
