@@ -402,7 +402,7 @@ provideProgramPanelController({
         aria-label="返回 RoboTeachMS Lab 主页"
         @click="navigateTo('home')"
       >
-        <img class="mark-image" src="/brand/roboteachms-logo.png" alt="" />
+        <img class="mark-image" :src="basePath + '/brand/roboteachms-logo.png'" alt="" />
       </button>
       <h1>RoboTeachMS Lab · 工业机器人示教编程实验室</h1>
       <div class="topbar-spacer"></div>

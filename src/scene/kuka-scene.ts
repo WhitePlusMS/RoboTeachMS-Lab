@@ -12,7 +12,7 @@ import {
 } from './scene-factory.ts'
 
 /** KUKA 资产属于独立应用自己的 public 目录。 */
-export const KUKA_MODEL_URL = '/models/KUKA_V1.glb'
+export const KUKA_MODEL_URL = import.meta.env.BASE_URL + 'models/KUKA_V1.glb'
 export const KUKA_MODEL_SCALE = 0.0943
 export const KUKA_JOINT_NODE_NAMES = [
   '转台',

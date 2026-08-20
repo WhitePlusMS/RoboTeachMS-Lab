@@ -12,7 +12,7 @@ import {
 } from './scene-factory.ts'
 import { AbbTransformGizmo, type TransformGizmoMode } from './abb-transform-gizmo.ts'
 
-export const ABB_MODEL_URL = '/models/ABB_IRB1200_5_90.fbx'
+export const ABB_MODEL_URL = import.meta.env.BASE_URL + 'models/ABB_IRB1200_5_90.fbx'
 /** FBX 资产的单位基线是厘米；项目场景使用米，位姿面板再转换为毫米。 */
 export const ABB_MODEL_SCALE = 0.01
 export const ABB_BASE_NODE_NAME = 'dizuo'

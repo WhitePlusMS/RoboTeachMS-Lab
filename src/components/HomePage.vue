@@ -89,7 +89,7 @@ const steps = [
           <div class="landing-actions">
             <a
               class="github-link"
-              href="https://github.com"
+              href="https://github.com/WhitePlusMS/RoboTeachMS-Lab"
               target="_blank"
               rel="noopener noreferrer"
             >
