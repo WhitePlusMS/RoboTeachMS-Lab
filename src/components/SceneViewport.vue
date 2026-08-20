@@ -41,6 +41,10 @@ const props = withDefaults(
     showRobtargetLabels: false,
     transformGizmoEnabled: false,
     transformGizmoMode: 'translate',
+    onGizmoSolve: undefined,
+    onGizmoDragStart: undefined,
+    onGizmoDragEnd: undefined,
+    gizmoInteractive: undefined,
   },
 )
 
