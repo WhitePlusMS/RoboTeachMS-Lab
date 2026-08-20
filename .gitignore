@@ -33,3 +33,4 @@ test-results
 *.sln
 *.sw?
 .npm-cache/
+docs/
