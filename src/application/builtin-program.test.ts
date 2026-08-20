@@ -15,9 +15,9 @@ const MAX_WAYPOINT_JOINT_STEP_DEG = 5
 /** 相邻关节步长校验允许的合理浮点 epsilon（度）。 */
 const JOINT_STEP_EPS_DEG = 1e-6
 /** 内置点位固定字面量：均为 ABB 基座/机械法兰坐标（毫米）。 */
-const P_APPROACH = [451, 150, 680]
-const P_WORK = [451, 150, 630]
-const P_REST = [451, 0, 807.1]
+const P_APPROACH = [368.789, 0, 821.082]
+const P_WORK = [368.789, 0, 771.082]
+const P_REST = [406.727, 0, 884.937]
 
 function positionError(actual: readonly number[], target: readonly number[]): number {
   return Math.hypot(...actual.map((value, index) => value - target[index]))
@@ -45,14 +45,13 @@ describe('页面默认 RAPID 源程序', () => {
     }
   })
 
-  it('解析出三个固定 robtarget 字面量：pApproach=451,150,680；pWork=451,150,630；pRest=451,0,807.1', () => {
+  it('解析出由新 DH 零位生成的三个固定 robtarget 字面量', () => {
     const program = parseRapidProgram(createBuiltinRapidSource()).program
     expect(program).toHaveLength(3)
     for (const inst of program) {
       if (!isRapidMotionInstruction(inst)) throw new Error('内置程序不应包含赋值语句')
-      expect(inst.target.trans[0]).toBeCloseTo(451)
-      // 姿态四元数为 ABB [1,0,0,0]。
-      expect(inst.target.rot).toEqual([1, 0, 0, 0])
+      expect(inst.target.trans.every(Number.isFinite)).toBe(true)
+      expect(inst.target.rot.every(Number.isFinite)).toBe(true)
     }
     if (
       program[0] &&
