@@ -23,8 +23,7 @@ test-results
 /UPDATE_LOG.md
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -34,3 +33,6 @@ test-results
 *.sw?
 .npm-cache/
 docs/
+
+# 本地设计原型，不纳入发布仓库
+/prototype-design-variants.html
