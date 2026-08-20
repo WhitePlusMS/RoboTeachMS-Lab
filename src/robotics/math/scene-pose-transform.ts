@@ -1,6 +1,9 @@
 import type { Pose } from '@/robotics/types.ts'
 import { rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
-import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
+import {
+  quaternionToRotationMatrix,
+  rotationMatrixToQuaternion,
+} from '@/robotics/math/rotation3d.ts'
 
 /**
  * Three.js 场景坐标(frame，米、Y 上)与 ABB 机器人基座坐标(frame，毫米、Z 上)的纯函数互转。
@@ -66,11 +69,7 @@ export function scenePositionToAbbMm(
   baseHeightMm: number,
 ): [number, number, number] {
   const sceneHeightOffset = Math.max(0, baseHeightMm) / 1000
-  return [
-    position[0] * 1000,
-    -position[2] * 1000,
-    (position[1] - sceneHeightOffset) * 1000,
-  ]
+  return [position[0] * 1000, -position[2] * 1000, (position[1] - sceneHeightOffset) * 1000]
 }
 
 /** 场景位置（米）回换算为 ABB 基座位置（毫米）：与 scenePositionToAbbMm 互为逆。 */
@@ -79,11 +78,27 @@ export function abbPositionToSceneM(
   baseHeightMm: number,
 ): [number, number, number] {
   const sceneHeightOffset = Math.max(0, baseHeightMm) / 1000
-  return [
-    abbPosition[0] / 1000,
-    abbPosition[2] / 1000 + sceneHeightOffset,
-    -abbPosition[1] / 1000,
-  ]
+  return [abbPosition[0] / 1000, abbPosition[2] / 1000 + sceneHeightOffset, -abbPosition[1] / 1000]
+}
+
+/**
+ * ABB 机械法兰 Pose（毫米 + 旋转矩阵）→ Three.js 场景位姿（米 + 四元数）。
+ *
+ * 操作轴必须以 DH FK 的机械法兰为唯一跟随基准，不能直接把 FBX 骨骼原点当作
+ * IK 目标；FBX 与候选 DH 存在约 12 mm 的视觉建模偏差。该逆变换与
+ * `sceneTransformToAbbPose` 成对使用，避免旋转拖拽从视觉偏差姿态开始求解。
+ */
+export function abbPoseToSceneTransform(
+  pose: Pose,
+  baseHeightMm: number,
+): {
+  position: [number, number, number]
+  quaternion: [number, number, number, number]
+} {
+  return {
+    position: abbPositionToSceneM(pose.position, baseHeightMm),
+    quaternion: rotationMatrixToQuaternion(abbRotationToSceneRotation(pose.rotation)),
+  }
 }
 
 /**

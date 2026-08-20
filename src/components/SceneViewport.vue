@@ -28,6 +28,8 @@ const props = withDefaults(
     transformGizmoMode?: TransformGizmoMode
     /** 拖拽目标 ABB Pose 的 IK 求解器：成功并应用返回 true，不可达返回 false。 */
     onGizmoSolve?: (pose: Pose) => boolean
+    /** 操作轴跟随的当前 DH 机械法兰 Pose，避免读取 FBX 视觉近似坐标作为 IK 起点。 */
+    getGizmoPose?: () => Pose | null
     /** 拖拽开始回调（用于停止动画/程序）。 */
     onGizmoDragStart?: () => void
     /** 拖拽结束回调。 */
@@ -42,6 +44,7 @@ const props = withDefaults(
     transformGizmoEnabled: false,
     transformGizmoMode: 'translate',
     onGizmoSolve: undefined,
+    getGizmoPose: undefined,
     onGizmoDragStart: undefined,
     onGizmoDragEnd: undefined,
     gizmoInteractive: undefined,
@@ -76,6 +79,7 @@ onMounted(() => {
       showDhDebug: props.showDhDebug,
       showTrajectory: props.showTrajectory,
       onGizmoSolve: props.onGizmoSolve,
+      getGizmoPose: props.getGizmoPose,
       onGizmoDragStart: props.onGizmoDragStart,
       onGizmoDragEnd: props.onGizmoDragEnd,
       gizmoInteractive: props.gizmoInteractive,
@@ -217,11 +221,7 @@ onBeforeUnmount(() => {
       >
         标签
       </button>
-      <span
-        class="scene-aux-group scene-aux-gizmo-group"
-        role="group"
-        aria-label="末端拖拽操作轴"
-      >
+      <span class="scene-aux-group scene-aux-gizmo-group" role="group" aria-label="末端拖拽操作轴">
         <button
           type="button"
           :class="['scene-aux-button', { active: props.transformGizmoEnabled }]"
@@ -234,7 +234,11 @@ onBeforeUnmount(() => {
         <template v-if="props.transformGizmoEnabled">
           <button
             type="button"
-            :class="['scene-aux-button', 'scene-aux-gizmo-mode', { active: props.transformGizmoMode === 'translate' }]"
+            :class="[
+              'scene-aux-button',
+              'scene-aux-gizmo-mode',
+              { active: props.transformGizmoMode === 'translate' },
+            ]"
             :aria-pressed="props.transformGizmoMode === 'translate'"
             title="平移模式：拖动三轴箭头移动末端位置 X / Y / Z"
             @click="emit('gizmo-mode-change', 'translate')"
@@ -243,7 +247,11 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
-            :class="['scene-aux-button', 'scene-aux-gizmo-mode', { active: props.transformGizmoMode === 'rotate' }]"
+            :class="[
+              'scene-aux-button',
+              'scene-aux-gizmo-mode',
+              { active: props.transformGizmoMode === 'rotate' },
+            ]"
             :aria-pressed="props.transformGizmoMode === 'rotate'"
             title="旋转模式：拖动圆弧手柄旋转末端姿态 RX / RY / RZ"
             @click="emit('gizmo-mode-change', 'rotate')"
@@ -290,7 +298,11 @@ onBeforeUnmount(() => {
   padding: 24px;
   color: var(--color-text-muted);
   text-align: center;
-  background: radial-gradient(circle at center, var(--color-overlay-bg-strong), var(--color-scene-bg) 72%);
+  background: radial-gradient(
+    circle at center,
+    var(--color-overlay-bg-strong),
+    var(--color-scene-bg) 72%
+  );
 }
 
 .scene-webgl-fallback strong {

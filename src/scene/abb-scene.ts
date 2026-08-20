@@ -56,6 +56,8 @@ export interface AbbSceneOptions {
   showTrajectory?: boolean
   /** 末端拖拽操作轴：对目标 ABB Pose 求解 IK，成功应用关节并返回 true，不可达返回 false。 */
   onGizmoSolve?: (pose: Pose) => boolean
+  /** 操作轴空闲/回弹时跟随的 DH 机械法兰 Pose；优先于 FBX 视觉骨骼原点。 */
+  getGizmoPose?: () => Pose | null
   onGizmoDragStart?: () => void
   onGizmoDragEnd?: () => void
   /** 拖拽是否允许（默认 true；程序运行期间可设为 false 以禁用手柄）。 */
@@ -375,6 +377,7 @@ export function createAbbScene(
         domElement: runtime.domElement,
         orbitControls: runtime.controls,
         flangeNodeName: ABB_FLANGE_NODE_NAME,
+        getAuthoritativePose: options.getGizmoPose,
         getModel: () => runtime.model,
         solveTargetPose: onGizmoSolve,
         onDragStart: options.onGizmoDragStart,

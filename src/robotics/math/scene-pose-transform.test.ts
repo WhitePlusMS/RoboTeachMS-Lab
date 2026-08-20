@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  abbPoseToSceneTransform,
   abbPositionToSceneM,
   abbRotationToSceneRotation,
   scenePositionToAbbMm,
@@ -105,6 +106,25 @@ describe('scene-pose-transform 场景 frame ↔ ABB 基座 frame', () => {
     for (let row = 0; row < 3; row += 1) {
       for (let col = 0; col < 3; col += 1) {
         expect(recovered.rotation[row][col]).toBeCloseTo(fk.rotation[row][col], 6)
+      }
+    }
+  })
+
+  it('DH 当前法兰 Pose 转场景后再回 ABB，保持旋转拖拽起点一致', () => {
+    const model = new AbbDhRobotModel()
+    const joints: [number, number, number, number, number, number] = [12, -18, 24, 8, 20, -15]
+    const pose = model.forwardKinematics(joints)
+    expect(pose).not.toBeNull()
+    if (!pose) return
+
+    const scene = abbPoseToSceneTransform(pose, BASE_HEIGHT_MM)
+    const recovered = sceneTransformToAbbPose(scene.position, scene.quaternion, BASE_HEIGHT_MM)
+    recovered.position.forEach((value, index) =>
+      expect(value).toBeCloseTo(pose.position[index], 10),
+    )
+    for (let row = 0; row < 3; row += 1) {
+      for (let col = 0; col < 3; col += 1) {
+        expect(recovered.rotation[row][col]).toBeCloseTo(pose.rotation[row][col], 10)
       }
     }
   })

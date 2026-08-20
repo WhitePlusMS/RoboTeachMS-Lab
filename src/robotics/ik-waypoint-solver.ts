@@ -128,6 +128,40 @@ function normalizedJointDistance(
 }
 
 /**
+ * 末端拖拽操作轴的 IK 求解：以当前关节为主初值，失败后再扫备用初值；与 `resolveJointSolution`
+ * 的唯一区别是**不拒绝落在关节范围边界的解**。
+ *
+ * gizmo 的拖拽在运动学位姿上连续、但可能在关节边界/奇异附近（尤其旋转时手腕极限），单初值
+ * DLS 常在某一关节贴边时陷入窄收敛盆地而误判不可达；翻转构型初值多数能把解带回可达分支。
+ * 相比 MoveJ/L/C 规划（必须拒绝贴边解以保持段间连续），末端拖拽本来就允许停在边界上，因此
+ * 这里的多初值策略接受贴边解，选中所有可达候选中离当前关节最近的解，避免可直接到达的旋转
+ * 被误报「末端位置不可达」而回弹。
+ */
+export function solveGizmoTarget(
+  targetPose: Pose,
+  referenceJoints: JointAngles,
+  model: RobotModel,
+  jointRanges: readonly (readonly [number, number])[],
+  solverConfig: Partial<IKSolverConfig> = {},
+): JointAngles | null {
+  const primary = solveIK(targetPose, referenceJoints, model, solverConfig, jointRanges)
+  if (primary) return primary
+
+  let best: JointAngles | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const seed of buildAlternateIKSeeds(referenceJoints, jointRanges)) {
+    const candidate = solveIK(targetPose, seed, model, solverConfig, jointRanges)
+    if (!candidate) continue
+    const distance = normalizedJointDistance(candidate, referenceJoints, jointRanges)
+    if (distance < bestDistance) {
+      best = candidate
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+/**
  * 求解一个到达 targetPose 的关节解：先以参考姿态为主初值，成功且不夹边则立即返回；
  * 主初值无效后才扫描有限、确定性的备用初值，在多个候选中选择离参考姿态最近的解。
  * 返回成功解，或带失败原因的标记（主初值夹边 vs 真正不可达）。

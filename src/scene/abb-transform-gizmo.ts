@@ -2,7 +2,10 @@ import * as THREE from 'three'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Pose } from '@/robotics/types.ts'
-import { sceneTransformToAbbPose } from '@/robotics/math/scene-pose-transform.ts'
+import {
+  abbPoseToSceneTransform,
+  sceneTransformToAbbPose,
+} from '@/robotics/math/scene-pose-transform.ts'
 import { findNode } from './scene-factory.ts'
 
 export type TransformGizmoMode = 'translate' | 'rotate'
@@ -17,6 +20,8 @@ export interface AbbTransformGizmoOptions {
   flangeNodeName: string
   /** 解析当前布局的根模型（null 表示尚未加载）。 */
   getModel: () => THREE.Object3D | null
+  /** 当前 DH 机械法兰位姿；操作轴跟随它而非 FBX 的近似骨骼原点。 */
+  getAuthoritativePose?: () => Pose | null
   /** 对目标 ABB Pose 求解 IK；成功并应用返回 true，不可达返回 false。 */
   solveTargetPose: (pose: Pose) => boolean
   onDragStart?: () => void
@@ -28,11 +33,11 @@ export interface AbbTransformGizmoOptions {
 /**
  * 末端法兰拖拽操作轴（TransformControls 封装）。
  *
- * 用原生 three 的 TransformControls 挂到一个「弱代理」dummy Object3D 上，dummy 平时跟随
- * 法兰节点（joint6）的世界位姿。拖拽时读取 dummy 的世界位姿（场景 frame），换算成 ABB 基座
- * Pose 交给 solveTargetPose（DH IK），成功则关节被应用、FBX 跟随；失败/不可达则 dummy 回弹到
- * 法兰位姿，避免手柄与机械臂脱节。与参考项目（React drei TransformControls + dummy）同构，
- * 只是用 imperative 原生实现。
+ * 用原生 three 的 TransformControls 挂到一个「弱代理」dummy Object3D 上，dummy 平时优先跟随
+ * DH 机械法兰的场景位姿（未提供运动学回调时才降级跟随 joint6）。拖拽时读取 dummy 的世界位姿
+ * （场景 frame），换算成 ABB 基座 Pose 交给 solveTargetPose（DH IK），成功则关节被应用、FBX
+ * 跟随；失败/不可达则 dummy 回弹到最新有效法兰位姿，避免手柄与机械臂脱节。与参考项目
+ * （React drei TransformControls + dummy）同构，只是用 imperative 原生实现。
  */
 export class AbbTransformGizmo {
   private readonly scene: THREE.Scene
@@ -71,6 +76,14 @@ export class AbbTransformGizmo {
 
   /** 当归帧跟随法兰或读取世界位姿时统一更新的方法。 */
   private followFlange(): boolean {
+    const authoritativePose = this.options.getAuthoritativePose?.()
+    if (authoritativePose) {
+      const transform = abbPoseToSceneTransform(authoritativePose, this.baseHeightMm)
+      this.dummy.position.set(...transform.position)
+      this.dummy.quaternion.set(...transform.quaternion)
+      return true
+    }
+
     const model = this.options.getModel()
     if (!model) return false
     const flange = findNode(model, this.options.flangeNodeName)
@@ -99,7 +112,12 @@ export class AbbTransformGizmo {
     if (!this.dragging) return
     const targetPose = sceneTransformToAbbPose(
       [this.dummy.position.x, this.dummy.position.y, this.dummy.position.z],
-      [this.dummy.quaternion.x, this.dummy.quaternion.y, this.dummy.quaternion.z, this.dummy.quaternion.w],
+      [
+        this.dummy.quaternion.x,
+        this.dummy.quaternion.y,
+        this.dummy.quaternion.z,
+        this.dummy.quaternion.w,
+      ],
       this.baseHeightMm,
     )
     if (this.options.solveTargetPose(targetPose)) return

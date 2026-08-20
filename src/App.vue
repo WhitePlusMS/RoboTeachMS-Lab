@@ -9,7 +9,7 @@ import SceneViewport from '@/components/SceneViewport.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
 import type { JointAngles, Pose } from '@/robotics/types.ts'
-import { solveIK } from '@/robotics/ik-solver.ts'
+import { solveGizmoTarget as solveGizmoIK } from '@/robotics/ik-waypoint-solver.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
 import {
   adjustJointAngle,
@@ -209,13 +209,18 @@ const transformGizmoMode = ref<'translate' | 'rotate'>('translate')
 const gizmoDragUnreachable = ref(false)
 
 function solveGizmoTarget(pose: Pose): boolean {
-  const solved = solveIK(pose, joints.value, profile.model, {}, profile.jointRanges)
+  const solved = solveGizmoIK(pose, joints.value, profile.model, profile.jointRanges)
   if (!solved) {
     gizmoDragUnreachable.value = true
     return false
   }
   setJointsImmediate(solved)
   return true
+}
+
+/** 操作轴的显示锚点使用同一套 DH FK 真值，不能读取 FBX 近似骨骼原点。 */
+function getGizmoPose(): Pose | null {
+  return profile.model.forwardKinematics(joints.value)
 }
 
 function handleGizmoDragStart(): void {
@@ -410,6 +415,7 @@ provideProgramPanelController({
               :transform-gizmo-enabled="transformGizmoEnabled"
               :transform-gizmo-mode="transformGizmoMode"
               :on-gizmo-solve="solveGizmoTarget"
+              :get-gizmo-pose="getGizmoPose"
               :on-gizmo-drag-start="handleGizmoDragStart"
               :on-gizmo-drag-end="handleGizmoDragEnd"
               :gizmo-interactive="() => programSnapshot.state !== 'running'"
