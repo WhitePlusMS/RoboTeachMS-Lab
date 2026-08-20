@@ -1,190 +1,209 @@
-# RoboTeachMS Lab · 工业机器人示教编程实验室
+[English](README.md) | [简体中文](README.zh.md)
 
-> 面向工业机器人教学的浏览器端三维示教与编程仿真工作台。
-> 通过关节控制、笛卡尔 Jog、末端操作轴、RAPID 程序执行和点位示教，
-> 把机器人运动学与程序运行过程放进一个可观察、可操作、可验证的实验环境。
+# RoboTeachMS Lab · Industrial Robot Teaching & Programming Lab
 
-## 项目定位
+> A browser-based 3D teaching and programming simulation workbench for industrial robots.
+> RoboTeachMS Lab brings joint control, Cartesian Jog, end-effector manipulation, RAPID
+> program execution, and point teaching into one observable, interactive, and verifiable
+> learning environment.
 
-RoboTeachMS Lab 是一个纯前端工业机器人示教编程仿真项目。
+## Project overview
 
-当前应用默认运行 **ABB IRB 1200-5/0.9 六轴机器人**，使用真实 FBX 模型进行三维显示，使用 DH 运动学模型负责正逆运动学与轨迹计算。通用机器人核心与具体厂商模型通过 `robot profile` 分层，后续可以在不重写示教工作台的前提下接入 KUKA、汇川等其他品牌和型号。
+RoboTeachMS Lab is a front-end-only industrial robot teaching and programming simulator.
 
-本项目面向教学与算法验证，不是完整的 RAPID 编译器、ABB RobotStudio 替代品，也不连接真实机器人控制器。
+The default application uses an **ABB IRB 1200-5/0.9 six-axis robot**. A real FBX model is
+used for the 3D view, while a DH-based kinematics model drives forward/inverse kinematics
+and trajectory calculations. Generic robot services are separated from vendor-specific
+profiles, so KUKA, Inovance, and other manufacturers can be added without rewriting the
+teaching workbench.
 
-## 核心功能
+This project is intended for education and algorithm validation. It is not a complete RAPID
+compiler, an ABB RobotStudio replacement, or a connection to a real robot controller.
 
-| 模块               | 能力                                                                                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **三维机器人场景** | Three.js + FBX 加载 ABB IRB 1200 模型；模型加载失败时使用几何占位；支持场景旋转、缩放、平移、网格、世界坐标轴和 DH 调试链显示。                            |
-| **关节示教**       | J1～J6 独立控制、角度直接输入、步进幅度选择、单步调整、长按连续调整、回零、随机姿态和关节范围限制。                                                        |
-| **笛卡尔 Jog**     | X/Y/Z 与 RX/RY/RZ 控制；支持 World / Tool 坐标系；位置和姿态使用独立步进值；目标通过数值 IK 和轨迹插值驱动机器人。                                         |
-| **末端操作轴**     | 在三维场景中切换平移/旋转拖拽；拖拽目标使用 ABB 基座 Pose 求解 IK；操作轴跟随 DH 正解位姿，避免把 FBX 视觉偏差带入求解。                                   |
-| **正逆运动学**     | 基于 DH 参数的正运动学、数值 Jacobian、阻尼最小二乘逆解、多初值 Gizmo 目标求解、关节范围校验和不可达目标提示。                                             |
-| **RAPID 编辑器**   | 编辑 RAPID 源程序、语法与数据诊断、源码范围定位、程序运行/单步/停止/继续、PP to Main、撤销/重做和运行日志。                                                |
-| **程序数据**       | 从同一次 RAPID 解析结果派生 `robtarget`、`tooldata`、`wobjdata`、`speeddata`、`zonedata`、`loaddata`、`num`、`bool` 等数据视图，不维护第二份隐藏点位状态。 |
-| **点位示教**       | 新插入运动指令使用 `*` 未示教占位；可以选择已有点位、记录当前位置创建点位、修改位置、重命名和删除点位；三维场景可显示并高亮命名 `robtarget`。              |
-| **运动执行**       | `MoveJ`、`MoveL`、`MoveC` 规划与执行；支持速度、转弯区、工具/工件坐标和基础位置函数；程序执行状态、程序指针 PP、运动指针 MP 与日志同步显示。               |
-| **本地持久化**     | RAPID 源程序使用浏览器 `localStorage` 保存，无需后端服务或数据库。                                                                                         |
+## Features
 
-## RAPID 教学子集
+| Module                         | Capabilities                                                                                                                                                                                              |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **3D robot scene**             | Three.js and FBX loading for the ABB IRB 1200 model; geometric fallback when the model cannot be loaded; scene orbit, zoom, pan, grid, world axes, and DH debug-chain display.                            |
+| **Joint teaching**             | Independent J1–J6 control, direct angle input, selectable step sizes, single-step and press-and-hold movement, homing, random poses, and joint-limit enforcement.                                         |
+| **Cartesian Jog**              | X/Y/Z and RX/RY/RZ control in World or Tool coordinates, with independent position/orientation increments and numerical IK with trajectory interpolation.                                                 |
+| **End-effector gizmo**         | Translation and rotation dragging in the 3D scene; IK targets are solved from the ABB base pose and the gizmo follows DH forward-kinematics truth instead of FBX visual offsets.                          |
+| **Forward/inverse kinematics** | DH forward kinematics, numerical Jacobian, damped least-squares IK, multi-seed gizmo solving, joint-limit validation, and unreachable-target diagnostics.                                                 |
+| **RAPID editor**               | RAPID source editing, syntax and data diagnostics, source-range navigation, run/step/stop/continue, PP to Main, undo/redo, and execution logs.                                                            |
+| **Program Data**               | `robtarget`, `tooldata`, `wobjdata`, `speeddata`, `zonedata`, `loaddata`, `num`, and `bool` views derived from the same RAPID parse result without a second hidden point state.                           |
+| **Point teaching**             | New motion instructions start with an untaught `*` placeholder; users can select, record, modify, rename, and delete points, while named `robtarget` values can be shown and highlighted in the 3D scene. |
+| **Motion execution**           | `MoveJ`, `MoveL`, and `MoveC` planning and execution with speed, zone, tool/work-object data, basic position functions, synchronized PP/MP pointers, and logs.                                            |
+| **Local persistence**          | RAPID source is stored in browser `localStorage`; no backend or database is required.                                                                                                                     |
 
-项目刻意实现一个可控的 RAPID 教学子集，让“源码 → 诊断 → 规划 → 运动执行”闭环可以在浏览器中观察。
+## RAPID teaching subset
 
-当前支持的主要内容：
+The project intentionally implements a controlled RAPID teaching subset so the complete
+**source → diagnostics → planning → motion execution** loop can be observed in a browser.
 
-- 模块与 `main` 程序结构；模块级 `CONST robtarget`、`PERS`/`VAR` 基础数据声明。
-- `tooldata`、`wobjdata`、`speeddata`、`zonedata`、`loaddata` 等运动相关数据的基础解析与校验。
-- `MoveJ`、`MoveL`、`MoveC` 运动指令。
-- 数值位置函数 `Offs(...)` 与 `RelTool(...)`，以及工具、工件坐标的基础变换。
-- `num` / `bool` 标量、字面量、变量、括号、算术运算、比较、`AND` / `OR` / `NOT`。
-- `IF` / `ELSEIF` / `ELSE` / `ENDIF`、`WHILE`、`FOR ... TO ... STEP ...` 和 `EXITDO`。
-- 词法、语法、名称解析、数据校验和运动规划诊断，并将问题定位到源码范围。
-- 循环单步观察和全局循环步数上限，避免教学示例中的死循环阻塞页面。
+Currently supported:
 
-当前明确不覆盖：
+- Module and `main` program structure; module-level `CONST robtarget` and basic `PERS`/`VAR` declarations.
+- Basic parsing and validation for `tooldata`, `wobjdata`, `speeddata`, `zonedata`, and `loaddata`.
+- `MoveJ`, `MoveL`, and `MoveC` motion instructions.
+- `Offs(...)` and `RelTool(...)`, with basic tool and work-object transformations.
+- `num` and `bool` scalars, literals, variables, parentheses, arithmetic, comparisons, `AND`, `OR`, and `NOT`.
+- `IF` / `ELSEIF` / `ELSE` / `ENDIF`, `WHILE`, `FOR ... TO ... STEP ...`, and `EXITDO`.
+- Lexical, syntax, name-resolution, data-validation, and motion-planning diagnostics mapped to source ranges.
+- Loop-aware single stepping and a global loop-step limit to prevent teaching examples from blocking the page.
 
-- 完整 RAPID 编译器语义和 ABB 控制器全部系统指令。
-- `REPEAT ... UNTIL`、`TEST/CASE`、完整的 `PROC/FUNC` 调用体系。
-- I/O、真实控制器通信、外部轴、碰撞检测和动力学仿真。
-- 任意复杂表达式驱动的 `Offs` / `RelTool`、复合数据运行时赋值和完整调试器能力。
+Not currently covered:
 
-超出教学子集的内容会通过结构化诊断提示，并阻止不安全的程序执行；具体支持范围以编辑器诊断为准。
+- Complete RAPID compiler semantics and the full set of ABB controller system instructions.
+- `REPEAT ... UNTIL`, `TEST/CASE`, and a complete `PROC`/`FUNC` call system.
+- I/O, real-controller communication, external axes, collision detection, and dynamics simulation.
+- Arbitrary complex expressions for `Offs` / `RelTool`, runtime assignment of composite data, and a full debugger.
 
-## 技术栈
+Unsupported teaching-subset syntax is reported through structured diagnostics and blocks unsafe
+program execution. The editor diagnostics are the source of truth for the exact supported range.
 
-| 层         | 技术                                                              |
-| ---------- | ----------------------------------------------------------------- |
-| 前端框架   | Vue 3 + `<script setup>`                                          |
-| 语言       | TypeScript                                                        |
-| 构建工具   | Vite                                                              |
-| 三维渲染   | Three.js、FBXLoader                                               |
-| 线性代数   | `ml-matrix`、项目内矩阵/旋转工具                                  |
-| 代码编辑   | CodeMirror 6                                                      |
-| 状态组织   | Vue Composition API、应用层控制器与共享上下文                     |
-| 单元测试   | Vitest、Vue Test Utils、jsdom                                     |
-| 端到端测试 | Playwright                                                        |
-| 代码质量   | ESLint、TypeScript ESLint、eslint-plugin-vue、Stylelint、Prettier |
+## Technology stack
 
-## 架构概览
+| Layer              | Technology                                                              |
+| ------------------ | ----------------------------------------------------------------------- |
+| Front-end          | Vue 3 with `<script setup>`                                             |
+| Language           | TypeScript                                                              |
+| Build tool         | Vite                                                                    |
+| 3D rendering       | Three.js and `FBXLoader`                                                |
+| Linear algebra     | `ml-matrix` and project matrix/rotation utilities                       |
+| Code editing       | CodeMirror 6                                                            |
+| State organization | Vue Composition API, application controllers, and shared contexts       |
+| Unit tests         | Vitest, Vue Test Utils, and jsdom                                       |
+| End-to-end tests   | Playwright                                                              |
+| Code quality       | ESLint, TypeScript ESLint, `eslint-plugin-vue`, Stylelint, and Prettier |
 
-### 从 RAPID 源码到机器人运动
+## Architecture
+
+### From RAPID source to robot motion
 
 ```text
-RAPID 源程序
+RAPID source
     ↓
 Lexer / Parser / Diagnostics
     ↓
-符号表、Program Data、结构化运动指令
+Symbol table, Program Data, and structured motion instructions
     ↓
 Program Executor
     ↓
-MoveJ / MoveL / MoveC 运动规划
+MoveJ / MoveL / MoveC planning
     ↓
-MotionRunner 插值执行
+MotionRunner interpolation
     ↓
-关节状态 → DH 正解 → ABB Pose → Three.js 场景
+Joint state → DH forward kinematics → ABB pose → Three.js scene
 ```
 
-### 分层原则
+### Layering principles
 
-- `src/robotics/` 只负责通用运动学、矩阵、IK、轨迹和运动执行，不依赖 Vue、Three.js 或 RAPID 文本。
-- `src/robot-models/` 提供具体机器人型号的 profile、DH 参数、关节范围和回零姿态；当前主应用使用 `ABB_IRB1200_PROFILE`。
-- `src/rapid/` 负责 RAPID 词法、解析、诊断、符号解析、运动数据和规划器。
-- `src/application/` 负责页面级控制编排、程序控制、关节控制、笛卡尔控制、日志和提示。
-- `src/scene/` 负责 Three.js 场景、FBX 模型、坐标转换、轨迹、点位标记和末端操作轴。
-- `src/components/` 负责工作台、程序编辑器、Jog 面板、数据面板和三维视口等 Vue 组件。
+- `src/robotics/` contains generic kinematics, matrices, IK, trajectories, and motion execution; it does not depend on Vue, Three.js, or RAPID text.
+- `src/robot-models/` provides vendor/model profiles, DH parameters, joint limits, and home poses. The main application currently uses `ABB_IRB1200_PROFILE`.
+- `src/rapid/` handles RAPID lexing, parsing, diagnostics, symbol resolution, motion data, and planning.
+- `src/application/` orchestrates page-level controllers, program control, joint control, Cartesian control, logs, and notices.
+- `src/scene/` handles Three.js, FBX models, coordinate conversion, trajectories, point markers, and the end-effector gizmo.
+- `src/components/` contains the Vue workbench, program editor, Jog panels, data panel, and 3D viewport.
 
-### 坐标与单位
+### Coordinates and units
 
-- ABB 机器人基座坐标是运动学和 RAPID 点位的领域真值。
-- ABB 位置使用毫米，用户界面角度使用度；DH 内部计算按实现需要转换为弧度。
-- Three.js 场景使用米和场景坐标适配层；场景显示坐标不定义 RAPID 或运动学语义。
-- Tool / WObj 变换在进入运动规划前完成，避免把视觉模型坐标直接当作机器人控制坐标。
+- The ABB base coordinate frame is the domain truth for kinematics and RAPID points.
+- ABB positions use millimeters and UI angles use degrees; DH internals convert to radians where required.
+- Three.js uses meters plus a scene-coordinate adapter. Display coordinates do not define RAPID or kinematics semantics.
+- Tool/work-object transforms are applied before planning, so visual model coordinates are never treated as controller coordinates.
 
-## 快速开始
+## Quick start
 
-### 环境要求
+### Requirements
 
-- Node.js 20 或更高版本
-- npm 10 或更高版本
+- Node.js 20 or newer
+- npm 10 or newer
 
-### 安装与运行
+### Install and run
 
 ```bash
 npm install
 npm run dev
 ```
 
-Vite 启动后，在终端显示的地址打开页面即可。
+Open the URL printed by Vite in a browser.
 
-### 构建预览
+### Build and preview
 
 ```bash
 npm run build
 npm run preview
 ```
 
-## 常用命令
+### Common commands
 
 ```bash
-# TypeScript / Vue 类型检查
+# TypeScript / Vue type checking
 npm run check
 
-# 运行 src 下的单元测试
+# Unit tests under src/
 npm run test
 
-# 运行 Playwright 端到端测试
+# Playwright end-to-end tests
 npm run test:e2e
 
-# ESLint 与 Stylelint
+# ESLint and Stylelint
 npm run lint
 npm run lint:style
 
-# 格式化与格式检查
+# Formatting and format check
 npm run format
 npm run format:check
 ```
 
-首次运行端到端测试时，如果本机尚未安装 Playwright 浏览器，可执行：
+If Playwright browsers are not installed locally, run:
 
 ```bash
 npx playwright install
 ```
 
-## 项目结构
+## GitHub Pages deployment
+
+Pushes to the `mater` branch trigger `.github/workflows/deploy-gh-pages.yml`. The workflow
+installs dependencies with Node.js 20, builds the Vite application, and publishes `dist/`
+to the `gh-pages` branch. The Vite base path is automatically set to `/RoboTeachMS-Lab/`
+in GitHub Actions builds.
+
+## Project structure
 
 ```text
 .
 ├─ public/
-│  ├─ brand/                         # RoboTeachMS Lab 品牌图片
-│  └─ models/                        # ABB IRB 1200 FBX 模型
+│  ├─ brand/                         # RoboTeachMS Lab brand assets
+│  └─ models/                        # ABB IRB 1200 FBX and other robot models
 ├─ src/
-│  ├─ application/                   # 页面控制器、程序控制、日志、提示
-│  ├─ components/                    # Vue 工作台、编辑器、控制面板
-│  ├─ rapid/                         # RAPID Lexer、Parser、诊断、规划器
-│  ├─ robotics/                      # 通用运动学、IK、轨迹、MotionRunner
-│  ├─ robot-models/                  # 机器人 profile 与型号适配
-│  ├─ scene/                         # Three.js、FBX、坐标适配、Gizmo
-│  ├─ theme/                         # 页面与场景设计令牌
-│  ├─ testing/                       # 测试时钟等测试支持
-│  ├─ App.vue                        # 应用编排入口
-│  └─ main.ts                        # Vue 应用启动入口
-├─ e2e/                              # Playwright 端到端场景
-├─ abb-rapid-eval/                   # RAPID 评估相关独立工具/资料
-├─ docs/                             # 设计、研究与测试文档
+│  ├─ application/                   # Page controllers, program control, logs, notices
+│  ├─ components/                    # Vue workbench, editor, and control panels
+│  ├─ rapid/                         # RAPID lexer, parser, diagnostics, and planner
+│  ├─ robotics/                      # Generic kinematics, IK, trajectories, MotionRunner
+│  ├─ robot-models/                  # Robot profiles and model adapters
+│  ├─ scene/                         # Three.js, FBX, coordinate adapters, and gizmo
+│  ├─ theme/                         # Page and scene design tokens
+│  ├─ testing/                       # Test clocks and test support
+│  ├─ App.vue                        # Application orchestration entry
+│  └─ main.ts                        # Vue application bootstrap
+├─ e2e/                              # Playwright end-to-end scenarios
 ├─ index.html
 ├─ package.json
 └─ vite.config.ts
 ```
 
-## 后续扩展方向
+## Roadmap
 
-- 接入 KUKA、汇川等厂商的机器人 profile、DH 参数、模型和指令适配。
-- 扩展 RAPID 教学子集与其他厂商程序语言的共同抽象。
-- 增加更完整的外部轴、工具/工件数据和工业任务流程仿真。
-- 在保持浏览器本地教学闭环的基础上，补充可导入、导出和课程实验记录能力。
+- Add KUKA, Inovance, and other vendor robot profiles, DH parameters, models, and command adapters.
+- Extend the RAPID teaching subset and create shared abstractions for other vendor languages.
+- Add more complete external-axis, tool/work-object, and industrial task-flow simulation.
+- Add import/export and course-experiment records while keeping the browser-local teaching loop.
 
-## 说明
+## License and scope
 
-本项目的所有运动学、解析、规划和仿真逻辑均在浏览器端运行，不依赖后端服务。项目中的机器人模型、厂商参数和程序语言能力均按教学仿真用途组织，不能直接替代真实机器人控制器上的安全验证流程。
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+All kinematics, parsing, planning, and simulation logic runs in the browser without a backend.
+Robot models, vendor parameters, and programming-language features are organized for teaching
+simulation and cannot replace safety validation on a real robot controller.
