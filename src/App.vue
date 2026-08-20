@@ -205,12 +205,31 @@ const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
  */
 const transformGizmoEnabled = ref(false)
 const transformGizmoMode = ref<'translate' | 'rotate'>('translate')
+/** 本次拖拽会话（drag-start→drag-end）内是否出现过不可达目标；用于结束一次性提示。 */
+const gizmoDragUnreachable = ref(false)
 
 function solveGizmoTarget(pose: Pose): boolean {
   const solved = solveIK(pose, joints.value, profile.model, {}, profile.jointRanges)
-  if (!solved) return false
+  if (!solved) {
+    gizmoDragUnreachable.value = true
+    return false
+  }
   setJointsImmediate(solved)
   return true
+}
+
+function handleGizmoDragStart(): void {
+  gizmoDragUnreachable.value = false
+  programControl.stopActiveProgram()
+  stopAnimation()
+}
+
+function handleGizmoDragEnd(): void {
+  if (gizmoDragUnreachable.value) {
+    runLog.info('运动', '末端位置不可达，操作轴已回弹至最近可到达位置')
+    toasts.push('warn', '末端位置不可达', '目标超出工作空间，已保留最近可到达位姿')
+    gizmoDragUnreachable.value = false
+  }
 }
 
 const {
@@ -391,8 +410,8 @@ provideProgramPanelController({
               :transform-gizmo-enabled="transformGizmoEnabled"
               :transform-gizmo-mode="transformGizmoMode"
               :on-gizmo-solve="solveGizmoTarget"
-              :on-gizmo-drag-start="() => { programControl.stopActiveProgram(); stopAnimation() }"
-              :on-gizmo-drag-end="() => undefined"
+              :on-gizmo-drag-start="handleGizmoDragStart"
+              :on-gizmo-drag-end="handleGizmoDragEnd"
               :gizmo-interactive="() => programSnapshot.state !== 'running'"
               @status="sceneStatus = $event"
               @grid-change="showGrid = $event"

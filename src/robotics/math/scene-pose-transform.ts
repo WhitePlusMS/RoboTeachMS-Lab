@@ -9,6 +9,10 @@ import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
  * 只做它的数学逆像，供「末端拖拽操作轴」把 gizmo 的世界位姿换算成 DH 逆解器可用的 ABB Pose。
  * 基座高度 `baseHeightMm`（FBX 底座/支架抬升量）不在运动学真值内，只在显示时叠加，因此换算时
  * 必须把场景 Y 减去 baseHeight 再乘以 1000；旋转矩阵的基变换同理。
+ *
+ * 注意：下方两个 3x3 常量是 `ABB_BASE_TO_SCENE`（scene/abb-scene-transform.ts，单一真源）左上
+ * 3x3 的手工副本。本模块位于纯数学层，故意不 import 场景显示层以避免反向依赖；一致性由测试
+ * `scene-pose-transform.test.ts` 的「与 ABB_BASE_TO_SCENE 一致」断言锁定。若改真源须同步这里。
  */
 
 /** ABB → 场景的 3x3 旋转矩阵（同一 M，见 ABB_BASE_TO_SCENE 左上 3x3）。 */

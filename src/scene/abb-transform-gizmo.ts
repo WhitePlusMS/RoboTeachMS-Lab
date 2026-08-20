@@ -65,10 +65,7 @@ export class AbbTransformGizmo {
     this.scene.add(this.controls.getHelper())
     this.visible(false)
 
-    this.controls.addEventListener(
-      'dragging-changed',
-      this.handleDraggingChanged as unknown as (event: { value: unknown }) => void,
-    )
+    this.controls.addEventListener('dragging-changed', this.handleDraggingChanged)
     this.controls.addEventListener('objectChange', this.handleObjectChange)
   }
 
@@ -86,7 +83,8 @@ export class AbbTransformGizmo {
     return true
   }
 
-  private readonly handleDraggingChanged = (event: { value?: unknown }): void => {
+  /** three TransformControls 把 'dragging-changed' 事件 value 声明为 unknown（见 @types/three）。 */
+  private readonly handleDraggingChanged = (event: { value: unknown }): void => {
     const interactive = this.options.isInteractive?.() ?? true
     const dragging = event.value === true
     // 拖拽期间禁用轨道控制，避免两者抢鼠标（参照 drei 自动禁用行为）。
@@ -160,18 +158,9 @@ export class AbbTransformGizmo {
     }
   }
 
-  /** 供外部在关节外部更新后立即刷新 dummy（例如 Jog 时）。 */
-  syncNow(): void {
-    if (!this.enabled || this.dragging) return
-    this.followFlange()
-  }
-
   dispose(): void {
     this.stopLoop()
-    this.controls.removeEventListener(
-      'dragging-changed',
-      this.handleDraggingChanged as unknown as (event: { value: unknown }) => void,
-    )
+    this.controls.removeEventListener('dragging-changed', this.handleDraggingChanged)
     this.controls.removeEventListener('objectChange', this.handleObjectChange)
     this.controls.dispose()
     this.scene.remove(this.controls.getHelper())
