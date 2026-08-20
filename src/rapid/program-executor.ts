@@ -153,7 +153,11 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
   }
 
   function isMotionInstruction(instruction: TInstruction): boolean {
-    return instruction.kind === 'movej' || instruction.kind === 'movel'
+    return (
+      instruction.kind === 'movej' ||
+      instruction.kind === 'movel' ||
+      instruction.kind === 'movec'
+    )
   }
 
   /** 只有未运行时才可启动新的执行（idle/stopped）；运行中返回 false 防止第二条链。 */

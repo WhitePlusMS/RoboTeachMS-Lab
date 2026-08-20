@@ -2,7 +2,8 @@
  * RAPID 预设程序库：教学台 RAPID 标签页可一键加载的默认模板。
  * 六个预设按「运行能力维度」各代表一类：1 大范围慢速循环、2 自定义工具/工件+Offs、
  * 3 控制流与标量、4 流水线多点位往返取放、5 锯齿高低起伏路径、6 液晶数字 0–9 循环书写。
- * 均以「MoveJ 定位 + MoveL 短直线」的安全坐标编写，已用真实 planMoveJ/planMoveL 逐条验证可达。
+ * 以「MoveJ 定位 + MoveL 短直线」的安全坐标为主，预设 5 另含一段 MoveC 圆弧过渡；
+ * 均用真实 planMoveJ/planMoveL/planMoveC 逐条验证可达。
  * 表单项只读：六类运动数据、num/bool 标量、IF/WHILE/FOR/EXITDO 控制流等能力全部覆盖。
  * 源码是模板的唯一事实源，运行时由 rapid-parser 解析。
  */
@@ -159,6 +160,8 @@ const PRESET_PROGRAM_5 = `MODULE M
   CONST robtarget w10 := [[321,-110,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   CONST robtarget w11 := [[321,110,600],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   CONST robtarget w12 := [[321,110,520],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  ! MoveC 圆弧途点：连接 w10→w11 的弧线凸点，构成“锯齿 + 圆弧过渡”的复合路径。
+  CONST robtarget cArc := [[321,-60,580],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
   PROC main()
     MoveJ pHome, v300, fine, tool0;
     MoveJ w1, v200, fine, tool0;  MoveL w2, v80, fine, tool0;
@@ -166,7 +169,9 @@ const PRESET_PROGRAM_5 = `MODULE M
     MoveJ w5, v200, fine, tool0;  MoveL w6, v80, fine, tool0;
     MoveJ w7, v200, fine, tool0;  MoveL w8, v80, fine, tool0;
     MoveJ w9, v200, fine, tool0;  MoveL w10, v80, fine, tool0;
-    MoveJ w11, v200, fine, tool0; MoveL w12, v80, fine, tool0;
+    ! 圆弧过渡：从 w10(左低) 经 cArc 弧线扫到 w11(左高)，再下探 w12，演示 MoveC 圆弧。
+    MoveC cArc, w11, v80, fine, tool0;
+    MoveL w12, v80, fine, tool0;
     MoveJ pHome, v300, fine, tool0;
   ENDPROC
 ENDMODULE`
@@ -319,8 +324,8 @@ export const RAPID_PRESET_PROGRAMS: ReadonlyArray<RapidPresetProgram> = [
   },
   {
     id: 'preset-5',
-    name: '5 · 锯齿高低路径（左右交替 + 大幅起伏）',
-    description: 'MoveJ 定位 + MoveL 短步，绕回字形大幅高低起伏轨迹（跨度约 260×360mm）',
+    name: '5 · 锯齿高低路径（左右交替 + 大幅起伏 + 圆弧过渡）',
+    description: 'MoveJ 定位 + MoveL 短步绕回字形大幅高低起伏，左段以 MoveC 圆弧过渡（跨度约 260×360mm）',
     source: PRESET_PROGRAM_5,
   },
   {

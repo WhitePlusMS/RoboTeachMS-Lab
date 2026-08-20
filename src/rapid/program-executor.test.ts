@@ -516,6 +516,7 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
             runEased: (target, durationMs) => runner.startEased(target, durationMs),
           })
         }
+        if (instruction.kind !== 'movel') throw new Error('此 seam 只支持 movej/movel')
         return executeMoveL(instruction, {
           model,
           currentJoints: () => joints,

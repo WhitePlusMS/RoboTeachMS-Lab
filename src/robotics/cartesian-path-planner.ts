@@ -1,17 +1,22 @@
-import { solveIK } from './ik-solver.ts'
 import {
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
   rotationMatrixToQuaternion,
 } from '@/robotics/math/rotation3d.ts'
 import type { RobotModel } from './robot-model.ts'
-import type { JointAngles, Pose } from './types.ts'
+import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
+import { solvePoseWaypoints } from './ik-waypoint-solver.ts'
 
 const DEFAULT_LINEAR_STEP_MM = 1
 const DEFAULT_ANGULAR_STEP_RAD = Math.PI / 180
-const MAX_JOINT_STEP_DEG = 5
 /** waypoint 采样上限：仅作为「单条 MoveL 的采样点数」性能护栏，不再据此拒绝长距离轨迹。 */
 const MAX_WAYPOINTS = 200
+/** MoveL 逆解精度：延续原内联实现的紧容差（教学定位精度），逆解交由共享多初值求解器执行。 */
+const MOVE_L_IK_CONFIG: Partial<IKSolverConfig> = {
+  maxIterations: 150,
+  posTolerance: 0.05,
+  oriTolerance: 0.001,
+}
 
 type Quaternion = [number, number, number, number]
 
@@ -86,36 +91,22 @@ export function planCartesianPath(
     Math.ceil(distance / linearStep),
     Math.ceil(angularDistance / angularStep),
   )
-  const waypoints: JointAngles[] = []
-  let previousJoints = [...initialJoints] as JointAngles
-
+  const poses: Pose[] = []
   for (let segment = 1; segment <= segmentCount; segment += 1) {
     const progress = segment / segmentCount
     const waypointRotation = quaternionToRotationMatrix(
       slerpQuaternion(startQuaternion, targetQuaternion, progress),
     )
-    const waypointPose: Pose = {
+    poses.push({
       position: startPose.position.map(
         (value, axis) => value + (targetPose.position[axis] - value) * progress,
       ) as Pose['position'],
       euler: rotationMatrixToEulerZYX(waypointRotation),
       rotation: waypointRotation,
-    }
-    const solved = solveIK(
-      toFlange(waypointPose),
-      previousJoints,
-      model,
-      { maxIterations: 150, posTolerance: 0.05, oriTolerance: 0.001 },
-      jointRanges,
-    )
-    if (!solved) return null
-    const maxJointStep = Math.max(
-      ...solved.map((value, index) => Math.abs(value - previousJoints[index])),
-    )
-    if (maxJointStep > MAX_JOINT_STEP_DEG) return null
-    waypoints.push(solved)
-    previousJoints = solved
+    })
   }
 
-  return waypoints
+  // 逆解交给 MoveL/MoveC 共享的多初值逐点求解器（含相邻构型跳变护栏），
+  // 并保持 MoveL 原有的紧 IK 容差。
+  return solvePoseWaypoints(poses, initialJoints, model, jointRanges, toFlange, MOVE_L_IK_CONFIG)
 }

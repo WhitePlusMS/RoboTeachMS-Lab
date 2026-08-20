@@ -70,6 +70,8 @@ export type RapidMotionInstruction = StructuredMotionInstruction & {
   operands: {
     /** FlexPendant 式未示教占位时为 '*'，此时 target 字段为零值占位（missing-target ⇒ canExecute=false，永不执行）。 */
     target: string
+    /** MoveC 圆弧途经点（CirPoint）；movej/movel 不设置。 */
+    cirPoint?: string
     speed: string
     zone: string
     tool: string
@@ -78,6 +80,8 @@ export type RapidMotionInstruction = StructuredMotionInstruction & {
   /** 每个运动操作数的精确源码范围，供诊断、编辑器标记与教学回溯使用。 */
   operandRanges: {
     target: RapidSourceRange
+    /** MoveC 圆弧途经点（CirPoint）的源码范围；movej/movel 不设置。 */
+    cirPoint?: RapidSourceRange
     speed: RapidSourceRange
     zone: RapidSourceRange
     tool: RapidSourceRange
@@ -189,7 +193,7 @@ export type RapidExecutableInstruction =
 export function isRapidMotionInstruction(
   instruction: RapidExecutableInstruction,
 ): instruction is RapidMotionInstruction {
-  return instruction.kind === 'movej' || instruction.kind === 'movel'
+  return instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec'
 }
 
 /** main 内可插入一条新运动的合法锚点；index 表示插入到第几条现有运动之前。 */
@@ -284,8 +288,10 @@ interface PendingReference {
 }
 
 interface PendingMotion {
-  kind: 'movej' | 'movel'
+  kind: 'movej' | 'movel' | 'movec'
   target: PendingTarget
+  /** MoveC 圆弧途经点（CirPoint）；movej/movel 不设置。 */
+  cirPoint?: PendingTarget
   speedName: string
   speedToken: Token
   zoneName: string
@@ -1173,13 +1179,44 @@ export function parseRapidProgram(source: string): RapidParseResult {
       abandoned = true
     }
 
-    const targetResult = parseTargetOperand(abort)
-    const target = targetResult.target
-    let separatorConsumed = targetResult.separatorConsumed
-    if (target && target.kind !== 'star') {
-      queueReference('target', target.baseToken, target.kind === 'name' ? undefined : target.kind)
+    // 首个目标：movej/movel 是唯一目标（终点）；movec 是圆弧途经点 CirPoint。
+    const firstTargetResult = parseTargetOperand(abort)
+    const firstTarget = firstTargetResult.target
+    let separatorConsumed = firstTargetResult.separatorConsumed
+    if (firstTarget && firstTarget.kind !== 'star') {
+      queueReference('target', firstTarget.baseToken, firstTarget.kind === 'name' ? undefined : firstTarget.kind)
     }
     if (abandoned) return
+
+    // MoveC 的第二个位置目标（终点 ToPoint）：先消费逗号，再复用 parseTargetOperand。
+    let cirPoint: PendingTarget | undefined = undefined
+    let target = firstTarget
+    if (kind === 'movec') {
+      if (firstTarget === null) return
+      cirPoint = firstTarget
+      if (!separatorConsumed && !isSymbol(current(), ',')) {
+        if (atOperandBoundary()) {
+          addMissingDiagnostic(
+            'syntax-error',
+            'MoveC 指令缺少圆弧终点 ToPoint（缺少 "," 分隔的操作数或分号）',
+            current(),
+          )
+        } else {
+          addMissingDiagnostic('syntax-error', 'MoveC 的圆点与终点之间缺少逗号 ","', current())
+          recoverMotionTail()
+        }
+        abort()
+        return
+      }
+      if (!separatorConsumed) advance()
+      const toResult = parseTargetOperand(abort)
+      target = toResult.target
+      separatorConsumed = toResult.separatorConsumed
+      if (target && target.kind !== 'star') {
+        queueReference('target', target.baseToken, target.kind === 'name' ? undefined : target.kind)
+      }
+      if (abandoned) return
+    }
 
     // 期望 "," 分隔后解析下一个操作数；缺逗号时只报一次根因并中止，避免连锁缺参错误。
     const operandAfterSeparator = (desc: string): Token | null => {
@@ -1280,6 +1317,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       motion: {
         kind,
         target: target as PendingTarget,
+        ...(kind === 'movec' && cirPoint ? { cirPoint } : {}),
         speedName: speed.text,
         speedToken: speed,
         zoneName: zone.text,
@@ -1308,7 +1346,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       !isKeyword(current(), 'ENDMODULE') &&
       !terminators.has(current().text)
     ) {
-      if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL')) {
+      if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL') || isKeyword(current(), 'MOVEC')) {
         parseMotion()
       } else if (current().kind === 'identifier' && isSymbol(peek(), ':=')) {
         parseAssignment()
@@ -1320,7 +1358,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
         parseFor()
       } else if (isKeyword(current(), 'EXITDO')) {
         parseExitDo()
-      } else if (isKeyword(current(), 'MOVEABSJ') || isKeyword(current(), 'MOVEC')) {
+      } else if (isKeyword(current(), 'MOVEABSJ')) {
         skipUnsupportedControl()
       } else if (
         isKeyword(current(), 'ELSEIF') ||
@@ -1606,42 +1644,37 @@ export function parseRapidProgram(source: string): RapidParseResult {
   resolveReferences()
 
   const program: RapidExecutableInstruction[] = []
-  function resolveMotion(pending: PendingMotion): RapidMotionInstruction | null {
-    let valid = true
-
-    // 目标：普通名称或 Offs/RelTool 表达式；基准必须是用户声明的 robtarget（未定义诊断已由 resolveReferences 发出）。
+  /** 把一个 PendingTarget 解析为结构化 RobTarget；未定义基准或 `*` 占位返回 null（诊断已发）。 */
+  function resolvePendingTarget(pt: PendingTarget): RobTarget | null {
     // `*` 未示教占位：诊断已在 parseTargetOperand 发出（missing-target ⇒ canExecute=false），
-    // 指令仍进入 instructions 视图供受控编辑补全；target 为零值占位，永不进入执行。
-    const isStarTarget = pending.target.kind === 'star'
-    const baseValue = isStarTarget
-      ? undefined
-      : symbols.get(normalizeName(pending.target.baseName))?.value
-    const baseTarget = baseValue?.kind === 'robtarget' ? baseValue.value : null
-    let resolvedTarget = baseTarget
-    if (baseTarget && (pending.target.kind === 'offs' || pending.target.kind === 'reltool')) {
-      const { dx, dy, dz } = pending.target
-      resolvedTarget =
-        pending.target.kind === 'offs'
-          ? offsRobTarget(baseTarget, dx!, dy!, dz!)
-          : relToolRobTarget(
-              baseTarget,
-              dx!,
-              dy!,
-              dz!,
-              pending.target.rx,
-              pending.target.ry,
-              pending.target.rz,
-            )
-    }
-    if (isStarTarget) {
-      resolvedTarget = {
+    // 指令仍进入 instructions 视图供受控编辑补全；返回零值占位，永不进入执行。
+    if (pt.kind === 'star') {
+      return {
         trans: [0, 0, 0],
         rot: [1, 0, 0, 0],
         robconf: [0, 0, 0, 0],
         extax: [...NO_EXTERNAL_AXIS],
       }
     }
+    const baseValue = symbols.get(normalizeName(pt.baseName))?.value
+    const baseTarget = baseValue?.kind === 'robtarget' ? baseValue.value : null
+    if (!baseTarget) return null
+    if (pt.kind === 'name') return baseTarget
+    if (pt.kind === 'offs') return offsRobTarget(baseTarget, pt.dx!, pt.dy!, pt.dz!)
+    return relToolRobTarget(baseTarget, pt.dx!, pt.dy!, pt.dz!, pt.rx, pt.ry, pt.rz)
+  }
+
+  function resolveMotion(pending: PendingMotion): RapidMotionInstruction | null {
+    let valid = true
+    const resolvedTarget = resolvePendingTarget(pending.target)
     if (!resolvedTarget) valid = false
+    // MoveC 的圆弧途经点（CirPoint）：也必须成功解析，否则指令不可执行。
+    const resolvedCirPoint = pending.cirPoint
+      ? resolvePendingTarget(pending.cirPoint)
+      : pending.kind === 'movec'
+        ? null
+        : undefined
+    if (pending.kind === 'movec' && !resolvedCirPoint) valid = false
 
     // 其余操作数：用户符号优先，其次系统预定义；未定义诊断已在 resolveReferences 发出。
     const speed = resolveSpeed(pending.speedName)
@@ -1662,8 +1695,41 @@ export function parseRapidProgram(source: string): RapidParseResult {
 
     if (!valid || !resolvedTarget || !speed || !zone || !tool || !wobj) return null
 
+    // MoveC 与 movej/movel 分别构造以匹配结构化联合的精确 kind 判别。
+    if (pending.kind === 'movec') {
+      if (!resolvedCirPoint) return null
+      return {
+        kind: 'movec' as const,
+        cirPoint: cloneTarget(resolvedCirPoint),
+        target: cloneTarget(resolvedTarget),
+        speed: cloneSpeed(speed),
+        zone: { ...zone },
+        tool: cloneTool(tool),
+        wobj: cloneWobj(wobj),
+        sourceRange: pending.range,
+        sourceText: pending.sourceText,
+        operands: {
+          target: pending.target.sourceText,
+          cirPoint: pending.cirPoint?.sourceText ?? '',
+          speed: pending.speedName,
+          zone: pending.zoneName,
+          tool: pending.toolName,
+          wobj: pending.wobjName,
+        },
+        operandRanges: {
+          target: pending.target.range,
+          cirPoint: pending.cirPoint?.range ?? pending.target.range,
+          speed: rangeFromToken(pending.speedToken, lineStarts),
+          zone: rangeFromToken(pending.zoneToken, lineStarts),
+          tool: rangeFromToken(pending.toolToken, lineStarts),
+          wobj: pending.wobjToken ? rangeFromToken(pending.wobjToken, lineStarts) : null,
+        },
+      }
+    }
+
+    // 至此 pending.kind 只可能是 movej 或 movel。
     return {
-      kind: pending.kind,
+      kind: pending.kind as 'movej' | 'movel',
       target: cloneTarget(resolvedTarget),
       speed: cloneSpeed(speed),
       zone: { ...zone },
@@ -1698,6 +1764,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
     if (
       instruction.kind === 'movej' ||
       instruction.kind === 'movel' ||
+      instruction.kind === 'movec' ||
       instruction.kind === 'assign'
     ) {
       instruction.nextPointer = target

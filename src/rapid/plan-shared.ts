@@ -47,9 +47,6 @@ export interface MotionPlanError {
   message: string
 }
 
-/** 判定 IK 解是否被夹在关节范围边界（度）；该启发用于区分 joint-limit。 */
-const JOINT_LIMIT_EPS_DEG = 0.5
-
 function allFinite(...values: number[]): boolean {
   return values.every((value) => Number.isFinite(value))
 }
@@ -256,13 +253,3 @@ export function robTargetToPose(target: RobTarget): Pose {
   }
 }
 
-/** IK 解是否被夹在任一关节范围边界（启发式，用于判别 joint-limit）。 */
-export function isJointAtLimit(
-  joints: JointAngles,
-  jointRanges: readonly (readonly [number, number])[],
-): boolean {
-  return joints.some((value, index) => {
-    const [min, max] = jointRanges[index]
-    return value <= min + JOINT_LIMIT_EPS_DEG || value >= max - JOINT_LIMIT_EPS_DEG
-  })
-}

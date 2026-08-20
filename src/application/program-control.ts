@@ -4,6 +4,7 @@ import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import type { JointAngles } from '@/robotics/types.ts'
 import { executeMoveJ } from '@/rapid/movej-planner.ts'
 import { executeMoveL } from '@/rapid/movel-planner.ts'
+import { executeMoveC } from '@/rapid/movec-planner.ts'
 import type { RapidScalarValue, RapidScalarVariable } from '@/rapid/rapid-types.ts'
 import {
   parseRapidProgram,
@@ -317,6 +318,16 @@ export function useProgramController(options: ProgramControllerOptions): Program
     }
     if (instruction.kind === 'movel') {
       const outcome = await executeMoveL(instruction, {
+        model: options.profile.model,
+        currentJoints: () => [...options.joints.value],
+        jointRanges: options.profile.jointRanges,
+        runTrajectory: (waypoints, durationMs) =>
+          options.motion.startCartesianTrajectory(waypoints, durationMs),
+      })
+      return attachBranchNextPointer(instruction, outcome)
+    }
+    if (instruction.kind === 'movec') {
+      const outcome = await executeMoveC(instruction, {
         model: options.profile.model,
         currentJoints: () => [...options.joints.value],
         jointRanges: options.profile.jointRanges,

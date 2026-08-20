@@ -76,10 +76,12 @@ ENDMODULE
     expect(result.canExecute).toBe(false)
   })
 
-  it('MoveC 与 MoveAbsJ 得到专业 unsupported 诊断而非 lexical 或静默忽略', () => {
-    // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段6（MoveAbsJ）与 ABB 官方 MoveC 语法。
+  it('MoveC 解析为真实圆弧运动指令；MoveAbsJ 得到专业 unsupported 诊断而非静默忽略', () => {
+    // 来源：ABB 官方 MoveC 语法；本测试由“MoveC 不支持”更新为“已支持”。
     const source = `MODULE Main_Module
     CONST jointtarget pCalib := [[0,0,0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pCircle := [[50,50,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pEnd := [[100,0,0],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
     PROC main()
         MoveAbsJ pCalib, v1500, fine, tool0 \\WObj:=wobj0;
         MoveC pCircle, pEnd, v100, fine, tool0;
@@ -87,6 +89,11 @@ ENDMODULE
 ENDMODULE
 `
     const result = parseRapidProgram(source)
+    // MoveC 已完成支持：在完整指令流（instructions，不受 canExecute 门控）中命中一条
+    // 真实 movec 指令，圆点/终点均正确解析。
+    const movec = result.instructions.find((inst) => inst.kind === 'movec')
+    expect(movec).toBeDefined()
+    // MoveAbsJ 仍不支持，报 unsupported-syntax，且不退化 lexical。
     const codes = result.diagnostics.map((d) => d.code)
     expect(codes).toContain('unsupported-syntax')
     expect(codes.every((c) => c !== 'lexical-error')).toBe(true)

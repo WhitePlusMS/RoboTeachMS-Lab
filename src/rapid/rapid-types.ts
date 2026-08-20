@@ -125,7 +125,23 @@ export interface StructuredMoveL {
   wobj: WobjData
 }
 
-export type StructuredMotionInstruction = StructuredMoveJ | StructuredMoveL
+/**
+ * 结构化 MoveC 圆弧运动指令：TCP 从当前位置经 `cirPoint`（圆弧途经点）到 `target`（终点）。
+ * 三点（当前 TCP / 圆点 / 终点）确定唯一圆弧；速度/zone/工具/工件与 MoveL 语义一致。
+ */
+export interface StructuredMoveC {
+  kind: 'movec'
+  /** 圆弧途经点（CirPoint）。 */
+  cirPoint: RobTarget
+  /** 圆弧终点（ToPoint）。 */
+  target: RobTarget
+  speed: SpeedData
+  zone: ZoneData
+  tool: ToolData
+  wobj: WobjData
+}
+
+export type StructuredMotionInstruction = StructuredMoveJ | StructuredMoveL | StructuredMoveC
 
 /**
  * 默认 tool0 —— 与 ABB 官方预定义 tool0 一致：
