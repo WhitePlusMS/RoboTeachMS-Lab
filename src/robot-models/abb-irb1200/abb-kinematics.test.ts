@@ -18,12 +18,12 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
     expect(transform.data[2][3]).toBeCloseTo(399.1)
   })
 
-  it('零位机械法兰位于 ABB 基座坐标约 [451, 0, 807.1] mm，不再携带场景/工具偏移', () => {
+  it('零位机械法兰沿 J4 正轴伸出到 ABB 基座坐标约 [533, 0, 889.1] mm', () => {
     const pose = extractPose(forwardAbbKinematicsDegrees([0, 0, 0, 0, 0, 0]))
 
-    expect(pose.position[0]).toBeCloseTo(451)
+    expect(pose.position[0]).toBeCloseTo(533)
     expect(pose.position[1]).toBeCloseTo(0)
-    expect(pose.position[2]).toBeCloseTo(807.1)
+    expect(pose.position[2]).toBeCloseTo(889.1)
     expect(pose.position.every(Number.isFinite)).toBe(true)
     expect(pose.eulerZYX.every(Number.isFinite)).toBe(true)
   })
@@ -45,7 +45,7 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
       [0, 0, 889.1],
       [451, 0, 889.1],
       [451, 0, 889.1],
-      [451, 0, 807.1],
+      [533, 0, 889.1],
     ]
 
     expect(frames).toHaveLength(7)
@@ -56,7 +56,7 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
     })
   })
 
-  it('ABB 基座 frame 经唯一场景显示转换后的关节轴与 FBX 一致，并使腕部沿负 Y 伸出', () => {
+  it('ABB 基座 frame 经唯一场景显示转换后的关节轴与 FBX 一致，并使腕部沿 J4 正轴伸出', () => {
     const frames = forwardAbbKinematicsFramesDegrees([0, 0, 0, 0, 0, 0]).map(
       abbBaseFrameToSceneFrame,
     )
@@ -66,7 +66,7 @@ describe('ABB IRB 1200 专用标准 DH 适配器', () => {
       [0, 0, -1],
       [1, 0, 0],
       [0, 0, -1],
-      [0, -1, 0],
+      [1, 0, 0],
     ]
 
     expectedDirectedAxes.forEach((expectedAxis, jointIndex) => {

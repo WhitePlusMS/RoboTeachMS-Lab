@@ -30,11 +30,29 @@ export const ABB_TOOL_NODE_NAME = 'joint7'
 
 export const ABB_JOINT_AXES: Record<(typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
   joint1: new THREE.Vector3(0, 1, 0),
-  joint2: new THREE.Vector3(0, 0, 1),
-  joint3: new THREE.Vector3(0, 0, 1),
+  // FBX 的 J2/J3 局部 +Z 与 DH 正轴相反，负轴后视觉动作才与关节输入同向。
+  joint2: new THREE.Vector3(0, 0, -1),
+  joint3: new THREE.Vector3(0, 0, -1),
   joint4: new THREE.Vector3(1, 0, 0),
-  joint5: new THREE.Vector3(0, 0, 1),
-  joint6: new THREE.Vector3(0, 1, 0),
+  // J5/J6 同样沿 FBX 反向局部轴映射到 DH 正方向。
+  joint5: new THREE.Vector3(0, 0, -1),
+  joint6: new THREE.Vector3(0, -1, 0),
+}
+
+/**
+ * FBX 资产姿态到 ABB/DH 零位的固定角度校正。
+ * 原始模型的 J5 腕部向下折转 90°；ABB/DH 零位要求 J6/法兰径向与 J4 正轴同向。
+ */
+export const ABB_JOINT_ZERO_OFFSETS_DEG: Record<
+  (typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number],
+  number
+> = {
+  joint1: 0,
+  joint2: 0,
+  joint3: 0,
+  joint4: 0,
+  joint5: -90,
+  joint6: 0,
 }
 
 export type AbbSceneStatus = 'loading' | 'ready' | 'error'
@@ -107,7 +125,7 @@ export function applyAbbJointAngles(root: THREE.Group, joints: JointAngles): voi
       : new THREE.Quaternion()
     const deltaQuaternion = new THREE.Quaternion().setFromAxisAngle(
       ABB_JOINT_AXES[name],
-      (joints[index] * Math.PI) / 180,
+      ((joints[index] + ABB_JOINT_ZERO_OFFSETS_DEG[name]) * Math.PI) / 180,
     )
     joint.quaternion.copy(baseQuaternion).multiply(deltaQuaternion)
   })

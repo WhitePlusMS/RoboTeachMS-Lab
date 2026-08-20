@@ -23,8 +23,8 @@ describe('ABB IRB 1200-5/0.9 profile', () => {
       399.1, 448, 42, 451, 82,
     ])
     expect(dh.joint2.thetaOffset).toBeCloseTo(-Math.PI / 2)
-    expect(dh.joint5.thetaOffset).toBeCloseTo(Math.PI / 2)
-    expect(Object.values(dh).map((joint) => joint.thetaSign ?? 1)).toEqual([1, -1, -1, 1, -1, -1])
+    expect(dh.joint5.thetaOffset ?? 0).toBe(0)
+    expect(Object.values(dh).map((joint) => joint.thetaSign ?? 1)).toEqual([1, 1, 1, 1, 1, 1])
     expect(ABB_DEFAULT_JOINTS).toEqual([0, 0, 0, 0, 0, 0])
   })
 })

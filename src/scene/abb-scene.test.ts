@@ -5,6 +5,7 @@ import {
   ABB_BASE_NODE_NAME,
   ABB_FLANGE_NODE_NAME,
   ABB_JOINT_AXES,
+  ABB_JOINT_ZERO_OFFSETS_DEG,
   ABB_MODEL_SCALE,
   ABB_TOOL_NODE_NAME,
   applyAbbJointAngles,
@@ -115,7 +116,15 @@ describe('ABB IRB 1200 FBX 场景适配器', () => {
     expect(calibration.joints[0].localZeroTransform[0][3]).toBe(10)
     expect(calibration.mechanicalFlangeWorldZeroTransform).not.toBeNull()
     expect(calibration.toolWorldZeroTransform).not.toBeNull()
-    expect(ABB_JOINT_AXES.joint1.toArray()).toEqual([0, 1, 0])
+    expect(Object.values(ABB_JOINT_AXES).map((axis) => axis.toArray())).toEqual([
+      [0, 1, 0],
+      [0, 0, -1],
+      [0, 0, -1],
+      [1, 0, 0],
+      [0, 0, -1],
+      [0, -1, 0],
+    ])
+    expect(Object.values(ABB_JOINT_ZERO_OFFSETS_DEG)).toEqual([0, 0, 0, 0, -90, 0])
   })
 
   it('创建 ABB 工作台、地面网格和世界坐标轴', () => {

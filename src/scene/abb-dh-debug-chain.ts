@@ -85,7 +85,14 @@ export function createAbbDhDebugChain(): AbbDhDebugChain {
   const update = (joints: JointAngles): void => {
     // 核心 FK 返回 ABB 基座 frame；显示前经唯一场景显示转换映射到 Three.js。
     const sceneFrames = forwardAbbKinematicsFramesDegrees(joints).map(abbBaseFrameToSceneFrame)
-    sceneFrames.forEach((frame, index) => {
+    // 标准 DH 的 d6 沿 J6 轴线发生在最后一个变换中：frame[5] 是腕部中间
+    // frame，而真实 J6 轴心/法兰原点位于 frame[6]。参考链按命名轴心显示，
+    // 否则 J6 会错误地与 J5 重合，旋转腕部时视觉连线会穿过模型。
+    const displayFrames = [...sceneFrames]
+    displayFrames[5] = sceneFrames[6]
+    displayFrames[6] = sceneFrames[6]
+
+    displayFrames.forEach((frame, index) => {
       const position = frame.getPosition()
       const rotation = matrixToThreeMatrix(frame.getRotation())
       const scenePosition = new THREE.Vector3(
