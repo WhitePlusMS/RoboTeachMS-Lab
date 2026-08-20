@@ -18,6 +18,7 @@ import {
 } from '@/application/joint-control.ts'
 import { useMotion } from '@/application/motion-control.ts'
 import { useProgramController } from '@/application/program-control.ts'
+import { findRapidPreset } from '@/application/preset-programs.ts'
 import { createBuiltinRapidSource } from '@/application/builtin-program.ts'
 import { useRunLog, provideRunLog } from '@/application/run-log.ts'
 import { provideToasts, useToasts } from '@/application/toast.ts'
@@ -112,7 +113,7 @@ function animateCartesianTrajectory(
 /** RAPID 源码在 localStorage 的键名；用于跨刷新/重开浏览器保留用户编辑。 */
 const RAPID_SOURCE_STORAGE_KEY = 'abb-robot-lab:rapid-source'
 
-/** 读取持久化的 RAPID 源码；无有效内容时回退到内置示例。localStorage 可能不可用（隐私/测试环境），静默降级。 */
+/** 读取持久化的 RAPID 源码；无有效内容时回退到页面默认预设「1 · 大范围慢速运动演示（无限循环）」。localStorage 可能不可用（隐私/测试环境），静默降级。 */
 function loadPersistedRapidSource(): string {
   try {
     const stored = localStorage.getItem(RAPID_SOURCE_STORAGE_KEY)
@@ -120,7 +121,7 @@ function loadPersistedRapidSource(): string {
   } catch {
     /* localStorage 不可用时忽略，使用内置默认。 */
   }
-  return createBuiltinRapidSource()
+  return findRapidPreset('preset-1')?.source ?? createBuiltinRapidSource()
 }
 
 /** 保存 RAPID 源码到 localStorage；失败静默忽略，不打断编辑。 */
