@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/rapid-parser.ts'
+import type { EditorView } from '@codemirror/view'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
 import type { Pose } from '@/robotics/types.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
@@ -71,22 +72,34 @@ function mountWorkspace(opts: MountOpts = {}) {
   }
 }
 
-/** 把源码编辑器光标（selection）放到第 line 行（1 起始），触发光标行更新。 */
-async function focusLine(wrapper: ReturnType<typeof mount>, source: string, line: number) {
-  const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
-  const offset = source.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0)
-  textarea.selectionStart = textarea.selectionEnd = offset
-  await textarea.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await wrapper.vm.$nextTick()
+/** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */
+function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {
+  const vm = wrapper.findComponent({ name: 'RapidSourceEditor' }).vm as unknown as {
+    $: { exposed: { getView: () => EditorView | null } }
+  }
+  const view = vm.$.exposed.getView()
+  if (!view) throw new Error('CodeMirror view 尚未初始化')
+  return view
 }
 
-/** 双击第 line 行（FlexPendant 双击 = Change Selected 打开参数编辑）。 */
-async function dblclickLine(wrapper: ReturnType<typeof mount>, source: string, line: number) {
-  const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
-  const offset = source.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0)
-  textarea.selectionStart = textarea.selectionEnd = offset
-  await textarea.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
-  await wrapper.vm.$nextTick()
+/** 等一个宏任务，让 CodeMirror 事务处理与 DOM/标记落定。 */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+/** 把源码编辑器光标（selection）放到第 line 行（1 起始），触发光标行更新。 */
+async function focusLine(wrapper: ReturnType<typeof mount>, line: number) {
+  const view = getEditorView(wrapper)
+  const pos = view.state.doc.line(line).from
+  view.dispatch({ selection: { anchor: pos, head: pos } })
+  await settle()
+}
+
+/** 双击第 line 行：在对应 .cm-line 元素上派发 dblclick（FlexPendant 双击 = Change Selected）。 */
+async function dblclickLine(wrapper: ReturnType<typeof mount>, line: number) {
+  const host = wrapper.get('.rapid-codemirror').element
+  const lineEl = Array.from(host.querySelectorAll<HTMLElement>('.cm-line'))[line - 1]
+  if (!lineEl) throw new Error('missing cm-line for line ' + line)
+  lineEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+  await settle()
 }
 
 describe('ProgramEditorToolbar FlexPendant 式操作', () => {
@@ -114,7 +127,7 @@ describe('ProgramEditorToolbar FlexPendant 式操作', () => {
     ENDPROC
 ENDMODULE`
     const { wrapper } = mountWorkspace({ source: src })
-    await focusLine(wrapper, src, 4) // 赋值行
+    await focusLine(wrapper, 4) // 赋值行
 
     // 赋值也是合法指令（可注释/取消注释），仅 更改选定内容 与 Change to 是运动专属。
     await wrapper.get('[aria-label="编辑"]').trigger('click')
@@ -138,10 +151,10 @@ describe('MotionArgumentPanel FlexPendant 参数编辑', () => {
     ENDPROC
 ENDMODULE`
     const { wrapper } = mountWorkspace({ source: src })
-    await focusLine(wrapper, src, 3) // MoveL 行：真机点选=高亮，不弹参数页
+    await focusLine(wrapper, 3) // MoveL 行：真机点选=高亮，不弹参数页
     expect(wrapper.find('[aria-label="指令参数"]').exists()).toBe(false)
 
-    await dblclickLine(wrapper, src, 3)
+    await dblclickLine(wrapper, 3)
     const panel = wrapper.get('[aria-label="指令参数"]')
     expect(panel.text()).toContain('MoveL')
     expect(panel.text()).toContain('未示教 *')
@@ -159,7 +172,7 @@ ENDMODULE`
 
   it('「编辑 → 更改选定内容」是参数面板的菜单入口', async () => {
     const { wrapper } = mountWorkspace()
-    await focusLine(wrapper, SOURCE, 4) // MoveJ p1 行
+    await focusLine(wrapper, 4) // MoveJ p1 行
     expect(wrapper.find('[aria-label="指令参数"]').exists()).toBe(false)
 
     await wrapper.get('[aria-label="编辑"]').trigger('click')
@@ -173,7 +186,7 @@ ENDMODULE`
 
   it('目标选择器列出已有点位与新建项；选择已有发 edit-motion-operand existing', async () => {
     const { commands, wrapper } = mountWorkspace()
-    await dblclickLine(wrapper, SOURCE, 4) // 双击 MoveJ 行打开参数面板
+    await dblclickLine(wrapper, 4) // 双击 MoveJ 行打开参数面板
 
     // 打开目标选择器：点击目标操作数。
     wrapper
@@ -206,7 +219,7 @@ ENDMODULE`
     ENDPROC
 ENDMODULE`
     const { commands, wrapper } = mountWorkspace({ source: src })
-    await dblclickLine(wrapper, src, 3)
+    await dblclickLine(wrapper, 3)
 
     const panel = wrapper.get('[aria-label="指令参数"]')
     panel
@@ -233,7 +246,7 @@ ENDMODULE`
 
   it('速度/zone 选择器列出系统数据并标注；选择后发 edit-motion-operand', async () => {
     const { commands, wrapper } = mountWorkspace()
-    await dblclickLine(wrapper, SOURCE, 4)
+    await dblclickLine(wrapper, 4)
 
     const panel = wrapper.get('[aria-label="指令参数"]')
     // 打开速度选择器。
@@ -276,7 +289,7 @@ ENDMODULE`
 
   it('Modify Position 常驻工具栏：光标指令目标为已命名 robtarget 时发 modify-position', async () => {
     const { commands, wrapper } = mountWorkspace()
-    await focusLine(wrapper, SOURCE, 4) // MoveJ p1 行；无需打开参数面板
+    await focusLine(wrapper, 4) // MoveJ p1 行；无需打开参数面板
 
     // 常驻软按钮（FlexPendant 底部 Modify Position 语义），不属于参数面板。
     const modify = wrapper.get('[aria-label="修改位置"]')

@@ -2,7 +2,18 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramControlPanel from './ProgramControlPanel.vue'
+import type { EditorView } from '@codemirror/view'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+
+/** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */
+function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {
+  const vm = wrapper.findComponent({ name: 'RapidSourceEditor' }).vm as unknown as {
+    $: { exposed: { getView: () => EditorView | null } }
+  }
+  const view = vm.$.exposed.getView()
+  if (!view) throw new Error('CodeMirror view 尚未初始化')
+  return view
+}
 
 const SOURCE = 'MODULE Demo ENDMODULE'
 
@@ -73,10 +84,10 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
 
   it('运行期间源码锁定，停止后可编辑', async () => {
     const running = mountPanel(snapshot({ state: 'running', motionPointer: 0 }))
-    expect(running.get('textarea').attributes('disabled')).toBeDefined()
+    expect(running.findComponent({ name: 'RapidSourceEditor' }).props('readonly')).toBe(true)
 
     const stopped = mountPanel(snapshot({ state: 'stopped' }))
-    expect(stopped.get('textarea').attributes('disabled')).toBeUndefined()
+    expect(stopped.findComponent({ name: 'RapidSourceEditor' }).props('readonly')).toBe(false)
   })
 })
 
@@ -105,7 +116,9 @@ describe('ProgramControlPanel 状态显示', () => {
 
   it('编辑 RAPID 源程序发出 source-change', async () => {
     const idle = mountPanel(snapshot())
-    await idle.get('textarea').setValue('MODULE Changed ENDMODULE')
+    const view = getEditorView(idle)
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'MODULE Changed ENDMODULE' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(idle.emitted('source-change')?.[0]).toEqual(['MODULE Changed ENDMODULE'])
   })
 
@@ -285,9 +298,13 @@ describe('ProgramControlPanel PP/MP gutter 与结构化指令', () => {
         pendingClear: null,
       },
     })
-    const lines = wrapper.findAll('.source-line')
-    // 第 9 行（index 8）同时承载 PP 与 MP。
-    expect(lines[8].classes()).toContain('both-line')
+    // CodeMirror gutter 单元格（过滤 jsdom 的隐藏测量占位元素）；第 9 行同时承载 PP 与 MP。
+    const editor = wrapper.get('.rapid-codemirror').element
+    const lines = Array.from(editor.querySelectorAll<HTMLElement>('.cm-gutterElement')).filter(
+      (el) => el.style.visibility !== 'hidden',
+    )
+    const line9 = lines.find((el) => Number(el.textContent) === 9)
+    expect(line9?.className).toContain('both-line')
   })
 
   it('摘要条显示光标行指令（光标优先于程序指针）', () => {

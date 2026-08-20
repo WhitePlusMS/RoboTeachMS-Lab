@@ -165,25 +165,10 @@ function buildExtensions() {
     }),
     EditorView.domEventHandlers({
       dblclick: (event: MouseEvent) => emitLineActivate(event),
-      // FlexPendant 点选行语义：点击 gutter 行号把光标移到该行（只读时不动）。
-      mousedown: (event: MouseEvent) => {
-        if (props.readonly) return false
-        const target = event.target as HTMLElement
-        if (!target.closest('.cm-lineNumbers')) return false
-        const cell = target.closest('.cm-gutterElement') as HTMLElement | null
-        if (!cell) return false
-        const line = Number(cell.textContent)
-        if (!Number.isInteger(line) || line < 1) return false
-        const current = view
-        if (!current) return false
-        event.preventDefault()
-        const caret = current.state.doc.line(Math.min(line, current.state.doc.lines)).from
-        current.dispatch({ selection: { anchor: caret, head: caret } })
-        current.focus()
-        emit('cursor-line-change', line)
-        return true
-      },
     }),
+    // 点击 gutter 行号（FlexPendant 点选行语义）：把光标移到该行并上报（只读时不动）。
+    // gutter 是 content 的兄弟节点，domEventHandlers 只挂到 .cm-content 上接收不到，
+    // 故用 view.dom（.cm-editor 根）的捕获监听器可靠捕获 gutter 冒泡事件（含测试里的合成事件）。
   ]
 }
 
@@ -194,13 +179,40 @@ function emitCursorLine(): void {
   emit('cursor-line-change', current.state.doc.lineAt(head).number)
 }
 
-/** 双击：屏幕坐标 → 源码行 → line-activate（FlexPendant Change Selected 语义）。 */
+/**
+ * 双击：目标 DOM 节点 → 源码行 → line-activate（FlexPendant Change Selected 语义）。
+ * 用 posAtDOM 而非 posAtCoords——后者依赖真实布局的屏幕坐标，在 jsdom 里不可靠；
+ * 而事件目标（.cm-line 及其子节点）直接落在 contentDOM 内，posAtDOM 即可定位。
+ */
 function emitLineActivate(event: MouseEvent): void {
   const current = view
   if (!current) return
-  const pos = current.posAtCoords({ x: event.clientX, y: event.clientY })
-  if (pos === null) return
+  const target = event.target as HTMLElement | null
+  if (!target || !current.contentDOM.contains(target)) return
+  const pos = current.posAtDOM(target, 0)
   emit('line-activate', current.state.doc.lineAt(pos).number)
+}
+
+/**
+ * FlexPendant 点选行：点击 gutter 行号把光标移到该行并上报行号（只读时不动）。
+ * 用捕获阶段绑定到 view.dom（.cm-editor 根），确保在 CodeMirror 内部 gutter
+ * handler 之前、且无论其是否处理，都能可靠收到从 .cm-gutterElement 冒泡的事件。
+ */
+function onGutterMousedown(event: MouseEvent): void {
+  if (props.readonly) return
+  const target = event.target as HTMLElement | null
+  if (!target?.closest('.cm-lineNumbers')) return
+  const cell = target.closest('.cm-gutterElement') as HTMLElement | null
+  if (!cell) return
+  const line = Number(cell.textContent)
+  if (!Number.isInteger(line) || line < 1) return
+  const current = view
+  if (!current) return
+  event.preventDefault()
+  const caret = current.state.doc.line(Math.min(line, current.state.doc.lines)).from
+  current.dispatch({ selection: { anchor: caret, head: caret } })
+  current.focus()
+  emit('cursor-line-change', line)
 }
 
 function mountEditor(): void {
@@ -209,6 +221,7 @@ function mountEditor(): void {
     parent: host.value,
     state: EditorState.create({ doc: props.source, extensions: buildExtensions() }),
   })
+  view.dom.addEventListener('mousedown', onGutterMousedown, true)
   syncGutterMarkers()
 }
 
@@ -270,6 +283,7 @@ watch(
 
 onMounted(() => mountEditor())
 onBeforeUnmount(() => {
+  view?.dom.removeEventListener('mousedown', onGutterMousedown, true)
   view?.destroy()
   view = null
 })

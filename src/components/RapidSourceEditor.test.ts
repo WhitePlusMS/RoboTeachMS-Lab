@@ -82,13 +82,18 @@ async function getView<T extends ExposedVm>(wrapper: ReturnType<typeof mountEdit
   return view
 }
 
-/** 主机里 CodeMirror 的行号 gutter 单元格列表（含类别 class）。 */
+/**
+ * 主机里 CodeMirror 的行号 gutter 单元格列表（含类别 class）。
+ * 过滤 jsdom 里第 0 高度、visibility:hidden 的测量占位元素——它不是真实行号。
+ */
 function gutterCells(wrapper: ReturnType<typeof mountEditor>): Array<{ line: number; classes: string }> {
   const host = wrapper.get('.rapid-codemirror').element
-  return Array.from(host.querySelectorAll('.cm-gutterElement')).map((el) => ({
-    line: Number(el.textContent),
-    classes: (el as HTMLElement).className,
-  }))
+  return Array.from(host.querySelectorAll<HTMLElement>('.cm-gutterElement'))
+    .filter((el) => el.style.visibility !== 'hidden')
+    .map((el) => ({
+      line: Number(el.textContent),
+      classes: el.className,
+    }))
 }
 
 describe('RapidSourceEditor（CodeMirror）行号 gutter', () => {

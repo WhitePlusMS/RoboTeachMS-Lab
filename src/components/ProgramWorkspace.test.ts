@@ -3,9 +3,28 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/rapid-parser.ts'
+import type { EditorView } from '@codemirror/view'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
 import type { Pose } from '@/robotics/types.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
+
+/** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */
+function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {
+  const vm = wrapper.findComponent({ name: 'RapidSourceEditor' }).vm as unknown as {
+    $: { exposed: { getView: () => EditorView | null } }
+  }
+  const view = vm.$.exposed.getView()
+  if (!view) throw new Error('CodeMirror view 尚未初始化')
+  return view
+}
+
+/** 把编辑器光标（selection）移到第 line 行（1 起始），触发光标行上报。 */
+async function focusLine(wrapper: ReturnType<typeof mount>, source: string, line: number) {
+  const view = getEditorView(wrapper)
+  const pos = source.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0)
+  view.dispatch({ selection: { anchor: pos, head: pos } })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
 
 const SOURCE = `MODULE Demo
     CONST robtarget p1 := [[451,0,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
@@ -71,7 +90,7 @@ describe('ProgramWorkspace 受控视图的 RAPID/Program Data 工作区', () => 
   it('由 view prop 驱动切换，切换时保留源码编辑器实例，且无内部页签与固定控制栏', async () => {
     const wrapper = mountWorkspace('rapid')
 
-    const editor = wrapper.get('textarea').element
+    const editor = wrapper.get('.rapid-codemirror').element
     expect(wrapper.get('#program-panel-rapid').attributes('hidden')).toBeUndefined()
     expect(wrapper.get('#program-panel-data').attributes('hidden')).toBeDefined()
     // 内部 tab strip 与固定 actions 实例已移除（运行控制移到顶栏 transport）。
@@ -85,7 +104,7 @@ describe('ProgramWorkspace 受控视图的 RAPID/Program Data 工作区', () => 
     await wrapper.setProps({ view: 'data' })
     expect(wrapper.get('#program-panel-rapid').attributes('hidden')).toBeDefined()
     expect(wrapper.get('#program-panel-data').attributes('hidden')).toBeUndefined()
-    expect(wrapper.get('textarea').element).toBe(editor)
+    expect(wrapper.get('.rapid-codemirror').element).toBe(editor)
     expect(
       wrapper.get('#program-panel-data').find('[aria-label="程序编辑器操作"]').exists(),
     ).toBe(false)
@@ -154,12 +173,7 @@ ENDMODULE`
     })
 
     // 模拟鼠标点选第二段运动语句行（行 6）。
-    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
-    const lines = twoMotion.split('\n')
-    const offsetOfLine6 = lines.slice(0, 5).join('\n').length + 1
-    textarea.selectionStart = textarea.selectionEnd = offsetOfLine6
-    await textarea.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await wrapper.vm.$nextTick()
+    await focusLine(wrapper, twoMotion, 6)
 
     // 光标行已生效：应插到行 6 之后（程序末尾 index 2），而不回退到 PP 之后（index 1）。
     await addMotionItem(wrapper, 'MoveJ')
