@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import HomePage from '@/components/HomePage.vue'
 import JogControlTabs from '@/components/JogControlTabs.vue'
 import PoseReadout from '@/components/PoseReadout.vue'
 import ProgramControlPanel from '@/components/ProgramControlPanel.vue'
@@ -31,6 +32,11 @@ import { provideProgramPanelController } from '@/application/use-program-panel-c
 import { provideRobotController } from '@/application/use-robot-controller.ts'
 
 const profile = ABB_IRB1200_PROFILE
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '')
+const labPath = basePath + '/lab'
+const isLabRoute = ref(
+  window.location.pathname === labPath || window.location.pathname.endsWith('/lab'),
+)
 const sceneStatus = ref<AbbSceneStatus>('loading')
 const showGrid = ref(false)
 const showCoordinateSystems = ref(false)
@@ -67,6 +73,20 @@ function setJoint(index: number, value: number): void {
 }
 
 const JOINT_LABELS = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
+
+function syncRoute(): void {
+  isLabRoute.value =
+    window.location.pathname === labPath || window.location.pathname.endsWith('/lab')
+}
+
+function navigateTo(route: 'home' | 'lab'): void {
+  const target = route === 'lab' ? labPath : basePath || '/'
+  if (window.location.pathname !== target) window.history.pushState({}, '', target)
+  isLabRoute.value = route === 'lab'
+}
+
+onMounted(() => window.addEventListener('popstate', syncRoute))
+onBeforeUnmount(() => window.removeEventListener('popstate', syncRoute))
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
   programControl.stopActiveProgram()
@@ -373,10 +393,18 @@ provideProgramPanelController({
 </script>
 
 <template>
-  <main class="shell">
+  <HomePage v-if="!isLabRoute" @start="navigateTo('lab')" />
+  <main v-else class="shell">
     <header class="topbar">
-      <span class="mark" aria-hidden="true">A</span>
-      <h1>ABB IRB 1200-5/0.9 教学场景</h1>
+      <button
+        class="mark"
+        type="button"
+        aria-label="返回 RoboTeachMS Lab 主页"
+        @click="navigateTo('home')"
+      >
+        <img class="mark-image" src="/brand/roboteachms-logo.png" alt="" />
+      </button>
+      <h1>RoboTeachMS Lab · 工业机器人示教编程实验室</h1>
       <div class="topbar-spacer"></div>
       <ProgramControlPanel
         display="transport"
@@ -478,13 +506,21 @@ provideProgramPanelController({
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-sm);
   color: var(--color-on-brand);
   background: linear-gradient(135deg, var(--color-brand), var(--color-brand-strong));
-  font-size: var(--text-md);
-  font-weight: 900;
+  cursor: pointer;
+}
+
+.mark-image {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 
 .topbar h1 {
