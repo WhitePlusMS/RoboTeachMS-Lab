@@ -318,13 +318,23 @@ onBeforeUnmount(stopPress)
   color: var(--color-success-soft);
 }
 
-.cartesian-status-position-fallback {
+.cartesian-status-planning {
+  border-color: color-mix(in srgb, var(--color-brand) 40%, transparent);
+  color: var(--color-brand-soft);
+}
+
+.cartesian-status-wrist-solved {
   border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
   color: var(--color-warning);
 }
 
 .cartesian-status-invalid,
-.cartesian-status-unreachable {
+.cartesian-status-unreachable,
+.cartesian-status-singularity,
+.cartesian-status-reconfiguration,
+.cartesian-status-joint-limit,
+.cartesian-status-joint-step,
+.cartesian-status-not-converged {
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
   color: var(--color-danger-faint);
 }

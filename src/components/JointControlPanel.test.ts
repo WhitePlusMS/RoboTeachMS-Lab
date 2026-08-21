@@ -51,19 +51,21 @@ describe('JointControlPanel', () => {
     expect(events.slice(1).every((event) => event[2] === true)).toBe(true)
   })
 
-  it('手动输入、步进切换、回零和随机按钮均发出对应事件', async () => {
+  it('手动输入、步进切换、教学 Home、机械零位和随机按钮均发出对应事件', async () => {
     const wrapper = mountPanel()
 
     const input = wrapper.get('[aria-label="J1 角度输入"]')
     await input.setValue('25.5')
     await input.trigger('change')
     await wrapper.findAll('.step-choice')[2].trigger('click')
-    await wrapper.get('.secondary-action').trigger('click')
+    await wrapper.findAll('.secondary-action')[0].trigger('click')
     await wrapper.findAll('.secondary-action')[1].trigger('click')
+    await wrapper.findAll('.secondary-action')[2].trigger('click')
 
     expect(wrapper.emitted('set-joint')?.[0]).toEqual([0, 25.5])
     expect(wrapper.emitted('step-change')?.[0]).toEqual([5])
     expect(wrapper.emitted('reset')).toHaveLength(1)
+    expect(wrapper.emitted('mechanical-zero')).toHaveLength(1)
     expect(wrapper.emitted('random')).toHaveLength(1)
   })
 })

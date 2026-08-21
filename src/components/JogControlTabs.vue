@@ -40,6 +40,7 @@ const emit = defineEmits<{
   'adjust-joint': [index: number, direction: JointDirection, isContinuous?: boolean]
   'step-change': [value: number]
   reset: []
+  'mechanical-zero': []
   random: []
   move: [axis: CartesianAxis, direction: CartesianDirection, isContinuous?: boolean]
   'coordinate-change': [value: CoordinateSystem]
@@ -71,6 +72,7 @@ const controller: RobotController =
       emit('adjust-joint', index, direction, isContinuous),
     setStep: (value) => emit('step-change', value),
     reset: () => emit('reset'),
+    resetMechanicalZero: () => emit('mechanical-zero'),
     randomize: () => emit('random'),
     moveCartesian: (axis, direction, isContinuous) =>
       emit('move', axis, direction, isContinuous),
@@ -168,6 +170,7 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         @adjust-joint="controller.adjustJoint"
         @step-change="controller.setStep"
         @reset="controller.reset"
+        @mechanical-zero="controller.resetMechanicalZero"
         @random="controller.randomize"
       />
     </div>

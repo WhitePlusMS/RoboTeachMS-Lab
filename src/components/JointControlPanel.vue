@@ -19,6 +19,7 @@ const emit = defineEmits<{
   'adjust-joint': [index: number, direction: JointDirection, isContinuous?: boolean]
   'step-change': [value: number]
   reset: []
+  'mechanical-zero': []
   random: []
 }>()
 
@@ -87,10 +88,18 @@ onBeforeUnmount(stopPress)
       <button
         type="button"
         class="secondary-action home-action"
-        title="机器人回到零位姿态"
+        title="机器人回到教学 Home（避开腕部奇异）"
         @click="emit('reset')"
       >
-        <Home :size="14" />回零
+        <Home :size="14" />教学 Home
+      </button>
+      <button
+        type="button"
+        class="secondary-action"
+        title="回到 ABB 六轴机械/同步零位（J5=0°，腕部奇异）"
+        @click="emit('mechanical-zero')"
+      >
+        机械零位
       </button>
       <button
         type="button"
@@ -231,7 +240,7 @@ onBeforeUnmount(stopPress)
 
 .panel-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 

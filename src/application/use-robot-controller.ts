@@ -42,6 +42,7 @@ export interface RobotController {
   adjustJoint(index: number, direction: JointDirection, isContinuous?: boolean): void
   setStep(value: number): void
   reset(): void
+  resetMechanicalZero(): void
   randomize(): void
   /** 笛卡尔动作。 */
   moveCartesian(
