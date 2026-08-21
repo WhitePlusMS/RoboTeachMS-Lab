@@ -2,7 +2,8 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { degToRad, radToDeg } from '@/robotics/math/angle.ts'
 import { mat3Mul, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
 import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
-import { planCartesianPath } from '@/robotics/cartesian-path-planner.ts'
+import type { CartesianPathFailure, CartesianPathResult } from '@/robotics/cartesian-path-planner.ts'
+import { planCartesianTarget } from '@/robotics/cartesian-motion-planner.ts'
 import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import type {
   CartesianAxis,
@@ -17,7 +18,28 @@ export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
 export type CartesianDirection = -1 | 1
 export type PositionStep = (typeof POSITION_STEPS)[number]
 export type OrientationStep = (typeof ORIENTATION_STEPS)[number]
-export type CartesianStatus = 'ready' | 'solved' | 'invalid' | 'unreachable'
+export type CartesianStatus =
+  | 'ready'
+  | 'planning'
+  | 'solved'
+  | 'wrist-solved'
+  | 'invalid'
+  | 'unreachable'
+  | 'singularity'
+  | 'reconfiguration'
+  | 'joint-limit'
+  | 'joint-step'
+  | 'not-converged'
+
+function mapPathFailureToStatus(failure: CartesianPathFailure): CartesianStatus {
+  if (failure === 'wrist-singularity') return 'singularity'
+  if (failure === 'wrist-reconfiguration') return 'reconfiguration'
+  if (failure === 'joint-limit') return 'joint-limit'
+  if (failure === 'joint-step') return 'joint-step'
+  // 普通 IK 不收敛仍归入原有 unreachable 状态；规划器已经保留了更细的 failure 枚举，
+  // 这里只保持控制面板状态数量精简，避免为一次数值失败增加重复的 UI 分支。
+  return 'unreachable'
+}
 
 const AXIS_INDEX: Record<CartesianAxis, number> = {
   x: 0,
@@ -127,6 +149,13 @@ export interface CartesianControlOptions {
   pose: ComputedRef<PoseDisplay>
   profile: RobotProfile
   moveToTrajectory: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
+  /** 可替换规划 adapter；缺省为同步实现，生产 App 注入 Worker adapter。 */
+  planTarget?: (
+    targetPose: Pose,
+    initialJoints: JointAngles,
+    isContinuous?: boolean,
+  ) => CartesianPathResult | Promise<CartesianPathResult | null>
+  cancelPlanning?: () => void
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -144,30 +173,68 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const positionStep = ref<PositionStep>(1)
   const orientationStep = ref<OrientationStep>(1)
   const status = ref<CartesianStatus>('ready')
+  let planningVersion = 0
+  const planTarget =
+    options.planTarget ?? ((target: Pose, initial: JointAngles) =>
+      planCartesianTarget(target, initial, options.profile))
 
   const statusMessage = computed(() => {
-    if (status.value === 'solved') return '笛卡尔路径规划成功，目标运动已提交'
-    if (status.value === 'invalid') return '输入无效，已保留最近一次有效姿态'
-    if (status.value === 'unreachable') return '路径不可达或接近奇异构型，已保留最近一次有效姿态'
+    if (status.value === 'solved') return '笛卡尔路径规划成功，严格姿态目标运动已提交'
+    if (status.value === 'planning') return '笛卡尔路径规划中，正在等待最新目标'
+    if (status.value === 'wrist-solved') {
+      return 'SingArea\\Wrist 已提交：TCP 路径保持线性，腕部姿态允许误差'
+    }
+    if (status.value === 'invalid') return '输入无效，未执行目标'
+    if (status.value === 'singularity') {
+      return '自动腕部插补仍无法连续通过奇异（J5≈0°）；请修改目标姿态，或先用关节 Jog 脱离'
+    }
+    if (status.value === 'reconfiguration') {
+      return '目标将导致机器人构型重新配置，请修改奇异点另一侧第一个目标的姿态，或先用关节 Jog 脱离'
+    }
+    if (status.value === 'joint-limit') return '目标会触及关节限位，未执行目标'
+    if (status.value === 'joint-step') return '路径需要跨越非腕部构型跳变，未执行目标'
+    if (status.value === 'not-converged') return '逆解未收敛，未执行目标'
+    if (status.value === 'unreachable') return '路径不可达，未执行目标'
     return '就绪'
   })
 
-  function solveTarget(target: PoseDisplay, isContinuous: boolean): void {
-    const trajectory = planCartesianPath(
-      toRobotPose(target),
-      options.joints.value,
-      options.profile.model,
-      options.profile.jointRanges,
-    )
-    if (trajectory) {
-      options.moveToTrajectory(trajectory, isContinuous)
-      status.value = 'solved'
-      return
+  function commitPlanResult(
+    result: CartesianPathResult | null,
+    isContinuous: boolean,
+  ): boolean {
+    if (result === null) {
+      status.value = 'unreachable'
+      return false
     }
-    status.value = 'unreachable'
+    if (result.ok) {
+      options.moveToTrajectory(result.waypoints, isContinuous)
+      status.value = result.usedWristFallback ? 'wrist-solved' : 'solved'
+      return true
+    }
+    status.value = mapPathFailureToStatus(result.failure)
+    return false
+  }
+
+  function solveTarget(target: PoseDisplay, isContinuous: boolean): boolean | null {
+    const robotTarget = toRobotPose(target)
+    const currentVersion = ++planningVersion
+    const planned = planTarget(robotTarget, [...options.joints.value], isContinuous)
+    if (planned instanceof Promise) {
+      status.value = 'planning'
+      void planned.then((result) => {
+        if (currentVersion !== planningVersion) return
+        commitPlanResult(result, isContinuous)
+      })
+      return null
+    }
+    return commitPlanResult(planned, isContinuous)
   }
 
   function move(axis: CartesianAxis, direction: CartesianDirection, isContinuous = false): void {
+    if (!isContinuous) {
+      planningVersion += 1
+      options.cancelPlanning?.()
+    }
     const step =
       axis === 'rx' || axis === 'ry' || axis === 'rz' ? orientationStep.value : positionStep.value
     const target = applyCartesianDelta(
@@ -191,11 +258,15 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     if (axis === 'x' || axis === 'y' || axis === 'z') target.positionMm[AXIS_INDEX[axis]] = value
     else target.orientationDeg[AXIS_INDEX[axis]] = value
+    planningVersion += 1
+    options.cancelPlanning?.()
     solveTarget(target, false)
   }
 
   function setCoordinateSystem(value: CoordinateSystem): void {
     coordinateSystem.value = value
+    planningVersion += 1
+    options.cancelPlanning?.()
   }
 
   function setPositionStep(value: number): void {

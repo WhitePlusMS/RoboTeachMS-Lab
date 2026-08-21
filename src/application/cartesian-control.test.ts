@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { poseFromJoints } from '@/robotics/kinematics.ts'
 import { radToDeg } from '@/robotics/math/angle.ts'
 import { applyCartesianDelta, useCartesianControl } from './cartesian-control.ts'
+import type { CartesianPathResult } from '@/robotics/cartesian-path-planner.ts'
 import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
 import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
@@ -21,6 +22,7 @@ const KUKA_PROFILE: RobotProfile = {
   model: new DhRobotModel(),
   jointRanges: KUKA_JOINT_RANGES as SixAxisJointRanges,
   homeJoints: DEFAULT_JOINTS,
+  mechanicalZeroJoints: DEFAULT_JOINTS,
 }
 
 const pose: PoseDisplay = {
@@ -81,6 +83,189 @@ describe('笛卡尔坐标增量', () => {
 
     expect(control.status.value).toBe('unreachable')
     expect(joints.value).toEqual(before)
+  })
+
+  it('机械零位 Y 点动自动使用局部腕部插补，并提交轨迹', () => {
+    const model = new AbbDhRobotModel()
+    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      moveToTrajectory: (trajectory) => {
+        const finalJoints = trajectory[trajectory.length - 1]
+        if (finalJoints) joints.value = [...finalJoints]
+      },
+    })
+    const before = [...joints.value]
+
+    control.setField('y', poseRef.value.positionMm[1] + 1)
+
+    expect(control.status.value).toBe('wrist-solved')
+    expect(control.statusMessage.value).toContain('TCP 路径保持线性')
+    expect(joints.value).not.toEqual(before)
+  })
+
+  it('机械零位先 X+10 mm 后仍允许局部 Y+10 mm wrist 脱离', () => {
+    const model = new AbbDhRobotModel()
+    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      moveToTrajectory: (trajectory) => {
+        const finalJoints = trajectory[trajectory.length - 1]
+        if (finalJoints) joints.value = [...finalJoints]
+      },
+    })
+    control.setPositionStep(10)
+
+    control.move('x', 1)
+    expect(model.isMechanicalZeroSingularityNeighborhood(joints.value)).toBe(true)
+    const yBefore = poseRef.value.positionMm[1]
+
+    control.move('y', 1)
+
+    expect(control.status.value).toBe('wrist-solved')
+    expect(poseRef.value.positionMm[1]).toBeGreaterThan(yBefore + 9)
+  })
+
+  it('非机械零位工作区的 J5=0 大步长不得显示机械零位重构提示', () => {
+    const model = new AbbDhRobotModel()
+    const joints = ref<JointAngles>([15, -20, 30, 0, 0, -300])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      moveToTrajectory: () => undefined,
+    })
+
+    control.setField('x', poseRef.value.positionMm[0] + 5)
+
+    expect(control.status.value).toBe('unreachable')
+    expect(control.statusMessage.value).toContain('路径不可达')
+    expect(control.statusMessage.value).not.toContain('目标将导致机器人构型重新配置')
+    expect(control.statusMessage.value).not.toContain('保留最近一次有效姿态')
+  })
+
+  it('非奇异位置连续点动每次推进目标且不显示腕部插补', () => {
+    const model = new AbbDhRobotModel()
+    const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const submitted: JointAngles[] = []
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      moveToTrajectory: (trajectory) => {
+        const finalJoints = trajectory[trajectory.length - 1]
+        if (finalJoints) {
+          submitted.push([...finalJoints] as JointAngles)
+          joints.value = [...finalJoints]
+        }
+      },
+    })
+    const initialX = poseRef.value.positionMm[0]
+
+    for (let index = 0; index < 5; index += 1) {
+      control.move('x', 1, true)
+      expect(control.status.value).toBe('solved')
+    }
+
+    expect(submitted).toHaveLength(5)
+    expect(poseRef.value.positionMm[0]).toBeGreaterThan(initialX + 4)
+  })
+
+  it('连续同步规划在动画尚未回写关节时仍以实际位姿为基准', () => {
+    const model = new AbbDhRobotModel()
+    const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const submittedX: number[] = []
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      // 模拟动画帧尚未回写关节：旧版串行规划不会虚拟累加未来目标。
+      moveToTrajectory: (trajectory) => {
+        const finalJoints = trajectory[trajectory.length - 1]
+        if (finalJoints) submittedX.push(model.forwardKinematics(finalJoints).position[0])
+      },
+    })
+
+    for (let index = 0; index < 3; index += 1) control.move('x', 1, true)
+
+    expect(submittedX).toHaveLength(3)
+    expect(submittedX[1]).toBeCloseTo(submittedX[0], 8)
+    expect(submittedX[2]).toBeCloseTo(submittedX[1], 8)
+  })
+
+  it('异步连续规划只提交最新结果，过期轨迹不会覆盖新目标', async () => {
+    const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = new AbbDhRobotModel().forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const resolvers: Array<(result: CartesianPathResult) => void> = []
+    const submitted: readonly JointAngles[][] = []
+    const trajectories: JointAngles[][] = []
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      planTarget: () =>
+        new Promise<CartesianPathResult>((resolve) => {
+          resolvers.push(resolve)
+        }),
+      moveToTrajectory: (trajectory) => trajectories.push([...trajectory] as JointAngles[]),
+    })
+
+    control.move('x', 1, true)
+    control.move('x', 1, true)
+    expect(control.status.value).toBe('planning')
+
+    resolvers[0]({ ok: true, waypoints: [[1, 1, 1, 1, 1, 1]], usedWristFallback: false })
+    resolvers[1]({ ok: true, waypoints: [[2, 2, 2, 2, 2, 2]], usedWristFallback: false })
+    await Promise.resolve()
+
+    expect(trajectories).toEqual([[[2, 2, 2, 2, 2, 2]]])
+    expect(submitted).toHaveLength(0)
+    expect(control.status.value).toBe('solved')
   })
 
   it('向 ABB 动画层提交分段笛卡尔轨迹，而不是单个终点关节角', () => {

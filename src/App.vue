@@ -26,6 +26,8 @@ import { provideToasts, useToasts } from '@/application/toast.ts'
 import { useStatusToasts } from '@/application/status-toasts.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
+import { planCartesianTarget } from '@/robotics/cartesian-motion-planner.ts'
+import { createCartesianPlannerWorkerAdapter } from '@/robotics/cartesian-planner-worker-adapter.ts'
 import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
 import { provideProgramPanelController } from '@/application/use-program-panel-controller.ts'
@@ -63,8 +65,19 @@ const { startEasedAnimation, startSpeedLimitedAnimation, startCartesianTrajector
     setJoints: setJointsImmediate,
   })
 
+// Worker 排队任务必须在真正开始规划时读取 MotionRunner 的当前关节，不能只读取创建请求时的快照。
+const cartesianPlanner =
+  typeof Worker === 'undefined'
+    ? null
+    : createCartesianPlannerWorkerAdapter(profile, () => [...joints.value] as JointAngles)
+onBeforeUnmount(() => cartesianPlanner?.dispose())
+function cancelCartesianPlanning(): void {
+  cartesianPlanner?.cancel()
+}
+
 /** 数值输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
 function setJoint(index: number, value: number): void {
+  cancelCartesianPlanning()
   programControl.stopActiveProgram()
   stopAnimation()
   const before = joints.value[index]
@@ -89,6 +102,7 @@ onMounted(() => window.addEventListener('popstate', syncRoute))
 onBeforeUnmount(() => window.removeEventListener('popstate', syncRoute))
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
+  cancelCartesianPlanning()
   programControl.stopActiveProgram()
   const next = adjustJointAngle(
     joints.value,
@@ -111,12 +125,21 @@ function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): vo
 }
 
 function reset(): void {
+  cancelCartesianPlanning()
   programControl.stopActiveProgram()
   startEasedAnimation([...profile.homeJoints])
-  runLog.info('运动', '机器人回零')
+  runLog.info('运动', '机器人回到教学 Home')
+}
+
+function resetMechanicalZero(): void {
+  cancelCartesianPlanning()
+  programControl.stopActiveProgram()
+  startEasedAnimation([...profile.mechanicalZeroJoints])
+  runLog.info('运动', '机器人回到 ABB 机械零位')
 }
 
 function randomize(): void {
+  cancelCartesianPlanning()
   programControl.stopActiveProgram()
   startEasedAnimation(randomJointAngles(profile.jointRanges))
   runLog.info('运动', '随机生成姿态')
@@ -246,6 +269,7 @@ function getGizmoPose(): Pose | null {
 
 function handleGizmoDragStart(): void {
   gizmoDragUnreachable.value = false
+  cancelCartesianPlanning()
   programControl.stopActiveProgram()
   stopAnimation()
 }
@@ -272,6 +296,15 @@ const {
   joints,
   pose,
   profile,
+  // 连续点动和机械零位腕部特例恢复串行语义：规划期间不让 Worker 与 RAF
+  // 并行推进；其他离散目标仍可交给 Worker，避免长路径阻塞界面。
+  planTarget: (targetPose, initialJoints, isContinuous) =>
+    isContinuous ||
+    (profile.model.isMechanicalZeroSingularityNeighborhood?.(initialJoints) ?? false)
+      ? planCartesianTarget(targetPose, initialJoints, profile)
+      : cartesianPlanner?.plan(targetPose, initialJoints) ??
+        planCartesianTarget(targetPose, initialJoints, profile),
+  cancelPlanning: cartesianPlanner?.cancel,
   moveToTrajectory: animateCartesianTrajectory,
 })
 
@@ -351,6 +384,7 @@ provideRobotController({
   adjustJoint,
   setStep,
   reset,
+  resetMechanicalZero,
   randomize,
   moveCartesian,
   setCoordinateSystem,
@@ -382,8 +416,14 @@ provideProgramPanelController({
   redo: () => programControl.redo(),
   canUndo: programControl.canUndo,
   canRedo: programControl.canRedo,
-  run: () => programControl.run(),
-  step: () => programControl.step(),
+  run: () => {
+    cancelCartesianPlanning()
+    programControl.run()
+  },
+  step: () => {
+    cancelCartesianPlanning()
+    programControl.step()
+  },
   stop: () => programControl.stop(),
   ppToMain: handlePP,
   confirmClearToNext: () => programControl.confirmClearToNext(),
@@ -412,8 +452,8 @@ provideProgramPanelController({
         :source="rapidSource"
         :program="programControl.parsed.value.program"
         :pending-clear="pendingClearState"
-        @run="programControl.run()"
-        @step="programControl.step()"
+        @run="cancelCartesianPlanning(); programControl.run()"
+        @step="cancelCartesianPlanning(); programControl.step()"
         @stop="programControl.stop()"
         @pp="handlePP()"
         @confirm-clear="programControl.confirmClearToNext()"
