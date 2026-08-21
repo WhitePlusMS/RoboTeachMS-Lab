@@ -2,9 +2,7 @@ import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import type { MotionResult } from '@/robotics/motion-runner.ts'
 import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import type { JointAngles } from '@/robotics/types.ts'
-import { executeMoveJ } from '@/rapid/movej-planner.ts'
-import { executeMoveL } from '@/rapid/movel-planner.ts'
-import { executeMoveC } from '@/rapid/movec-planner.ts'
+import { executeRapidMotion } from '@/rapid/motion-execution.ts'
 import type { RapidScalarValue, RapidScalarVariable } from '@/rapid/rapid-types.ts'
 import {
   parseRapidProgram,
@@ -15,9 +13,11 @@ import {
   type RapidMotionInstruction,
   type RapidParseResult,
   type RapidScalarExpression,
+  type RapidSingAreaInstruction,
   type RapidSourceRange,
   type RapidWhileInstruction,
 } from '@/rapid/rapid-parser.ts'
+import type { SingAreaMode } from '@/rapid/rapid-types.ts'
 import {
   applyRapidEdit,
   type RapidEditCommand,
@@ -220,6 +220,7 @@ function rapidLogicSignature(parsed: RapidParseResult): string {
     })
   const statements = parsed.program.map((instruction) => {
     if (instruction.kind === 'assign') return `assign|${instruction.sourceText}`
+    if (instruction.kind === 'singarea') return `singarea|${instruction.mode}`
     if (instruction.kind === 'if')
       return `if|${instruction.conditionKind}|${instruction.sourceText}`
     if (instruction.kind === 'while') return `while|${instruction.sourceText}`
@@ -262,7 +263,7 @@ function executeAssignment(
 
 /** 运动 planner 不认识控制流元数据；在现有 seam 返回后补回分支末条的跳转目标。 */
 function attachBranchNextPointer(
-  instruction: RapidMotionInstruction | RapidAssignmentInstruction,
+  instruction: RapidMotionInstruction | RapidSingAreaInstruction | RapidAssignmentInstruction,
   outcome: InstructionOutcome,
 ): InstructionOutcome {
   if (!outcome.ok || outcome.result !== 'completed' || instruction.nextPointer === undefined) {
@@ -277,6 +278,8 @@ function attachBranchNextPointer(
  * 不新增动画循环、IK、路径规划或通用 store。
  */
 export function useProgramController(options: ProgramControllerOptions): ProgramController {
+  let singAreaMode: SingAreaMode = 'off'
+
   async function execute(
     instruction: RapidExecutableInstruction,
     context: ProgramExecutionContext,
@@ -307,30 +310,16 @@ export function useProgramController(options: ProgramControllerOptions): Program
       clearForCursorByExitTarget(instruction.target)
       return { ok: true, result: 'completed', nextPointer: instruction.target }
     }
-    if (instruction.kind === 'movej') {
-      const outcome = await executeMoveJ(instruction, {
+    if (instruction.kind === 'singarea') {
+      singAreaMode = instruction.mode
+      return attachBranchNextPointer(instruction, { ok: true, result: 'completed' })
+    }
+    if (instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec') {
+      const outcome = await executeRapidMotion(instruction, singAreaMode, {
         model: options.profile.model,
         currentJoints: () => [...options.joints.value],
         jointRanges: options.profile.jointRanges,
         runEased: (target, durationMs) => options.motion.startEasedAnimation(target, durationMs),
-      })
-      return attachBranchNextPointer(instruction, outcome)
-    }
-    if (instruction.kind === 'movel') {
-      const outcome = await executeMoveL(instruction, {
-        model: options.profile.model,
-        currentJoints: () => [...options.joints.value],
-        jointRanges: options.profile.jointRanges,
-        runTrajectory: (waypoints, durationMs) =>
-          options.motion.startCartesianTrajectory(waypoints, durationMs),
-      })
-      return attachBranchNextPointer(instruction, outcome)
-    }
-    if (instruction.kind === 'movec') {
-      const outcome = await executeMoveC(instruction, {
-        model: options.profile.model,
-        currentJoints: () => [...options.joints.value],
-        jointRanges: options.profile.jointRanges,
         runTrajectory: (waypoints, durationMs) =>
           options.motion.startCartesianTrajectory(waypoints, durationMs),
       })
@@ -557,6 +546,7 @@ export function useProgramController(options: ProgramControllerOptions): Program
       loadedProgram = result.program
       loadedLogicSignature = rapidLogicSignature(result)
       logicContextDirty = false
+      singAreaMode = 'off'
       executor = createProgramExecutor(loadedProgram, seam, 0, runtimeVariablesForParsed(result))
     }
     const promise = start(executor)
@@ -683,6 +673,7 @@ export function useProgramController(options: ProgramControllerOptions): Program
       0,
       runtimeVariablesForParsed(parsed.value, runtimeValues),
     )
+    singAreaMode = 'off'
     executor.ppToMain()
     logicContextDirty = false
     sync()
@@ -837,6 +828,7 @@ export function useProgramController(options: ProgramControllerOptions): Program
         mapTo,
         runtimeVariablesForParsed(next, base.variables),
       )
+      singAreaMode = 'off'
     }
     sync()
   }

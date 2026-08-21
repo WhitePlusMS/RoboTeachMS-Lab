@@ -2,7 +2,12 @@ import { planCartesianPath } from '@/robotics/cartesian-path-planner.ts'
 import type { MotionResult } from '@/robotics/motion-runner.ts'
 import type { RobotModel } from '@/robotics/robot-model.ts'
 import type { JointAngles } from '@/robotics/types.ts'
-import { simulateDurationMs, validateMotionInput, type MotionPlanError } from './plan-shared.ts'
+import {
+  cartesianPathFailureToMotionError,
+  simulateDurationMs,
+  validateMotionInput,
+  type MotionPlanError,
+} from './plan-shared.ts'
 import {
   flangeToWorldTcpPose,
   robTargetToWorldPose,
@@ -57,8 +62,10 @@ export function planMoveL(
   const waypoints = planCartesianPath(tcpTarget, currentJoints, model, jointRanges, {
     tcpStart: flangeToWorldTcpPose(currentFlange, movel.tool),
     toFlange: (tcp) => worldTcpToFlangePose(tcp, movel.tool),
+    orientationMode: movel.singArea === 'wrist' ? 'wrist' : 'strict',
   })
-  if (!waypoints || waypoints.length === 0) {
+  if (!waypoints.ok || waypoints.waypoints.length === 0) {
+    if (!waypoints.ok) return { ok: false, error: cartesianPathFailureToMotionError(waypoints.failure) }
     return {
       ok: false,
       error: {
@@ -74,7 +81,7 @@ export function planMoveL(
     return { ok: false, error: { kind: 'unreachable', message: '机器人模型不可用或正解失败' } }
   }
 
-  return { ok: true, waypoints, durationMs }
+  return { ok: true, waypoints: waypoints.waypoints, durationMs }
 }
 
 /**

@@ -100,6 +100,9 @@ export type RapidScalarKind = 'num' | 'bool'
 /** 标量声明的结构化初值；表达式树与执行期变量快照由 RAPID parser/executor 负责。 */
 export type RapidScalarValue = number | boolean
 
+/** ABB SingArea 腕部插补策略；默认 off 表示严格保持编程姿态。 */
+export type SingAreaMode = 'off' | 'wrist'
+
 /** ProgramExecutor 持有的一个标量变量快照；名称在调用方按 RAPID 规则归一化。 */
 export type RapidScalarVariable = { kind: 'num'; value: number } | { kind: 'bool'; value: boolean }
 
@@ -123,6 +126,8 @@ export interface StructuredMoveL {
   zone: ZoneData
   tool: ToolData
   wobj: WobjData
+  /** 当前生效的 SingArea 模式；未提供时按 ABB 默认 `\\Off`。 */
+  singArea?: SingAreaMode
 }
 
 /**
@@ -139,6 +144,8 @@ export interface StructuredMoveC {
   zone: ZoneData
   tool: ToolData
   wobj: WobjData
+  /** 当前生效的 SingArea 模式；未提供时按 ABB 默认 `\\Off`。 */
+  singArea?: SingAreaMode
 }
 
 export type StructuredMotionInstruction = StructuredMoveJ | StructuredMoveL | StructuredMoveC

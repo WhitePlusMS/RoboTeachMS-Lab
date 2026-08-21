@@ -7,6 +7,7 @@ import type {
   ToolData,
   WobjData,
   ZoneData,
+  SingAreaMode,
 } from './rapid-types.ts'
 import {
   NO_EXTERNAL_AXIS,
@@ -88,6 +89,15 @@ export type RapidMotionInstruction = StructuredMotionInstruction & {
     wobj: RapidSourceRange | null
   }
   /** 分支体末条语句跳过剩余 ELSEIF/ELSE 的内部目标；普通语句不设置。 */
+  nextPointer?: number
+}
+
+/** RAPID `SingArea \\Wrist/\\Off;` 运行时模式切换，不产生机器人运动 waypoint。 */
+export interface RapidSingAreaInstruction {
+  kind: 'singarea'
+  mode: SingAreaMode
+  sourceRange: RapidSourceRange
+  sourceText: string
   nextPointer?: number
 }
 
@@ -184,6 +194,7 @@ export interface RapidExitInstruction {
 /** parser 输出的唯一可执行计划：条件、循环、运动与标量赋值按源码顺序共存。 */
 export type RapidExecutableInstruction =
   | RapidMotionInstruction
+  | RapidSingAreaInstruction
   | RapidAssignmentInstruction
   | RapidConditionalInstruction
   | RapidWhileInstruction
@@ -304,6 +315,12 @@ interface PendingMotion {
   sourceText: string
 }
 
+interface PendingSingArea {
+  mode: SingAreaMode
+  range: RapidSourceRange
+  sourceText: string
+}
+
 interface PendingAssignment {
   targetToken: Token
   expression: RapidScalarExpression
@@ -351,6 +368,7 @@ interface PendingExit {
 
 type PendingStatement =
   | { kind: 'motion'; motion: PendingMotion }
+  | { kind: 'singarea'; singArea: PendingSingArea }
   | { kind: 'assign'; assignment: PendingAssignment }
   | { kind: 'conditional'; conditional: PendingConditional }
   | { kind: 'while'; whileLoop: PendingWhile }
@@ -455,6 +473,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       text === 'movel' ||
       text === 'moveabsj' ||
       text === 'movec' ||
+      text === 'singarea' ||
       text === 'endproc' ||
       text === 'endmodule' ||
       text === 'endif' ||
@@ -1332,6 +1351,32 @@ export function parseRapidProgram(source: string): RapidParseResult {
     })
   }
 
+  /** 解析 ABB 腕部奇异处理指令；模式持续到下一条 SingArea 指令或程序重新装载。 */
+  function parseSingArea(): void {
+    const start = advance()
+    const slash = expectSymbol('\\')
+    const modeToken = expectIdentifier('SingArea 模式（Wrist/Off）')
+    const semicolon = expectSymbol(';')
+    if (!slash || !modeToken || !semicolon) return
+    const modeName = normalizeName(modeToken.text)
+    if (modeName !== 'wrist' && modeName !== 'off') {
+      addDiagnostic(
+        'unsupported-option',
+        `不支持 SingArea 模式 ${modeToken.text}（仅支持 \\Wrist/\\Off）`,
+        modeToken,
+      )
+      return
+    }
+    statementSink.push({
+      kind: 'singarea',
+      singArea: {
+        mode: modeName,
+        range: rangeFromOffsets(start.start, semicolon.end, lineStarts),
+        sourceText: source.slice(start.start, semicolon.end),
+      },
+    })
+  }
+
   function skipUnsupportedControl(): void {
     const token = advance()
     addDiagnostic('unsupported-syntax', `首期不支持 ${token.text} 控制流`, token)
@@ -1348,6 +1393,8 @@ export function parseRapidProgram(source: string): RapidParseResult {
     ) {
       if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL') || isKeyword(current(), 'MOVEC')) {
         parseMotion()
+      } else if (isKeyword(current(), 'SINGAREA')) {
+        parseSingArea()
       } else if (current().kind === 'identifier' && isSymbol(peek(), ':=')) {
         parseAssignment()
       } else if (isKeyword(current(), 'IF')) {
@@ -1757,6 +1804,14 @@ export function parseRapidProgram(source: string): RapidParseResult {
   function resolveLeaf(statement: PendingStatement): RapidExecutableInstruction | null {
     if (statement.kind === 'assign') return resolveAssignment(statement.assignment)
     if (statement.kind === 'motion') return resolveMotion(statement.motion)
+    if (statement.kind === 'singarea') {
+      return {
+        kind: 'singarea',
+        mode: statement.singArea.mode,
+        sourceRange: statement.singArea.range,
+        sourceText: statement.singArea.sourceText,
+      }
+    }
     return null
   }
 
@@ -1765,6 +1820,7 @@ export function parseRapidProgram(source: string): RapidParseResult {
       instruction.kind === 'movej' ||
       instruction.kind === 'movel' ||
       instruction.kind === 'movec' ||
+      instruction.kind === 'singarea' ||
       instruction.kind === 'assign'
     ) {
       instruction.nextPointer = target

@@ -4,6 +4,7 @@ import {
 } from '@/robotics/math/rotation3d.ts'
 import type { RobotModel } from '@/robotics/robot-model.ts'
 import type { JointAngles, Pose } from '@/robotics/types.ts'
+import type { CartesianPathFailure } from '@/robotics/cartesian-path-planner.ts'
 import {
   NO_EXTERNAL_AXIS,
   type RapidQuat,
@@ -40,11 +41,46 @@ function isNoExternalAxis(extax: RobTarget['extax']): boolean {
  * MoveJ 与 MoveL 规划层共享同一套错误语义。
  */
 export type MotionPlanErrorKind =
-  'invalid-data' | 'unsupported-option' | 'unreachable' | 'joint-limit'
+  | 'invalid-data'
+  | 'unsupported-option'
+  | 'unreachable'
+  | 'joint-limit'
+  | 'wrist-singularity'
+  | 'wrist-reconfiguration'
+  | 'joint-step'
 
 export interface MotionPlanError {
   kind: MotionPlanErrorKind
   message: string
+}
+
+/** 把笛卡尔 waypoint 失败映射为 RAPID 运行时可定位的规划错误，禁止吞成普通 unreachable。 */
+export function cartesianPathFailureToMotionError(
+  failure: CartesianPathFailure,
+): MotionPlanError {
+  switch (failure) {
+    case 'wrist-singularity':
+      return {
+        kind: 'wrist-singularity',
+        message:
+          '严格保持姿态的直线/圆弧运动不能通过腕部奇异（J5≈0°）；请修改奇异点另一侧第一个目标的姿态，启用 SingArea\\Wrist，或先用关节 Jog 脱离。',
+      }
+    case 'wrist-reconfiguration':
+      return {
+        kind: 'wrist-reconfiguration',
+        message:
+          '目标将导致机器人构型重新配置；请修改奇异点另一侧第一个目标的姿态，启用 SingArea\\Wrist，或先用关节 Jog 脱离。',
+      }
+    case 'joint-step':
+      return {
+        kind: 'joint-step',
+        message: '路径相邻关节步长超过连续运动限制，未执行。',
+      }
+    case 'joint-limit':
+      return { kind: 'joint-limit', message: '路径会触及关节限位，未执行。' }
+    case 'ik-not-converged':
+      return { kind: 'unreachable', message: '逆解未收敛，目标未执行。' }
+  }
 }
 
 function allFinite(...values: number[]): boolean {
@@ -252,4 +288,3 @@ export function robTargetToPose(target: RobTarget): Pose {
     rotation,
   }
 }
-

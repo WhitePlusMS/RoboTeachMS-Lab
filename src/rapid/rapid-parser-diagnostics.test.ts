@@ -143,4 +143,26 @@ describe('Ticket 01 — 诊断稳定契约', () => {
     expect(rb[0].referenceRanges).toHaveLength(2)
     expect(result.motionInsertionPoints.map((p) => p.index)).toEqual([0, 1, 2])
   })
+
+  it('解析 SingArea \\Wrist/\\Off 模式切换，并保持为非运动执行指令', () => {
+    const source =
+      MODULE_WITH_P1_MAIN_PREFIX +
+      '        SingArea \\Wrist;\n' +
+      '        MoveL p1,v50,fine,tool0;\n' +
+      '        SingArea \\Off;\n' +
+      '        MoveL p1,v50,fine,tool0;\n' +
+      MAIN_MODULE_CLOSING
+    const result = parseRapidProgram(source)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.canExecute).toBe(true)
+    expect(result.program.map((instruction) => instruction.kind)).toEqual([
+      'singarea',
+      'movel',
+      'singarea',
+      'movel',
+    ])
+    expect(result.program[0]).toMatchObject({ kind: 'singarea', mode: 'wrist' })
+    expect(result.program[2]).toMatchObject({ kind: 'singarea', mode: 'off' })
+  })
 })

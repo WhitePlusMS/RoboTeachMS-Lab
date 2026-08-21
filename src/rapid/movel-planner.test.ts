@@ -296,8 +296,8 @@ describe('executeMoveL 控制与时长', () => {
   })
 
   it('不可达 / 构型跳变规划失败发生在运动启动前，runTrajectory 不被调用', async () => {
-    // 腕部接近奇异（J5=-90、J6=-300），+5mm 点动会迫使某关节 >5° 跳变，MoveL 在启动前被拒。
-    const startJoints: JointAngles = [15, -20, 30, 0, -90, -300]
+    // ABB 机械零位 J5=0° 是腕部奇异，Y 点动必须在启动前拒绝且不调用执行 seam。
+    const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const start = degreeFrameFromPose(startJoints)
     const target: RobTarget = {
       trans: [start.position[0], start.position[1] + 5, start.position[2]],
@@ -317,8 +317,28 @@ describe('executeMoveL 控制与时长', () => {
     })
 
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.error.kind).toBe('unreachable')
+    if (!outcome.ok) expect(outcome.error.kind).toBe('wrist-singularity')
     expect(runTrajectoryCalls).toBe(0)
+  })
+
+  it('MoveL 使用 SingArea\\Wrist 时允许腕部姿态误差并保持 TCP 位置路径', () => {
+    const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
+    const start = degreeFrameFromPose(startJoints)
+    const target: RobTarget = {
+      trans: [start.position[0], start.position[1] + 5, start.position[2]],
+      rot: start.frame.rot,
+      robconf: [0, 0, 0, 0],
+      extax: [...NO_EXTERNAL_AXIS],
+    }
+
+    const result = planMoveL(
+      makeMoveL(target, { singArea: 'wrist' }),
+      ABB_MODEL,
+      startJoints,
+      ABB_JOINT_RANGES,
+    )
+
+    expect(result.ok).toBe(true)
   })
 })
 

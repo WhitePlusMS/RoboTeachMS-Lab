@@ -2,7 +2,11 @@ import type { MotionResult } from '@/robotics/motion-runner.ts'
 import type { RobotModel } from '@/robotics/robot-model.ts'
 import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
-import { validateMotionInput, type MotionPlanError } from './plan-shared.ts'
+import {
+  cartesianPathFailureToMotionError,
+  validateMotionInput,
+  type MotionPlanError,
+} from './plan-shared.ts'
 import { solvePoseWaypoints } from '@/robotics/ik-waypoint-solver.ts'
 import { arcLengthMm, sampleArcPoses } from './arc-planner.ts'
 import {
@@ -91,8 +95,13 @@ export function planMoveC(
     model,
     jointRanges,
     (tcp) => worldTcpToFlangePose(tcp, movec.tool),
+    // 由共享 waypoint 求解器逐点决定是否需要腕部姿态回退，不能把整条圆弧
+    // 预先降级为 position-only，否则非奇异段也会丢失编程姿态。
+    {},
+    movec.singArea === 'wrist' ? 'wrist' : 'strict',
   )
-  if (!waypoints || waypoints.length === 0) {
+  if (!waypoints.ok || waypoints.waypoints.length === 0) {
+    if (!waypoints.ok) return { ok: false, error: cartesianPathFailureToMotionError(waypoints.failure) }
     return {
       ok: false,
       error: {
@@ -116,7 +125,7 @@ export function planMoveC(
   const durationMs = (distance / movec.speed.v_tcp) * 1000
   const safeDuration = Number.isFinite(durationMs) && durationMs > 0 ? Math.max(durationMs, 1) : 1
 
-  return { ok: true, waypoints, durationMs: safeDuration }
+  return { ok: true, waypoints: waypoints.waypoints, durationMs: safeDuration }
 }
 
 /** 圆弧采样点数：按 TCP 弧长自适应，钳制到性能护栏。 */
@@ -126,7 +135,9 @@ function computeSegmentCount(start: Pose, target: Pose): number {
     target.position[1] - start.position[1],
     target.position[2] - start.position[2],
   )
-  return Math.min(200, Math.max(2, Math.ceil(distance / 5)))
+  // 圆弧曲率可能让关节变化明显大于 TCP 弧长比例；1 mm 的采样上限给 5°
+  // 相邻关节步长护栏留出余量，避免把本来连续的圆弧误判为构型跳变。
+  return Math.min(200, Math.max(2, Math.ceil(distance)))
 }
 
 /**

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { createMotionRunner } from '@/robotics/motion-runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
 import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import {
+  ABB_JOINT_RANGES,
+  ABB_TEACHING_HOME_JOINTS,
+} from '@/robot-models/abb-irb1200/robot-config.ts'
 import type { JointAngles } from '@/robotics/types.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import { executeMoveC, planMoveC } from './movec-planner.ts'
@@ -19,7 +22,7 @@ import {
 } from './rapid-types.ts'
 
 const ABB_MODEL = new AbbDhRobotModel()
-const AT_HOME: JointAngles = [0, 0, 0, 0, 0, 0]
+const AT_HOME: JointAngles = ABB_TEACHING_HOME_JOINTS
 
 /** 构造一个 robtarget（ABB 顺序四元数 [q1,q2,q3,q4] = [w,x,y,z]）。 */
 function target(trans: [number, number, number], rot: [number, number, number, number] = [1, 0, 0, 0]): RobTarget {
@@ -101,7 +104,10 @@ describe('planMoveC 校验与支持边界', () => {
 
   it('三点共线路径返回 ok:false（退化），不触发运动', () => {
     // 起点 home + 圆点 + 终点共线。
-    const collinear = makeMoveC(target([510, 0, 807]), target([560, 0, 807]))
+    const collinear = makeMoveC(
+      target([HOME_TCP[0] + 30, HOME_TCP[1], HOME_TCP[2]]),
+      target([HOME_TCP[0] + 60, HOME_TCP[1], HOME_TCP[2]]),
+    )
     const result = planMoveC(collinear, ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
     expect(result.ok).toBe(false)
   })
@@ -182,7 +188,10 @@ describe('planMoveC/executeMoveC 完整圆弧', () => {
         return 'completed' as const
       },
     }
-    const collinear = makeMoveC(target([510, 0, 807]), target([560, 0, 807]))
+    const collinear = makeMoveC(
+      target([HOME_TCP[0] + 30, HOME_TCP[1], HOME_TCP[2]]),
+      target([HOME_TCP[0] + 60, HOME_TCP[1], HOME_TCP[2]]),
+    )
     const outcome = await executeMoveC(collinear, seam)
     expect(outcome.ok).toBe(false)
     expect(invoked).toBe(false)
