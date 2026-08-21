@@ -193,15 +193,26 @@ onBeforeUnmount(() => {
       >
         DH参考链
       </button>
-      <button
-        type="button"
-        :class="['scene-aux-button', { active: props.showTrajectory }]"
-        :aria-pressed="props.showTrajectory"
-        title="显示/隐藏 TCP 运行轨迹"
-        @click="emit('trajectory-change', !props.showTrajectory)"
-      >
-        轨迹
-      </button>
+      <span class="scene-aux-group scene-aux-trajectory-group" role="group" aria-label="轨迹操作">
+        <button
+          type="button"
+          :class="['scene-aux-button', { active: props.showTrajectory }]"
+          :aria-pressed="props.showTrajectory"
+          title="显示/隐藏 TCP 运行轨迹"
+          @click="emit('trajectory-change', !props.showTrajectory)"
+        >
+          轨迹
+        </button>
+        <button
+          type="button"
+          class="scene-aux-button scene-aux-clear"
+          :disabled="props.trajectoryCount === 0"
+          title="清空已记录的 TCP 轨迹"
+          @click="clearTrajectory"
+        >
+          清空轨迹
+        </button>
+      </span>
       <button
         type="button"
         :class="['scene-aux-button', { active: props.showRobtargets }]"
@@ -260,15 +271,6 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </span>
-      <button
-        type="button"
-        class="scene-aux-button scene-aux-clear"
-        :disabled="props.trajectoryCount === 0"
-        title="清空已记录的 TCP 轨迹"
-        @click="clearTrajectory"
-      >
-        清空轨迹
-      </button>
     </div>
   </div>
 </template>
@@ -364,6 +366,11 @@ onBeforeUnmount(() => {
 
 /* 末端拖拽操作轴按钮组：子按钮（平移/旋转）在开启后与主按钮同排紧凑排列。 */
 .scene-aux-gizmo-group {
+  display: flex;
+  gap: 6px;
+}
+
+.scene-aux-trajectory-group {
   display: flex;
   gap: 6px;
 }
