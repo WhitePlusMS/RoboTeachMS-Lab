@@ -57,6 +57,8 @@ export interface IKSolverConfig {
   errorClampPos: number
   errorClampOri: number
   orientationScale: number
+  /** SingArea\\Wrist 仅约束 TCP 位置，允许控制器在腕部奇异附近产生姿态误差。 */
+  positionOnly?: boolean
 }
 
 export type CoordinateSystem = 'World' | 'Tool'

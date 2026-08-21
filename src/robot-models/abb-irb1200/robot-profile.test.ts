@@ -3,7 +3,8 @@ import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import { AbbDhRobotModel } from './dh-robot-model.ts'
 import { ABB_IRB1200_PROFILE } from './robot-profile.ts'
 import {
-  ABB_DEFAULT_JOINTS,
+  ABB_MECHANICAL_ZERO_JOINTS,
+  ABB_TEACHING_HOME_JOINTS,
   ABB_IRB1200_5_90_STANDARD_DH,
   ABB_JOINT_RANGES,
 } from './robot-config.ts'
@@ -25,7 +26,8 @@ describe('ABB IRB 1200 profile seam', () => {
     expect(profile.displayName).toBe(ABB_IRB1200_5_90_STANDARD_DH.name)
     expect(profile.model).toBeInstanceOf(AbbDhRobotModel)
     expect(profile.jointRanges).toBe(ABB_JOINT_RANGES)
-    expect(profile.homeJoints).toBe(ABB_DEFAULT_JOINTS)
+    expect(profile.homeJoints).toBe(ABB_TEACHING_HOME_JOINTS)
+    expect(profile.mechanicalZeroJoints).toBe(ABB_MECHANICAL_ZERO_JOINTS)
   })
 
   it('只聚合契约字段：型号身份、一体模型、关节范围与回零状态', () => {
@@ -35,6 +37,7 @@ describe('ABB IRB 1200 profile seam', () => {
       'homeJoints',
       'id',
       'jointRanges',
+      'mechanicalZeroJoints',
       'model',
     ])
   })
@@ -44,11 +47,17 @@ describe('ABB IRB 1200 profile seam', () => {
     ABB_IRB1200_PROFILE.jointRanges.forEach((range) => {
       expect(range[0]).toBeLessThan(range[1])
     })
-    ABB_IRB1200_PROFILE.homeJoints.forEach((angle, index) => {
-      const [min, max] = ABB_IRB1200_PROFILE.jointRanges[index]
-      expect(angle).toBeGreaterThanOrEqual(min)
-      expect(angle).toBeLessThanOrEqual(max)
-    })
+    for (const joints of [
+      ABB_IRB1200_PROFILE.homeJoints,
+      ABB_IRB1200_PROFILE.mechanicalZeroJoints,
+    ]) {
+      joints.forEach((angle, index) => {
+        const [min, max] = ABB_IRB1200_PROFILE.jointRanges[index]
+        expect(angle).toBeGreaterThanOrEqual(min)
+        expect(angle).toBeLessThanOrEqual(max)
+      })
+    }
+    expect(ABB_IRB1200_PROFILE.homeJoints[4]).not.toBe(0)
   })
 
   it('零位正解由 profile 内的单一模型驱动', () => {

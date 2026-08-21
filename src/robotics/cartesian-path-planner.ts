@@ -5,7 +5,16 @@ import {
 } from '@/robotics/math/rotation3d.ts'
 import type { RobotModel } from './robot-model.ts'
 import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
-import { solvePoseWaypoints } from './ik-waypoint-solver.ts'
+import {
+  solvePoseWaypoints,
+  type CartesianOrientationMode,
+  type WaypointFailureReason,
+  type WaypointSolveResult,
+} from './ik-waypoint-solver.ts'
+
+export type CartesianPathFailure = WaypointFailureReason
+export type CartesianPathResult = WaypointSolveResult
+export type { CartesianOrientationMode }
 
 const DEFAULT_LINEAR_STEP_MM = 1
 const DEFAULT_ANGULAR_STEP_RAD = Math.PI / 180
@@ -45,12 +54,6 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
 }
 
 /**
- * 把单个笛卡尔目标拆成短直线段，并用上一段的关节解继续求下一段。
- *
- * 规划器只依赖 RobotModel 的 FK/Jacobian seam，因此 ABB 之外的六轴设备也能复用；
- * 调用方只负责播放返回的关节 waypoint，不需要了解内部插补和 IK 细节。
- */
-/**
  * 规划器只依赖 RobotModel 的 FK/Jacobian seam，因此 ABB 之外的六轴设备也能复用；
  * 调用方只负责播放返回的关节 waypoint，不需要了解内部插补和 IK 细节。
  *
@@ -58,17 +61,23 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
  * - `tcpStart`：直线插补的起点 TCP 位姿（默认取 `model.forwardKinematics(initialJoints)`，
  *   即“法兰即 TCP”的 tool0/wobj0 快照）。提供后插补在 TCP 空间进行。
  * - `toFlange`：把插补得到的 TCP 位姿变换为机械法兰位姿后再送入 IK；缺省为原样（tool0 时法兰=TCP）。
- * 未提供两参数时行为与旧版一致（Jog 笛卡尔控制）。
+ * - `orientationMode`：`strict` 保持完整姿态；`wrist` 对齐 ABB `SingArea\\Wrist`，先保持
+ *   完整姿态，仅在腕部奇异邻域的 waypoint 回退为位置优先，允许该局部姿态误差。
+ * 未提供 options 时行为与旧版一致（Jog 笛卡尔控制）。
  */
 export function planCartesianPath(
   targetPose: Pose,
   initialJoints: JointAngles,
   model: RobotModel,
   jointRanges: readonly (readonly [number, number])[],
-  opts?: { tcpStart?: Pose; toFlange?: (pose: Pose) => Pose },
-): JointAngles[] | null {
+  opts?: {
+    tcpStart?: Pose
+    toFlange?: (pose: Pose) => Pose
+    orientationMode?: CartesianOrientationMode
+  },
+): CartesianPathResult {
   const startPose = opts?.tcpStart ?? model.forwardKinematics(initialJoints)
-  if (!startPose) return null
+  if (!startPose) return { ok: false, failure: 'ik-not-converged' }
   const toFlange = opts?.toFlange ?? ((pose: Pose) => pose)
 
   const distance = Math.hypot(
@@ -108,5 +117,16 @@ export function planCartesianPath(
 
   // 逆解交给 MoveL/MoveC 共享的多初值逐点求解器（含相邻构型跳变护栏），
   // 并保持 MoveL 原有的紧 IK 容差。
-  return solvePoseWaypoints(poses, initialJoints, model, jointRanges, toFlange, MOVE_L_IK_CONFIG)
+  const orientationMode = opts?.orientationMode ?? 'strict'
+  return solvePoseWaypoints(
+    poses,
+    initialJoints,
+    model,
+    jointRanges,
+    toFlange,
+    // 始终先使用完整位姿 IK；`solvePoseWaypoints` 只在单个 waypoint
+    // 接近腕部奇异或发生构型重新分配时，按 SingArea\\Wrist 语义局部回退。
+    MOVE_L_IK_CONFIG,
+    orientationMode,
+  )
 }

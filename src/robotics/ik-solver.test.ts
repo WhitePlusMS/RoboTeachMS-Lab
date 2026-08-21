@@ -4,7 +4,10 @@ import { eulerZYXToMatrix } from './matrix4x4.ts'
 import type { JointAngles, Pose } from './types.ts'
 import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/robot-config.ts'
 import { DhRobotModel } from '@/robot-models/kuka-like/dh-robot-model.ts'
-import { ABB_DEFAULT_JOINTS, ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import {
+  ABB_MECHANICAL_ZERO_JOINTS,
+  ABB_JOINT_RANGES,
+} from '@/robot-models/abb-irb1200/robot-config.ts'
 import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
 
 describe('KUKA 数值逆解', () => {
@@ -55,7 +58,7 @@ describe('ABB IRB 1200 数值逆解', () => {
     const target = model.forwardKinematics(source) as Pose
     const result = solveIK(
       target,
-      ABB_DEFAULT_JOINTS,
+      ABB_MECHANICAL_ZERO_JOINTS,
       model,
       { maxIterations: 250 },
       ABB_JOINT_RANGES,
@@ -86,7 +89,7 @@ describe('ABB IRB 1200 数值逆解', () => {
   it('ABB 位置-only 回退仍使用相同模型和关节限位', () => {
     const target = model.forwardKinematics([0, -25, 45, 0, 20, 0]) as Pose
     target.position[0] += 5
-    const result = solveIK(target, ABB_DEFAULT_JOINTS, model, {}, ABB_JOINT_RANGES)
+    const result = solveIK(target, ABB_MECHANICAL_ZERO_JOINTS, model, {}, ABB_JOINT_RANGES)
 
     expect(result).not.toBeNull()
     const solved = model.forwardKinematics(result as JointAngles) as Pose
@@ -105,7 +108,7 @@ describe('ABB IRB 1200 数值逆解', () => {
       const target = model.forwardKinematics(source) as Pose
       const result = solveIK(
         target,
-        ABB_DEFAULT_JOINTS,
+        ABB_MECHANICAL_ZERO_JOINTS,
         model,
         { maxIterations: 250 },
         ABB_JOINT_RANGES,

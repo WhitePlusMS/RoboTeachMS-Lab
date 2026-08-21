@@ -5,6 +5,27 @@ import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
 /** 相邻关节步长上限（度）：连续笛卡尔路径（MoveL/MoveC）逐点求解的构型跳变护栏。 */
 export const MAX_JOINT_STEP_DEG = 5
 
+/**
+ * 机械零位第一次脱离腕部奇异时的 J5 目标偏置（度）。
+ * 该偏置只作为 position-only IK 的初值，不会改变普通工作区的严格姿态规划。
+ */
+const WRIST_ESCAPE_J5_DEG = 5
+
+/** 腕部姿态策略：strict 保持完整位姿，wrist 仅在腕部奇异邻域允许姿态误差。 */
+export type CartesianOrientationMode = 'strict' | 'wrist'
+
+/** 共享的笛卡尔路径失败原因；上层可据此给出可操作的诊断提示。 */
+export type WaypointFailureReason =
+  | 'wrist-singularity'
+  | 'wrist-reconfiguration'
+  | 'joint-limit'
+  | 'joint-step'
+  | 'ik-not-converged'
+
+export type WaypointSolveResult =
+  | { ok: true; waypoints: JointAngles[]; usedWristFallback: boolean }
+  | { ok: false; failure: WaypointFailureReason }
+
 /** 判定 IK 解是否被夹在关节范围边界（度）；该启发用于区分 joint-limit。 */
 const JOINT_LIMIT_EPS_DEG = 0.5
 
@@ -17,6 +38,59 @@ export function isJointAtLimit(
     const [min, max] = jointRanges[index]
     return value <= min + JOINT_LIMIT_EPS_DEG || value >= max - JOINT_LIMIT_EPS_DEG
   })
+}
+
+/** ABB 腕部奇异的关节空间近似：J5 接近 0° 时轴 4 与轴 6 共线。 */
+function isNearWristSingularity(model: RobotModel, joints: JointAngles): boolean {
+  return model.isWristSingularity?.(joints) ?? false
+}
+
+/**
+ * J5 位于腕部奇异面时，完整姿态的数值逆解可能把 J4/J6 重新分配到另一构型。
+ * 这种相邻 waypoint 跳变不是普通步长过大，而是 ABB 所说的 wrist re-configuration。
+ */
+function isWristReconfiguration(
+  model: RobotModel,
+  previous: JointAngles,
+  next: JointAngles,
+): boolean {
+  const wristStep = Math.max(Math.abs(next[3] - previous[3]), Math.abs(next[5] - previous[5]))
+  return (
+    wristStep > MAX_JOINT_STEP_DEG &&
+    (isNearWristSingularity(model, previous) || isNearWristSingularity(model, next))
+  )
+}
+
+/** 从当前关节生成一次有方向的腕部脱离初值，避免 position-only IK 继续停在 J5=0。 */
+function buildWristEscapeReference(
+  currentJoints: JointAngles,
+  direction: -1 | 1,
+  jointRanges: readonly (readonly [number, number])[],
+): JointAngles {
+  const reference = [...currentJoints] as JointAngles
+  const [minJ5, maxJ5] = jointRanges[4]
+  reference[4] = Math.max(
+    minJ5,
+    Math.min(maxJ5, direction * WRIST_ESCAPE_J5_DEG),
+  )
+  return reference
+}
+
+/** 根据首个 TCP waypoint 的位移方向选择 J5 脱离方向；纯姿态目标默认取正向。 */
+function getWristEscapeDirection(
+  poses: readonly Pose[],
+  initialJoints: JointAngles,
+  model: RobotModel,
+): -1 | 1 {
+  if (poses.length === 0) return 1
+  const startPose = model.forwardKinematics(initialJoints)
+  if (!startPose) return 1
+  let dominantDelta = 0
+  for (let index = 0; index < 3; index += 1) {
+    const delta = poses[0].position[index] - startPose.position[index]
+    if (Math.abs(delta) > Math.abs(dominantDelta)) dominantDelta = delta
+  }
+  return dominantDelta < 0 ? -1 : 1
 }
 
 /**
@@ -178,16 +252,28 @@ export function resolveJointSolution(
   model: RobotModel,
   jointRanges: readonly (readonly [number, number])[],
   solverConfig: Partial<IKSolverConfig> = {},
-): { joints: JointAngles } | { failure: 'joint-limit' | 'unreachable' } {
+  continuityLimitDeg?: number,
+): { joints: JointAngles } | { failure: 'joint-limit' | 'unreachable' | 'joint-step' } {
   const primary = solveIK(targetPose, referenceJoints, model, solverConfig, jointRanges)
-  if (primary && !isJointAtLimit(primary, jointRanges)) return { joints: primary }
+  const isContinuous = (joints: JointAngles): boolean =>
+    continuityLimitDeg === undefined ||
+    Math.max(...joints.map((value, index) => Math.abs(value - referenceJoints[index]))) <= continuityLimitDeg
+
+  if (primary && !isJointAtLimit(primary, jointRanges) && isContinuous(primary)) {
+    return { joints: primary }
+  }
 
   const alternatives: JointAngles[] = []
   for (const seed of buildAlternateIKSeeds(referenceJoints, jointRanges)) {
     const candidate = solveIK(targetPose, seed, model, solverConfig, jointRanges)
-    if (candidate && !isJointAtLimit(candidate, jointRanges)) alternatives.push(candidate)
+    if (candidate && !isJointAtLimit(candidate, jointRanges) && isContinuous(candidate)) {
+      alternatives.push(candidate)
+    }
   }
   if (alternatives.length === 0) {
+    if (continuityLimitDeg !== undefined && primary && !isJointAtLimit(primary, jointRanges)) {
+      return { failure: 'joint-step' }
+    }
     return { failure: primary ? 'joint-limit' : 'unreachable' }
   }
 
@@ -207,7 +293,8 @@ export function resolveJointSolution(
 /**
  * 逐点把一串 TCP 位姿求解为关节 waypoint（MoveL 与 MoveC 共用）：
  * 每个 waypoint 经 `toFlange` 转成法兰位姿送 IK，以上一关节解为参考初值；
- * 并做构型跳变（相邻步长）护栏。任何一点 IK 失败或跳变越界都返回 null。
+ * 并做构型跳变（相邻步长）护栏。失败时返回结构化原因，避免上层把腕部奇异、关节
+ * 限位和普通数值不收敛混成同一条“不可达”消息。
  *
  * 逆解用共享的多初值策略（主初值 + 确定性构型翻转备用初值，选离参考最近的解），
  * 避免单一连续性初值在圆弧这类连续位姿上陷入狭窄收敛盆地而误判不可达。
@@ -219,24 +306,114 @@ export function solvePoseWaypoints(
   jointRanges: readonly (readonly [number, number])[],
   toFlange: (pose: Pose) => Pose,
   solverConfig: Partial<IKSolverConfig> = {},
-): JointAngles[] | null {
+  orientationMode: CartesianOrientationMode = 'strict',
+): WaypointSolveResult {
   const waypoints: JointAngles[] = []
   let previousJoints = [...initialJoints] as JointAngles
+  let usedWristFallback = false
+  // 机械零位专属诊断和自动 wrist 回退共用同一个路径级资格。
+  // 路径开始后固定此资格，避免普通工作区仅因 J5≈0 或中途经过奇异面就误报重构。
+  const isMechanicalZeroWristPath =
+    model.isMechanicalZeroSingularityNeighborhood?.(initialJoints) ?? false
+  // 只有机械零位专用路径才把相邻步长纳入候选筛选；普通工作姿态保持旧版
+  // “主解优先、失败后再扫备用初值”的行为，避免新策略改变既有运动构型。
+  const continuityLimitDeg = isMechanicalZeroWristPath ? MAX_JOINT_STEP_DEG : undefined
+  const wristFallbackAllowed =
+    orientationMode === 'wrist' &&
+    isMechanicalZeroWristPath
+  const wristEscapeDirection = getWristEscapeDirection(poses, initialJoints, model)
+  let wristEscapeDone = false
+  let wristEscapePose: Pick<Pose, 'euler' | 'rotation'> | null = null
   for (const pose of poses) {
-    const solved = resolveJointSolution(
-      toFlange(pose),
+    // 脱离奇异点后，沿用脱离后的实际腕部姿态作为本次局部路径的姿态目标。
+    // 这对应 ABB“奇异点另一侧第一个目标修改姿态”的规则，避免下一 waypoint
+    // 继续要求原姿态而再次触发 J4/J6 的大幅重分配。
+    const effectivePose = wristEscapePose
+      ? {
+          ...pose,
+          euler: [...wristEscapePose.euler] as Pose['euler'],
+          rotation: wristEscapePose.rotation.map((row) => [...row]),
+        }
+      : pose
+    const strictSolved = resolveJointSolution(
+      toFlange(effectivePose),
       previousJoints,
       model,
       jointRanges,
       solverConfig,
+      continuityLimitDeg,
     )
-    if ('failure' in solved) return null
+    let solved = strictSolved
+    // SingArea\\Wrist 的语义是“先保持姿态，只有腕部无法连续分配时才允许误差”，
+    // 不能把所有普通平移都降级成位置-only IK。
+    const wristFallbackNeeded =
+      wristFallbackAllowed &&
+      (('failure' in strictSolved && isNearWristSingularity(model, previousJoints)) ||
+        ('joints' in strictSolved &&
+          isWristReconfiguration(model, previousJoints, strictSolved.joints)))
+    if (wristFallbackNeeded) {
+      const wristReference =
+        !wristEscapeDone
+          ? buildWristEscapeReference(previousJoints, wristEscapeDirection, jointRanges)
+          : previousJoints
+      const wristSolved = resolveJointSolution(
+        toFlange(effectivePose),
+        wristReference,
+        model,
+        jointRanges,
+        { ...solverConfig, positionOnly: true },
+      )
+      if ('joints' in wristSolved) {
+        usedWristFallback = true
+        // 第一次回退必须真正离开 J5≈0；离开后后续 waypoint 恢复严格姿态。
+        wristEscapeDone = !isNearWristSingularity(model, wristSolved.joints)
+        if (wristEscapeDone) {
+          const escapedPose = model.forwardKinematics(wristSolved.joints)
+          if (escapedPose) {
+            wristEscapePose = {
+              euler: [...escapedPose.euler],
+              rotation: escapedPose.rotation.map((row) => [...row]),
+            }
+          }
+        }
+      }
+      solved = wristSolved
+    }
+    if ('failure' in solved) {
+      if (solved.failure === 'joint-limit') {
+        return { ok: false, failure: 'joint-limit' }
+      }
+      if (solved.failure === 'joint-step') {
+        return {
+          ok: false,
+          failure:
+            isMechanicalZeroWristPath && isNearWristSingularity(model, previousJoints)
+              ? 'wrist-reconfiguration'
+              : 'ik-not-converged',
+        }
+      }
+      return {
+        ok: false,
+        failure: isMechanicalZeroWristPath && isNearWristSingularity(model, previousJoints)
+          ? 'wrist-singularity'
+          : 'ik-not-converged',
+      }
+    }
     const maxJointStep = Math.max(
       ...solved.joints.map((value, index) => Math.abs(value - previousJoints[index])),
     )
-    if (maxJointStep > MAX_JOINT_STEP_DEG) return null
+    if (maxJointStep > MAX_JOINT_STEP_DEG) {
+      return {
+        ok: false,
+        failure:
+          isMechanicalZeroWristPath &&
+          isWristReconfiguration(model, previousJoints, solved.joints)
+          ? 'wrist-reconfiguration'
+          : 'ik-not-converged',
+      }
+    }
     waypoints.push(solved.joints)
     previousJoints = solved.joints
   }
-  return waypoints
+  return { ok: true, waypoints, usedWristFallback }
 }

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import type { JointAngles, Pose } from '@/robotics/types.ts'
-import { ABB_DEFAULT_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
+import { ABB_TEACHING_HOME_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
 import { abbScene } from '@/theme/scene.ts'
 import {
@@ -348,7 +348,7 @@ export function createAbbScene(
 
   const { controller, runtime } = createSceneController(container, {
     display: ABB_DISPLAY,
-    defaultJoints: [...ABB_DEFAULT_JOINTS],
+    defaultJoints: [...ABB_TEACHING_HOME_JOINTS],
     loadModel: (onSuccess, onError) => {
       const loader = new FBXLoader()
       loader.load(ABB_MODEL_URL, onSuccess, undefined, onError)

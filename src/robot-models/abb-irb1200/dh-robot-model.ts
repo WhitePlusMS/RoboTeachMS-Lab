@@ -3,6 +3,11 @@ import { extractPose } from '@/robotics/kinematics.ts'
 import type { RobotModel } from '@/robotics/robot-model.ts'
 import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { forwardAbbKinematicsDegrees } from './abb-kinematics.ts'
+import {
+  ABB_MECHANICAL_ZERO_JOINTS,
+  ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG,
+  ABB_WRIST_SINGULARITY_THRESHOLD_DEG,
+} from './robot-config.ts'
 
 /**
  * ABB 候选等价 DH 链模型；当前用于FK/IK验证，不代表ABB官方标定机制。
@@ -11,6 +16,20 @@ import { forwardAbbKinematicsDegrees } from './abb-kinematics.ts'
 export class AbbDhRobotModel implements RobotModel {
   isAvailable(): boolean {
     return true
+  }
+
+  isWristSingularity(jointsDeg: JointAngles): boolean {
+    return Math.abs(jointsDeg[4]) <= ABB_WRIST_SINGULARITY_THRESHOLD_DEG
+  }
+
+  isMechanicalZeroSingularityNeighborhood(jointsDeg: JointAngles): boolean {
+    if (!this.isWristSingularity(jointsDeg)) return false
+    return jointsDeg.every((value, index) => {
+      const threshold = index === 4
+        ? ABB_WRIST_SINGULARITY_THRESHOLD_DEG
+        : ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG
+      return Math.abs(value - ABB_MECHANICAL_ZERO_JOINTS[index]) <= threshold
+    })
   }
 
   forwardKinematics(jointsDeg: JointAngles): Pose {

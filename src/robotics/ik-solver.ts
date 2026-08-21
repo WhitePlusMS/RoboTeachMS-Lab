@@ -66,20 +66,28 @@ export function solveIK(
     )
     const oriNorm = Math.hypot(...eOriRaw)
 
-    if (posNorm < cfg.posTolerance && oriNorm < cfg.oriTolerance) return joints
+    if (posNorm < cfg.posTolerance && (cfg.positionOnly === true || oriNorm < cfg.oriTolerance)) {
+      return joints
+    }
 
     const jacobian = model.estimateJacobian(joints)
     if (!jacobian) return null
     const jacobianRows = jacobian.map((row, rowIndex) =>
-      row.map((value) => (rowIndex >= 3 ? value * cfg.orientationScale : value)),
+      row.map((value) =>
+        rowIndex < 3
+          ? value
+          : cfg.positionOnly === true
+            ? 0
+            : value * cfg.orientationScale,
+      ),
     )
     const matrix = new Matrix(jacobianRows)
     const transpose = matrix.transpose()
     const errorVector = Matrix.columnVector([
       ...ePos,
-      eOri[0] * cfg.orientationScale,
-      eOri[1] * cfg.orientationScale,
-      eOri[2] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : eOri[0] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : eOri[1] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : eOri[2] * cfg.orientationScale,
     ])
     const lhs = transpose.mmul(matrix).add(Matrix.eye(6).mul(lambda))
     const rhs = transpose.mmul(errorVector)
@@ -103,15 +111,15 @@ export function solveIK(
     const candidateOrientation = clampVectorMagnitude(candidateOrientationRaw, cfg.errorClampOri)
     const errorNorm = Math.hypot(
       ...ePos,
-      eOri[0] * cfg.orientationScale,
-      eOri[1] * cfg.orientationScale,
-      eOri[2] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : eOri[0] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : eOri[1] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : eOri[2] * cfg.orientationScale,
     )
     const candidateErrorNorm = Math.hypot(
       ...candidatePositionError,
-      candidateOrientation[0] * cfg.orientationScale,
-      candidateOrientation[1] * cfg.orientationScale,
-      candidateOrientation[2] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : candidateOrientation[0] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : candidateOrientation[1] * cfg.orientationScale,
+      cfg.positionOnly === true ? 0 : candidateOrientation[2] * cfg.orientationScale,
     )
 
     if (candidateErrorNorm < errorNorm) {

@@ -36,7 +36,17 @@ export const ABB_IRB1200_5_90_STANDARD_DH: RobotConfig = {
   linkColors: ['#f59e0b', '#f59e0b', '#f59e0b', '#1f2937', '#1f2937', '#1f2937'],
 }
 
-export const ABB_DEFAULT_JOINTS: JointAngles = [0, 0, 0, 0, 0, 0]
+/** ABB 机械/同步零位；J5=0° 时腕部轴线共线，属于可达但不适合笛卡尔点动的奇异构型。 */
+export const ABB_MECHANICAL_ZERO_JOINTS: JointAngles = [0, 0, 0, 0, 0, 0]
+
+/** J5 接近 0° 时的 ABB 腕部奇异判定阈值；仅供 ABB adapter 使用。 */
+export const ABB_WRIST_SINGULARITY_THRESHOLD_DEG = 1
+
+/** 机械零位附近的局部策略范围；普通工作姿态不得进入自动 wrist 修正。 */
+export const ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG = 5
+
+/** 常规教学 Home：保持可复现，同时让 J5 离开腕部奇异面。 */
+export const ABB_TEACHING_HOME_JOINTS: JointAngles = [0, -25, 45, 0, 20, 0]
 
 /**
  * 六轴关节范围在源头声明为严格六元 tuple，由六个具名 DH 关节的 thetaRange 显式构造。

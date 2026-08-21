@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ABB_DEFAULT_JOINTS,
+  ABB_MECHANICAL_ZERO_JOINTS,
+  ABB_TEACHING_HOME_JOINTS,
   ABB_IRB1200_5_90_STANDARD_DH,
   ABB_JOINT_RANGES,
 } from './robot-config.ts'
@@ -25,6 +26,7 @@ describe('ABB IRB 1200-5/0.9 profile', () => {
     expect(dh.joint2.thetaOffset).toBeCloseTo(-Math.PI / 2)
     expect(dh.joint5.thetaOffset ?? 0).toBe(0)
     expect(Object.values(dh).map((joint) => joint.thetaSign ?? 1)).toEqual([1, 1, 1, 1, 1, 1])
-    expect(ABB_DEFAULT_JOINTS).toEqual([0, 0, 0, 0, 0, 0])
+    expect(ABB_MECHANICAL_ZERO_JOINTS).toEqual([0, 0, 0, 0, 0, 0])
+    expect(ABB_TEACHING_HOME_JOINTS).toEqual([0, -25, 45, 0, 20, 0])
   })
 })

@@ -19,7 +19,7 @@ export type SixAxisJointRanges = readonly [
  * DH 参数、三维资产、FBX 节点、颜色、Three.js 矩阵与 RAPID 默认值不属于本契约。
  *
  * 本契约作为跨关节、笛卡尔与程序控制共享的稳定单例：所有字段只读，调用者只在需要
- * 运动目标时通过展开运算从 homeJoints 派生可写 JointAngles，禁止改写或替换任一字段，
+ * 运动目标时通过展开运算从 homeJoints/mechanicalZeroJoints 派生可写 JointAngles，禁止改写或替换任一字段，
  * 一次误写会污染所有控制器。
  */
 export interface RobotProfile {
@@ -27,6 +27,8 @@ export interface RobotProfile {
   readonly displayName: string
   readonly model: RobotModel
   readonly jointRanges: SixAxisJointRanges
-  /** 回零关节状态：只读六元 tuple，使用方通过展开创建可写运动目标。 */
+  /** 教学 Home 关节状态：用于常规初始姿态与回零，避开已知腕部奇异构型。 */
   readonly homeJoints: Readonly<JointAngles>
+  /** 厂家机械/同步零位：用于校准与诊断，不作为默认教学姿态。 */
+  readonly mechanicalZeroJoints: Readonly<JointAngles>
 }
