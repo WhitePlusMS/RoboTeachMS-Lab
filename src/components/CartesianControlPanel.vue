@@ -32,6 +32,8 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   move: [axis: CartesianAxis, direction: CartesianDirection, isContinuous?: boolean]
+  'continuous-start': [axis: CartesianAxis, direction: CartesianDirection]
+  'continuous-end': []
   'coordinate-change': [value: CoordinateSystem]
   'position-step-change': [value: number]
   'orientation-step-change': [value: number]
@@ -90,7 +92,6 @@ interface ActivePress {
   axis: CartesianAxis
   direction: CartesianDirection
   timeoutId: number
-  intervalId: number | null
   repeated: boolean
 }
 
@@ -100,7 +101,6 @@ function stopPress(): void {
   const press = activePress.value
   if (!press) return
   window.clearTimeout(press.timeoutId)
-  if (press.intervalId !== null) window.clearInterval(press.intervalId)
   activePress.value = null
 }
 
@@ -110,14 +110,11 @@ function startPress(axis: CartesianAxis, direction: CartesianDirection): void {
     axis,
     direction,
     timeoutId: 0,
-    intervalId: null,
     repeated: false,
   }
   press.timeoutId = window.setTimeout(() => {
     press.repeated = true
-    press.intervalId = window.setInterval(() => {
-      emit('move', press.axis, press.direction, true)
-    }, 100)
+    emit('continuous-start', press.axis, press.direction)
   }, 180)
   activePress.value = press
 }
@@ -126,10 +123,15 @@ function finishPress(): void {
   const press = activePress.value
   if (!press) return
   if (!press.repeated) emit('move', press.axis, press.direction, false)
+  else emit('continuous-end')
   stopPress()
 }
 
-onBeforeUnmount(stopPress)
+onBeforeUnmount(() => {
+  // 面板切换/卸载时不能只清理 DOM 定时器；控制器还需要结束自己的点动会话。
+  if (activePress.value?.repeated) emit('continuous-end')
+  stopPress()
+})
 </script>
 
 <template>

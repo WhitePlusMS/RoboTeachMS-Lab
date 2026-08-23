@@ -12,7 +12,14 @@ export type MotionStatus = 'idle' | 'running' | 'paused'
  */
 export type MotionResult = 'completed' | 'stopped'
 
-type MotionType = 'none' | 'joint-eased' | 'joint-speed' | 'joint-trajectory'
+type MotionType =
+  | 'none'
+  | 'joint-eased'
+  | 'joint-speed'
+  | 'joint-trajectory'
+  | 'joint-stream'
+
+const STREAM_JOIN_DISTANCE_DEG = 10
 
 /**
  * 动画时钟接缝。
@@ -43,6 +50,12 @@ export interface MotionRunner {
   startEased: (target: JointAngles, duration?: number) => Promise<MotionResult>
   startSpeedLimited: (target: JointAngles) => Promise<MotionResult>
   startTrajectory: (waypoints: readonly JointAngles[], duration?: number) => Promise<MotionResult>
+  /** 只把新 waypoint 追加到当前笛卡尔执行队列尾部，不重置已执行段。 */
+  appendTrajectory: (
+    waypoints: readonly JointAngles[],
+    duration?: number,
+    generation?: number,
+  ) => Promise<MotionResult>
   pause: () => void
   resume: () => void
   stop: () => void
@@ -65,6 +78,10 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
   let lastTime: number | null = null
   let animationDuration = config.ikAnimDuration
   let trajectoryJoints: JointAngles[] = []
+  let streamSegmentIndex = 0
+  let streamSegmentStartTime = 0
+  let streamSegmentDuration = config.ikAnimDuration
+  let streamGeneration: number | null = null
   // 暂停累计时长：暂停期间的流逝时间不参与缓动/轨迹进度计算。
   let totalPausedTime = 0
   let pausedAt: number | null = null
@@ -175,6 +192,31 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     else finishMotion()
   }
 
+  function runStreamTrajectory(): void {
+    const start = trajectoryJoints[streamSegmentIndex]
+    const end = trajectoryJoints[streamSegmentIndex + 1]
+    if (!start || !end) {
+      finishMotion()
+      return
+    }
+    const progress = Math.min(
+      Math.max((options.clock.now() - streamSegmentStartTime) / streamSegmentDuration, 0),
+      1,
+    )
+    const eased = easeInOutCubic(progress)
+    options.setJoints(
+      start.map((value, index) => value + (end[index] - value) * eased) as JointAngles,
+    )
+    if (progress < 1) {
+      requestFrame(runStreamTrajectory)
+      return
+    }
+    streamSegmentIndex += 1
+    streamSegmentStartTime = options.clock.now()
+    if (streamSegmentIndex >= trajectoryJoints.length - 1) finishMotion()
+    else requestFrame(runStreamTrajectory)
+  }
+
   function startEased(
     target: JointAngles,
     duration = config.ikAnimDuration,
@@ -228,6 +270,81 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     return active!.promise
   }
 
+  function appendTrajectory(
+    waypoints: readonly JointAngles[],
+    duration = config.ikAnimDuration,
+    generation?: number,
+  ): Promise<MotionResult> {
+    if (waypoints.length === 0) {
+      throw new Error('appendTrajectory 收到空的 waypoint 轨迹，无法追加运动')
+    }
+    const copied = waypoints.map((waypoint) => [...waypoint] as JointAngles)
+    if (activeType === 'joint-stream' && active) {
+      if (generation !== undefined && generation !== streamGeneration) {
+        trajectoryJoints = [
+          [...options.getCurrentJoints()] as JointAngles,
+          copied[copied.length - 1],
+        ]
+        streamSegmentIndex = 0
+        streamSegmentStartTime = options.clock.now()
+        streamSegmentDuration = Math.max(duration, 1)
+        streamGeneration = generation
+        return active.promise
+      }
+      // 规划器通常从发送时快照开始，结果前缀可能已经落在当前已提交尾部之前；
+      // 只追加从队列尾部最近的 waypoint 开始的未来后缀，绝不把执行拉回历史点。
+      const tail = trajectoryJoints[trajectoryJoints.length - 1]
+      const endpoint = copied[copied.length - 1]
+      const endpointDelta = endpoint.map((value, index) => value - tail[index])
+      const dominantAxis = endpointDelta.reduce(
+        (best, value, index) => Math.abs(value) > Math.abs(endpointDelta[best]) ? index : best,
+        0,
+      )
+      // 同一代次内的结果只能沿当前目标的主方向接续；终点落到尾部反向侧的
+      // 结果通常是旧规划快照，直接拒绝，避免 [5,20,0] 之类的来回抽动。
+      if (Math.abs(endpointDelta[dominantAxis]) > 1e-7 && endpointDelta[dominantAxis] < 0) {
+        return active.promise
+      }
+      const futureCandidates = copied.filter((candidate) =>
+        candidate.every((value, index) => Math.abs(value - tail[index]) <= STREAM_JOIN_DISTANCE_DEG),
+      )
+      if (futureCandidates.length === 0) return active.promise
+      let closestIndex = 0
+      let closestDistance = Number.POSITIVE_INFINITY
+      copied.forEach((candidate, index) => {
+        if (!futureCandidates.includes(candidate)) return
+        const candidateDelta = candidate.map((value, jointIndex) => value - tail[jointIndex])
+        const projection = candidateDelta.reduce(
+          (sum, value, jointIndex) => sum + value * endpointDelta[jointIndex],
+          0,
+        )
+        if (projection < -1e-7) return
+        const distance = Math.hypot(...candidate.map((value, jointIndex) => value - tail[jointIndex]))
+        if (distance < closestDistance) {
+          closestDistance = distance
+          closestIndex = index
+        }
+      })
+      const suffix = copied.slice(closestIndex).filter((candidate) =>
+        futureCandidates.includes(candidate) &&
+        candidate.some((value, index) => Math.abs(value - tail[index]) > 1e-7),
+      )
+      if (suffix.length > 0) trajectoryJoints.push(...suffix)
+      return active.promise
+    }
+    // 空闲时当前关节已经是执行尾部；只取最新目标，避免结果前缀把关节拉回旧点。
+    trajectoryJoints = [
+      [...options.getCurrentJoints()] as JointAngles,
+      copied[copied.length - 1],
+    ]
+    streamSegmentIndex = 0
+    streamSegmentStartTime = options.clock.now()
+    streamSegmentDuration = Math.max(duration, 1)
+    streamGeneration = generation ?? null
+    beginMotion('joint-stream', () => requestFrame(runStreamTrajectory))
+    return active!.promise
+  }
+
   function pause(): void {
     // 只在运行中冻结；未运行状态幂等。
     if (status !== 'running') return
@@ -247,6 +364,7 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     if (activeType === 'joint-eased') requestFrame(runEased)
     else if (activeType === 'joint-speed') requestFrame(runSpeedLimited)
     else if (activeType === 'joint-trajectory') requestFrame(runTrajectory)
+    else if (activeType === 'joint-stream') requestFrame(runStreamTrajectory)
   }
 
   function stop(): void {
@@ -264,5 +382,14 @@ export function createMotionRunner(options: MotionRunnerOptions): MotionRunner {
     return status
   }
 
-  return { startEased, startSpeedLimited, startTrajectory, pause, resume, stop, getStatus }
+  return {
+    startEased,
+    startSpeedLimited,
+    startTrajectory,
+    appendTrajectory,
+    pause,
+    resume,
+    stop,
+    getStatus,
+  }
 }

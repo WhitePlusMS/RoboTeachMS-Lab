@@ -76,6 +76,8 @@ const controller: RobotController =
     randomize: () => emit('random'),
     moveCartesian: (axis, direction, isContinuous) =>
       emit('move', axis, direction, isContinuous),
+    beginCartesianContinuous: () => {},
+    endCartesianContinuous: () => {},
     setCoordinateSystem: (value) => emit('coordinate-change', value),
     setPositionStep: (value) => emit('position-step-change', value),
     setOrientationStep: (value) => emit('orientation-step-change', value),
@@ -189,6 +191,8 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :status="controller.status.value"
         :status-message="controller.statusMessage.value"
         @move="controller.moveCartesian"
+        @continuous-start="controller.beginCartesianContinuous"
+        @continuous-end="controller.endCartesianContinuous"
         @coordinate-change="controller.setCoordinateSystem"
         @position-step-change="controller.setPositionStep"
         @orientation-step-change="controller.setOrientationStep"

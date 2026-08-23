@@ -143,8 +143,12 @@ describe('planMoveJ 时长仿真近似', () => {
     const result = planMoveJ(makeMoveJ(), ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
     expect(result.ok).toBe(true)
     if (result.ok) {
-      // home → [500,100,807.1] 直线距离约 111.4mm，v_tcp=100 → 约 1114ms。
-      const distance = Math.hypot(500 - 451, 100 - 0, 807.1 - 807.1)
+      const start = ABB_MODEL.forwardKinematics(AT_HOME)!
+      const distance = Math.hypot(
+        REACHABLE_TARGET.trans[0] - start.position[0],
+        REACHABLE_TARGET.trans[1] - start.position[1],
+        REACHABLE_TARGET.trans[2] - start.position[2],
+      )
       expect(result.durationMs).toBeCloseTo((distance / 100) * 1000, 0)
     }
   })
@@ -380,8 +384,8 @@ describe('可靠回放大幅 MoveJ（多初值 IK）', () => {
       ABB_JOINT_RANGES,
     )
     expectReaches(result, TARGET)
-    // 大幅动作中 J1 确实产生显著变化：从 -120° 到达目标侧。
-    if (result.ok) expect(result.joints[0]).toBeGreaterThan(0)
+    // 解析 IK 返回全部分支后，分支选择器应优先保持当前 J1=-120° 的连续构型。
+    if (result.ok) expect(result.joints[0]).toBeCloseTo(DISTANT_CURRENT[0], 6)
   })
 
   it('至少一个同时含大幅 J1、肩肘和腕部变化的 FK 目标能从远端姿态回放', () => {
@@ -410,8 +414,8 @@ describe('可靠回放大幅 MoveJ（多初值 IK）', () => {
     expect(first.ok && second.ok).toBe(true)
     if (first.ok && second.ok) {
       expect(first.joints).toEqual(second.joints)
-      // 与当前姿态相比，归一化距离确实小于同一目标的其他远端配置。
-      expect(first.joints[0]).toBeGreaterThan(DISTANT_CURRENT[0] + 100)
+      // 与当前姿态最近的解析分支保持 J1 连续，且结果没有随机性。
+      expect(first.joints[0]).toBeCloseTo(DISTANT_CURRENT[0], 6)
     }
   })
 

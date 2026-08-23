@@ -3,6 +3,7 @@ import { extractPose } from '@/robotics/kinematics.ts'
 import type { RobotModel } from '@/robotics/robot-model.ts'
 import type { JointAngles, Pose } from '@/robotics/types.ts'
 import { forwardAbbKinematicsDegrees } from './abb-kinematics.ts'
+import { solveAbbAnalyticIK } from './abb-analytic-ik.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,
   ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG,
@@ -36,6 +37,10 @@ export class AbbDhRobotModel implements RobotModel {
     const matrix = forwardAbbKinematicsDegrees(jointsDeg)
     const pose = extractPose(matrix)
     return { position: pose.position, euler: pose.eulerZYX, rotation: matrix.getRotation() }
+  }
+
+  solveAllIK(targetPose: Pose, referenceJoints?: JointAngles) {
+    return solveAbbAnalyticIK(targetPose, referenceJoints)
   }
 
   estimateJacobian(jointsDeg: JointAngles, stepDeg = 0.2): number[][] {

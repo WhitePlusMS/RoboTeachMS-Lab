@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import PoseReadout from './PoseReadout.vue'
-import type { PoseDisplay } from '@/robotics/types.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
 
 const pose: PoseDisplay = {
   positionMm: [451.04, 0, 807.06],
   orientationDeg: [180, 0, -90.02],
 }
+const joints: JointAngles = [1.25, -2.5, 3.75, -4.1, 5.2, -6.3]
 
 describe('PoseReadout 共享位姿读数', () => {
   it('按 PX/PY/PZ/RX/RY/RZ 顺序渲染六格 toFixed(1) 数值', () => {
@@ -22,9 +23,10 @@ describe('PoseReadout 共享位姿读数', () => {
     const wrapper = mount(PoseReadout, { props: { pose } })
 
     const buttons = wrapper.findAll('.orientation-toggle button')
-    expect(buttons).toHaveLength(2)
+    expect(buttons).toHaveLength(3)
     expect(buttons[0].attributes('aria-label')).toContain('欧拉角')
     expect(buttons[1].attributes('aria-label')).toContain('四元数')
+    expect(buttons[2].attributes('aria-label')).toContain('六轴')
     // 默认欧拉角为激活态。
     expect(buttons[0].classes()).toContain('active')
     expect(buttons[1].classes()).not.toContain('active')
@@ -52,5 +54,32 @@ describe('PoseReadout 共享位姿读数', () => {
 
     const quatCells = wrapper.findAll('.pose-grid.quat-grid strong').map((node) => node.text())
     expect(quatCells).toEqual(['1.0', '0.0', '0.0', '0.0'])
+  })
+
+  it('切换六轴后按 J1..J6 顺序显示关节角，且每个读数允许文本选取', async () => {
+    const wrapper = mount(PoseReadout, { props: { pose, joints } })
+    await wrapper.get('button[aria-label="六轴关节 J1..J6"]').trigger('click')
+
+    const labels = wrapper.findAll('.pose-cell span').map((node) => node.text())
+    expect(labels).toEqual(['J1', 'J2', 'J3', 'J4', 'J5', 'J6'])
+    const values = wrapper.findAll('.pose-cell strong').map((node) => node.text())
+    expect(values).toEqual(['1.3', '-2.5', '3.8', '-4.1', '5.2', '-6.3'])
+    expect(wrapper.findAll('.pose-cell')).toHaveLength(6)
+  })
+
+  it('复制按钮复制当前选中的视图，而不是固定复制欧拉角', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const wrapper = mount(PoseReadout, { props: { pose, joints } })
+    await wrapper.get('button[aria-label="六轴关节 J1..J6"]').trigger('click')
+    await wrapper.get('.copy-readout').trigger('click')
+
+    expect(writeText).toHaveBeenCalledWith(
+      'J1: 1.3\tJ2: -2.5\tJ3: 3.8\tJ4: -4.1\tJ5: 5.2\tJ6: -6.3',
+    )
+    expect(wrapper.get('.copy-readout').attributes('aria-label')).toBe('已复制当前读数')
   })
 })

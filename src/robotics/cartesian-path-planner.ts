@@ -8,6 +8,7 @@ import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
 import {
   solvePoseWaypoints,
   type CartesianOrientationMode,
+  type WaypointFailureDiagnostic,
   type WaypointFailureReason,
   type WaypointSolveResult,
 } from './ik-waypoint-solver.ts'
@@ -15,6 +16,7 @@ import {
 export type CartesianPathFailure = WaypointFailureReason
 export type CartesianPathResult = WaypointSolveResult
 export type { CartesianOrientationMode }
+export type { WaypointFailureDiagnostic }
 
 const DEFAULT_LINEAR_STEP_MM = 1
 const DEFAULT_ANGULAR_STEP_RAD = Math.PI / 180
@@ -62,7 +64,7 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
  *   即“法兰即 TCP”的 tool0/wobj0 快照）。提供后插补在 TCP 空间进行。
  * - `toFlange`：把插补得到的 TCP 位姿变换为机械法兰位姿后再送入 IK；缺省为原样（tool0 时法兰=TCP）。
  * - `orientationMode`：`strict` 保持完整姿态；`wrist` 对齐 ABB `SingArea\\Wrist`，先保持
- *   完整姿态，仅在腕部奇异邻域的 waypoint 回退为位置优先，允许该局部姿态误差。
+ *   完整姿态，仅在机械零位腕部奇异邻域回退。
  * 未提供 options 时行为与旧版一致（Jog 笛卡尔控制）。
  */
 export function planCartesianPath(

@@ -1,10 +1,12 @@
-import type { JointAngles, Pose } from './types.ts'
+import type { IKCandidate, JointAngles, Pose } from './types.ts'
 
 /** FK/Jacobian 来源抽象；逆解器不直接依赖 Vue 或 Three.js。 */
 export interface RobotModel {
   forwardKinematics(jointsDeg: JointAngles): Pose | null
   estimateJacobian(jointsDeg: JointAngles, stepDeg?: number): number[][] | null
   isAvailable(): boolean
+  /** 可选的解析/几何逆解；返回全部分支，不在模型层选择 J4/J6 构型。 */
+  solveAllIK?(targetPose: Pose, referenceJoints?: JointAngles): readonly IKCandidate[]
   /** 可选的型号特定腕部奇异判定；未提供时不把通用步长失败误报为腕部重构。 */
   isWristSingularity?(jointsDeg: JointAngles): boolean
   /**

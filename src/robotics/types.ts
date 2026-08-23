@@ -38,12 +38,31 @@ export interface Pose {
   rotation: number[][]
 }
 
+/** 解析/几何逆解返回的单个构型候选；候选必须通过 FK 残差验收后才可执行。 */
+export interface IKCandidate {
+  joints: JointAngles
+  positionErrorMm: number
+  orientationErrorRad: number
+  isLeastSquares: boolean
+  isSingular: boolean
+}
+
 /** 机器人关节动画参数；速度单位为度/秒，时长单位为毫秒。 */
 export interface MotionConfig {
   jointSpeedLimit: number
   ikAnimDuration: number
   snapThreshold: number
 }
+
+/** 六轴逆解关节锁定目标；null 表示该轴仍由逆解求解，数值单位为度。 */
+export type IKLockedJointTargets = readonly [
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+]
 
 export interface IKSolverConfig {
   maxIterations: number
@@ -59,6 +78,15 @@ export interface IKSolverConfig {
   orientationScale: number
   /** SingArea\\Wrist 仅约束 TCP 位置，允许控制器在腕部奇异附近产生姿态误差。 */
   positionOnly?: boolean
+  /** 在迭代全过程固定指定关节；用于 LockAxis4，而不是在求解后破坏性改写关节结果。 */
+  lockedJointTargetsDeg?: IKLockedJointTargets
+  /**
+   * 位置优先逆解的软连续性参考；仅在显式 positionOnly 时生效。
+   * 与 lockedJointTargetsDeg 不同，该约束不会固定关节，只会在位置解存在冗余时
+   * 优先靠近参考姿态。单位为度，权重为非负的数值正则化系数。
+   */
+  jointContinuityReferenceDeg?: JointAngles
+  jointContinuityWeights?: readonly number[]
 }
 
 export type CoordinateSystem = 'World' | 'Tool'

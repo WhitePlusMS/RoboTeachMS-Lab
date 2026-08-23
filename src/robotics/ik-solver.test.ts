@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { solveIK } from './ik-solver.ts'
 import { eulerZYXToMatrix } from './matrix4x4.ts'
+import { orientationError } from './math/rotation3d.ts'
 import type { JointAngles, Pose } from './types.ts'
 import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/robot-config.ts'
 import { DhRobotModel } from '@/robot-models/kuka-like/dh-robot-model.ts'
@@ -96,7 +97,54 @@ describe('ABB IRB 1200 数值逆解', () => {
     expect(Math.abs(solved.position[0] - target.position[0])).toBeLessThan(1)
   })
 
-  it.fails('已知限制：单初值 DLS 无法覆盖所有 ABB 构型分支', () => {
+  it('机械零位位置逆解可在迭代全过程锁定 J4', () => {
+    const target = model.forwardKinematics(ABB_MECHANICAL_ZERO_JOINTS) as Pose
+    target.position[1] += 1
+
+    const result = solveIK(
+      target,
+      [0, 0, 0, 0, 5, 0],
+      model,
+      {
+        maxIterations: 150,
+        posTolerance: 0.05,
+        positionOnly: true,
+        lockedJointTargetsDeg: [null, null, null, 0, null, null],
+      },
+      ABB_JOINT_RANGES,
+    )
+
+    expect(result).not.toBeNull()
+    expect((result as JointAngles)[3]).toBe(0)
+    const solved = model.forwardKinematics(result as JointAngles) as Pose
+    expect(Math.abs(solved.position[1] - target.position[1])).toBeLessThan(0.05)
+  })
+
+  it('机械零位位置逆解优先保持 J4 连续而不硬锁定', () => {
+    const target = model.forwardKinematics(ABB_MECHANICAL_ZERO_JOINTS) as Pose
+    target.position[1] += 1
+
+    const result = solveIK(
+      target,
+      [0, 0, 0, 0, 5, 0],
+      model,
+      {
+        maxIterations: 150,
+        posTolerance: 0.05,
+        positionOnly: true,
+        jointContinuityReferenceDeg: ABB_MECHANICAL_ZERO_JOINTS,
+        jointContinuityWeights: [0, 0, 0, 100, 0, 0],
+      },
+      ABB_JOINT_RANGES,
+    )
+
+    expect(result).not.toBeNull()
+    const solved = model.forwardKinematics(result as JointAngles) as Pose
+    expect(Math.abs(solved.position[1] - target.position[1])).toBeLessThan(0.05)
+    expect(Math.abs((result as JointAngles)[3])).toBeLessThan(0.5)
+  })
+
+  it('解析 IK 返回全部 ABB 构型分支，覆盖远离机械零位的目标', () => {
     const samples: JointAngles[] = [
       [0, -80, 60, 0, 30, 0],
       [90, -30, 50, 120, -45, -90],
@@ -122,6 +170,8 @@ describe('ABB IRB 1200 数值逆解', () => {
         solved.position[2] - target.position[2],
       )
       expect(positionError, `ABB DH 位置残差：${source.join(',')}`).toBeLessThan(1)
+      const orientationErrorVector = orientationError(target.rotation, solved.rotation)
+      expect(Math.hypot(...orientationErrorVector), `ABB DH 姿态残差：${source.join(',')}`).toBeLessThan(1e-8)
     })
   })
 })

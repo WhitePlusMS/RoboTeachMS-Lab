@@ -6,13 +6,20 @@ import { planCartesianPath, type CartesianPathResult } from './cartesian-path-pl
 export type CartesianTargetPlanner = (
   targetPose: Pose,
   initialJoints: JointAngles,
+  options?: CartesianTargetPlanningOptions,
 ) => CartesianPathResult
 
-/** 统一手动笛卡尔策略：普通目标严格规划，机械零位腕部失败才局部重试 wrist。 */
+/** 手动笛卡尔规划策略；腕部姿态放宽只允许由机械零位邻域自动触发。 */
+export interface CartesianTargetPlanningOptions {
+  /** 允许平移按钮自动进入机械零位 SingArea\\Wrist。 */
+  allowWristEntry?: boolean
+}
+/** 统一手动笛卡尔策略：严格姿态优先，机械零位失败才局部重试 SingArea\\Wrist。 */
 export function planCartesianTarget(
   targetPose: Pose,
   initialJoints: JointAngles,
   profile: RobotProfile,
+  options: CartesianTargetPlanningOptions = {},
 ): CartesianPathResult {
   const strict = planCartesianPath(
     targetPose,
@@ -21,12 +28,24 @@ export function planCartesianTarget(
     profile.jointRanges,
   )
   // ABB 的 SingArea\Wrist 不是通用的“不可达重试”。只有起始关节已经处于
-  // 机械零位腕部邻域时，严格姿态 IK 的任意数值失败才允许进入一次局部
-  // wrist 规划。这样可以覆盖奇异点附近数值求解被归类为 ik-not-converged
-  // 的情况，同时不会把普通工作区的真实不可达目标放宽成位置-only。
+  // 机械零位腕部邻域时，严格姿态 IK 失败才允许局部放宽姿态；普通工作区
+  // 仍保持严格 6D 位姿约束。
   const mechanicalZeroWristPath =
     profile.model.isMechanicalZeroSingularityNeighborhood?.(initialJoints) ?? false
-  if (strict.ok || !mechanicalZeroWristPath) {
+  const startPose = profile.model.forwardKinematics(initialJoints)
+  const hasTranslationDelta =
+    startPose !== null &&
+    Math.hypot(
+      targetPose.position[0] - startPose.position[0],
+      targetPose.position[1] - startPose.position[1],
+      targetPose.position[2] - startPose.position[2],
+    ) > 1e-6
+  if (
+    strict.ok ||
+    !mechanicalZeroWristPath ||
+    options.allowWristEntry === false ||
+    !hasTranslationDelta
+  ) {
     return strict
   }
   return planCartesianPath(

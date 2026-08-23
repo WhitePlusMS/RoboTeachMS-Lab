@@ -1,18 +1,33 @@
-import { solveIK } from './ik-solver.ts'
+import { DEFAULT_IK_CONFIG, solveIK } from './ik-solver.ts'
+import {
+  buildIKCandidateCatalog,
+  isCandidateAtJointLimit,
+  JOINT_LIMIT_EPS_DEG,
+  selectBestIKCandidate,
+} from './ik-candidate-catalog.ts'
+import {
+  MAX_CARTESIAN_JOINT_STEP_DEG,
+  planStrictCandidateGraph,
+} from './cartesian-candidate-graph.ts'
+import { rotationDistanceRad } from './math/rotation3d.ts'
 import type { RobotModel } from './robot-model.ts'
 import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
 
 /** 相邻关节步长上限（度）：连续笛卡尔路径（MoveL/MoveC）逐点求解的构型跳变护栏。 */
-export const MAX_JOINT_STEP_DEG = 5
+export const MAX_JOINT_STEP_DEG = MAX_CARTESIAN_JOINT_STEP_DEG
 
 /**
  * 机械零位第一次脱离腕部奇异时的 J5 目标偏置（度）。
  * 该偏置只作为 position-only IK 的初值，不会改变普通工作区的严格姿态规划。
  */
-const WRIST_ESCAPE_J5_DEG = 5
-
-/** 腕部姿态策略：strict 保持完整位姿，wrist 仅在腕部奇异邻域允许姿态误差。 */
+const WRIST_ESCAPE_J5_DEG = 2
+/** 局部 SingArea\Wrist 允许的最大 TCP 姿态误差；位置仍使用严格 IK 容差。 */
+const WRIST_ORIENTATION_TOLERANCE_RAD = (2 * Math.PI) / 180
+/** wrist 回退中的 J4 连续性正则；仅作用于机械零位的 position-only 求解。 */
+const WRIST_J4_CONTINUITY_WEIGHT = 100
+/** 腕部姿态策略：strict 保持完整位姿；wrist 只在受控奇异路径允许姿态误差。 */
 export type CartesianOrientationMode = 'strict' | 'wrist'
+export type AppliedSingularityMode = Exclude<CartesianOrientationMode, 'strict'>
 
 /** 共享的笛卡尔路径失败原因；上层可据此给出可操作的诊断提示。 */
 export type WaypointFailureReason =
@@ -22,22 +37,159 @@ export type WaypointFailureReason =
   | 'joint-step'
   | 'ik-not-converged'
 
-export type WaypointSolveResult =
-  | { ok: true; waypoints: JointAngles[]; usedWristFallback: boolean }
-  | { ok: false; failure: WaypointFailureReason }
+/** 单个 waypoint 失败时的关节级诊断；角度单位为度，轴索引从 0 开始。 */
+export interface JointFailureDetail {
+  axisIndex: number
+  previousAngleDeg: number
+  attemptedAngleDeg?: number
+  deltaDeg?: number
+  limitRangeDeg?: readonly [number, number]
+}
 
-/** 判定 IK 解是否被夹在关节范围边界（度）；该启发用于区分 joint-limit。 */
-const JOINT_LIMIT_EPS_DEG = 0.5
+/** 路径失败诊断；waypointIndex 对用户展示时从 1 开始。 */
+export interface WaypointFailureDiagnostic extends JointFailureDetail {
+  waypointIndex: number
+}
+
+export type WaypointSolveResult =
+  | {
+      ok: true
+      waypoints: JointAngles[]
+      appliedSingularityMode: AppliedSingularityMode | null
+    }
+  | {
+      ok: false
+      failure: WaypointFailureReason
+      diagnostic?: WaypointFailureDiagnostic
+    }
 
 /** IK 解是否被夹在任一关节范围边界（启发式，用于判别 joint-limit）。 */
 export function isJointAtLimit(
   joints: JointAngles,
   jointRanges: readonly (readonly [number, number])[],
 ): boolean {
-  return joints.some((value, index) => {
+  return isCandidateAtJointLimit(joints, jointRanges)
+}
+
+type JointSolutionFailureReason = 'joint-limit' | 'unreachable' | 'joint-step'
+
+type JointSolutionFailure = {
+  failure: JointSolutionFailureReason
+  detail?: JointFailureDetail
+}
+
+type JointSolutionResult = { joints: JointAngles } | JointSolutionFailure
+
+/** 找出最能解释失败的关节轴；优先选择最大步长，避免把 J1 的小误差误报为腕部故障。 */
+function buildJointStepDetail(
+  previous: JointAngles,
+  attempted: JointAngles,
+  jointRanges: readonly (readonly [number, number])[],
+  preferredAxes?: readonly number[],
+): JointFailureDetail {
+  const axes = preferredAxes && preferredAxes.length > 0
+    ? preferredAxes
+    : attempted.map((_value, index) => index)
+  let axisIndex = axes[0]
+  let deltaDeg = Math.abs(attempted[axisIndex] - previous[axisIndex])
+  for (const index of axes.slice(1)) {
+    const candidateDelta = Math.abs(attempted[index] - previous[index])
+    if (candidateDelta > deltaDeg) {
+      axisIndex = index
+      deltaDeg = candidateDelta
+    }
+  }
+  return {
+    axisIndex,
+    previousAngleDeg: previous[axisIndex],
+    attemptedAngleDeg: attempted[axisIndex],
+    deltaDeg,
+    limitRangeDeg: jointRanges[axisIndex],
+  }
+}
+
+/** 从贴近范围边界的候选中指出实际触及限位的轴。 */
+function buildJointLimitDetail(
+  previous: JointAngles,
+  attempted: JointAngles,
+  jointRanges: readonly (readonly [number, number])[],
+): JointFailureDetail {
+  const axisIndex = attempted.findIndex((value, index) => {
     const [min, max] = jointRanges[index]
     return value <= min + JOINT_LIMIT_EPS_DEG || value >= max - JOINT_LIMIT_EPS_DEG
   })
+  const selectedAxis = axisIndex >= 0 ? axisIndex : 0
+  return {
+    axisIndex: selectedAxis,
+    previousAngleDeg: previous[selectedAxis],
+    attemptedAngleDeg: attempted[selectedAxis],
+    deltaDeg: Math.abs(attempted[selectedAxis] - previous[selectedAxis]),
+    limitRangeDeg: jointRanges[selectedAxis],
+  }
+}
+
+function resolveAnalyticJointSolution(
+  targetPose: Pose,
+  referenceJoints: JointAngles,
+  model: RobotModel,
+  jointRanges: readonly (readonly [number, number])[],
+  solverConfig: Partial<IKSolverConfig>,
+  continuityLimitDeg: number | undefined,
+): JointSolutionResult | undefined {
+  if (!model.solveAllIK || solverConfig.positionOnly || solverConfig.lockedJointTargetsDeg) {
+    return undefined
+  }
+  const config = { ...DEFAULT_IK_CONFIG, ...solverConfig }
+  const candidates = buildIKCandidateCatalog(targetPose, referenceJoints, model, jointRanges)
+  if (candidates.length === 0) return { failure: 'unreachable' }
+  // `isLeastSquares` 只是解析器对数值残差的分类标记；是否能执行必须由本次
+  // 规划的真实位置/旋转角容差决定，不能因为 1e-8 的内部标记阈值提前拒绝合法候选。
+  const residualCandidates = candidates.filter(
+    (candidate) =>
+      candidate.positionErrorMm <= config.posTolerance &&
+      candidate.orientationErrorRad <= config.oriTolerance,
+  )
+  if (residualCandidates.length === 0) return { failure: 'unreachable' }
+  const bestCandidate = selectBestIKCandidate(residualCandidates, {
+    positionTolerance: config.posTolerance,
+    orientationTolerance: config.oriTolerance,
+    maxJointStepDeg: continuityLimitDeg,
+    rejectAtJointLimit: true,
+  })
+  if (!bestCandidate?.normalizedJoints) {
+    const normalizedCandidates = residualCandidates
+      .map((candidate) => candidate.normalizedJoints)
+      .filter((candidate): candidate is JointAngles => candidate !== null)
+    const continuousCandidate = normalizedCandidates.find(
+      (candidate) =>
+        !isJointAtLimit(candidate, jointRanges) &&
+        continuityLimitDeg !== undefined &&
+        Math.max(...candidate.map((value, index) => Math.abs(value - referenceJoints[index]))) >
+          continuityLimitDeg,
+    )
+    if (continuousCandidate) {
+      return {
+        failure: 'joint-step',
+        detail: buildJointStepDetail(
+          referenceJoints,
+          continuousCandidate,
+          jointRanges,
+          isNearWristSingularity(model, referenceJoints) ? [3, 5] : undefined,
+        ),
+      }
+    }
+    const limitedCandidate = normalizedCandidates.find((candidate) =>
+      isJointAtLimit(candidate, jointRanges),
+    )
+    return limitedCandidate
+      ? { failure: 'joint-limit', detail: buildJointLimitDetail(referenceJoints, limitedCandidate, jointRanges) }
+      : { failure: 'joint-limit' }
+  }
+  const best = bestCandidate.normalizedJoints
+  const isReferenceEquivalent = best.every(
+    (value, index) => Math.abs(value - referenceJoints[index]) <= 1e-9,
+  )
+  return { joints: isReferenceEquivalent ? [...referenceJoints] as JointAngles : best }
 }
 
 /** ABB 腕部奇异的关节空间近似：J5 接近 0° 时轴 4 与轴 6 共线。 */
@@ -86,10 +238,19 @@ function getWristEscapeDirection(
   const startPose = model.forwardKinematics(initialJoints)
   if (!startPose) return 1
   let dominantDelta = 0
+  let dominantAxis = -1
   for (let index = 0; index < 3; index += 1) {
     const delta = poses[0].position[index] - startPose.position[index]
-    if (Math.abs(delta) > Math.abs(dominantDelta)) dominantDelta = delta
+    if (Math.abs(delta) > Math.abs(dominantDelta)) {
+      dominantDelta = delta
+      dominantAxis = index
+    }
   }
+  // ABB 机械零位沿 Y 脱离时，Y 正负两侧都优先进入同一正 J5 腕部侧。
+  // 负 Y 若按位移符号选择负 J5，后续保持 TCP 直线会被带入 J4/J6 翻腕分支；
+  // 这里不是锁定 J4，而是只决定第一次脱离奇异点时的腕部拓扑，后续关节仍由
+  // 严格位姿 IK 连续求解。X/Z 脱离仍保持原来的方向规则。
+  if (dominantAxis === 1) return 1
   return dominantDelta < 0 ? -1 : 1
 }
 
@@ -201,6 +362,35 @@ function normalizedJointDistance(
   return Math.sqrt(sum)
 }
 
+function withWaypointDiagnostic(
+  failure: WaypointFailureReason,
+  detail: JointFailureDetail | undefined,
+  waypointIndex: number,
+): WaypointSolveResult {
+  if (!detail) return { ok: false, failure }
+  return {
+    ok: false,
+    failure,
+    diagnostic: { ...detail, waypointIndex: waypointIndex + 1 },
+  }
+}
+
+function mapJointSolutionFailure(
+  failure: JointSolutionFailureReason,
+  mechanicalZeroWristPath: boolean,
+  nearWristSingularity: boolean,
+): WaypointFailureReason {
+  if (failure === 'joint-limit') return 'joint-limit'
+  if (failure === 'joint-step') {
+    return mechanicalZeroWristPath && nearWristSingularity
+      ? 'wrist-reconfiguration'
+      : 'ik-not-converged'
+  }
+  return mechanicalZeroWristPath && nearWristSingularity
+    ? 'wrist-singularity'
+    : 'ik-not-converged'
+}
+
 /**
  * 末端拖拽操作轴的 IK 求解：以当前关节为主初值，失败后再扫备用初值；与 `resolveJointSolution`
  * 的唯一区别是**不拒绝落在关节范围边界的解**。
@@ -253,7 +443,16 @@ export function resolveJointSolution(
   jointRanges: readonly (readonly [number, number])[],
   solverConfig: Partial<IKSolverConfig> = {},
   continuityLimitDeg?: number,
-): { joints: JointAngles } | { failure: 'joint-limit' | 'unreachable' | 'joint-step' } {
+): JointSolutionResult {
+  const analytic = resolveAnalyticJointSolution(
+    targetPose,
+    referenceJoints,
+    model,
+    jointRanges,
+    solverConfig,
+    continuityLimitDeg,
+  )
+  if (analytic !== undefined) return analytic
   const primary = solveIK(targetPose, referenceJoints, model, solverConfig, jointRanges)
   const isContinuous = (joints: JointAngles): boolean =>
     continuityLimitDeg === undefined ||
@@ -272,9 +471,18 @@ export function resolveJointSolution(
   }
   if (alternatives.length === 0) {
     if (continuityLimitDeg !== undefined && primary && !isJointAtLimit(primary, jointRanges)) {
-      return { failure: 'joint-step' }
+      return {
+        failure: 'joint-step',
+        detail: buildJointStepDetail(referenceJoints, primary, jointRanges),
+      }
     }
-    return { failure: primary ? 'joint-limit' : 'unreachable' }
+    if (primary) {
+      return {
+        failure: 'joint-limit',
+        detail: buildJointLimitDetail(referenceJoints, primary, jointRanges),
+      }
+    }
+    return { failure: 'unreachable' }
   }
 
   let best = alternatives[0]
@@ -310,24 +518,44 @@ export function solvePoseWaypoints(
 ): WaypointSolveResult {
   const waypoints: JointAngles[] = []
   let previousJoints = [...initialJoints] as JointAngles
-  let usedWristFallback = false
+  let appliedSingularityMode: AppliedSingularityMode | null = null
   // 机械零位专属诊断和自动 wrist 回退共用同一个路径级资格。
   // 路径开始后固定此资格，避免普通工作区仅因 J5≈0 或中途经过奇异面就误报重构。
   const isMechanicalZeroWristPath =
     model.isMechanicalZeroSingularityNeighborhood?.(initialJoints) ?? false
-  // 只有机械零位专用路径才把相邻步长纳入候选筛选；普通工作姿态保持旧版
-  // “主解优先、失败后再扫备用初值”的行为，避免新策略改变既有运动构型。
+  // 只有机械零位腕部特例需要相邻步长护栏；普通严格路径保持原有解析分支选择，
+  // 避免仅为诊断而改变非奇异工作区的运动构型。
   const continuityLimitDeg = isMechanicalZeroWristPath ? MAX_JOINT_STEP_DEG : undefined
   const wristFallbackAllowed =
     orientationMode === 'wrist' &&
     isMechanicalZeroWristPath
+
+  // 所有严格解析路径先使用全局候选图，避免逐 waypoint 最近分支把任一腕部推向
+  // 等价构型；图规划失败时继续走现有局部求解，以保留结构化失败诊断。
+  if (orientationMode === 'strict' && model.solveAllIK) {
+    const graph = planStrictCandidateGraph(
+      poses,
+      initialJoints,
+      model,
+      jointRanges,
+      toFlange,
+      { solverConfig },
+    )
+    if (graph.ok) {
+      return {
+        ok: true,
+        waypoints: graph.waypoints,
+        appliedSingularityMode: null,
+      }
+    }
+  }
   const wristEscapeDirection = getWristEscapeDirection(poses, initialJoints, model)
   let wristEscapeDone = false
   let wristEscapePose: Pick<Pose, 'euler' | 'rotation'> | null = null
-  for (const pose of poses) {
-    // 脱离奇异点后，沿用脱离后的实际腕部姿态作为本次局部路径的姿态目标。
-    // 这对应 ABB“奇异点另一侧第一个目标修改姿态”的规则，避免下一 waypoint
-    // 继续要求原姿态而再次触发 J4/J6 的大幅重分配。
+  for (let waypointIndex = 0; waypointIndex < poses.length; waypointIndex += 1) {
+    const pose = poses[waypointIndex]
+    // 机械零位 Wrist 的局部通行窗口沿用脱离后的姿态；窗口结束后由路径规划器
+    // 恢复严格目标，避免把 SingArea\Wrist 误扩展到普通工作区。
     const effectivePose = wristEscapePose
       ? {
           ...pose,
@@ -344,8 +572,7 @@ export function solvePoseWaypoints(
       continuityLimitDeg,
     )
     let solved = strictSolved
-    // SingArea\\Wrist 的语义是“先保持姿态，只有腕部无法连续分配时才允许误差”，
-    // 不能把所有普通平移都降级成位置-only IK。
+    // SingArea\\Wrist 只在机械零位按需回退，普通工作区始终保持严格姿态。
     const wristFallbackNeeded =
       wristFallbackAllowed &&
       (('failure' in strictSolved && isNearWristSingularity(model, previousJoints)) ||
@@ -361,59 +588,93 @@ export function solvePoseWaypoints(
         wristReference,
         model,
         jointRanges,
-        { ...solverConfig, positionOnly: true },
+        {
+          ...solverConfig,
+          positionOnly: true,
+          // 机械零位 wrist 用 wristReference 脱离奇异点，并对 J4 增加连续性软约束，
+          // 避免 position-only 求解器随机跳到另一腕部构型。
+          jointContinuityReferenceDeg: previousJoints,
+          jointContinuityWeights: [0, 0, 0, WRIST_J4_CONTINUITY_WEIGHT, 0, 0],
+        },
+        continuityLimitDeg,
       )
       if ('joints' in wristSolved) {
-        usedWristFallback = true
-        // 第一次回退必须真正离开 J5≈0；离开后后续 waypoint 恢复严格姿态。
-        wristEscapeDone = !isNearWristSingularity(model, wristSolved.joints)
-        if (wristEscapeDone) {
-          const escapedPose = model.forwardKinematics(wristSolved.joints)
-          if (escapedPose) {
+        const actualFlangePose = model.forwardKinematics(wristSolved.joints)
+        const targetFlangePose = toFlange(effectivePose)
+        const orientationErrorRad = actualFlangePose
+          ? rotationDistanceRad(targetFlangePose.rotation, actualFlangePose.rotation)
+          : Number.POSITIVE_INFINITY
+        if (orientationErrorRad <= WRIST_ORIENTATION_TOLERANCE_RAD) {
+          solved = wristSolved
+          appliedSingularityMode = 'wrist'
+          // 第一次回退必须真正离开 J5≈0；离开后后续 waypoint 恢复严格姿态。
+          wristEscapeDone = !isNearWristSingularity(model, wristSolved.joints)
+          if (wristEscapeDone && actualFlangePose) {
             wristEscapePose = {
-              euler: [...escapedPose.euler],
-              rotation: escapedPose.rotation.map((row) => [...row]),
+              euler: [...actualFlangePose.euler],
+              rotation: actualFlangePose.rotation.map((row) => [...row]),
             }
           }
+        } else {
+          solved = {
+            failure: 'joint-step',
+            detail: 'detail' in strictSolved ? strictSolved.detail : undefined,
+          }
         }
+      } else {
+        solved = wristSolved
       }
-      solved = wristSolved
     }
     if ('failure' in solved) {
+      const nearWristSingularity = isNearWristSingularity(model, previousJoints)
+      const mappedFailure = mapJointSolutionFailure(
+        solved.failure,
+        isMechanicalZeroWristPath,
+        nearWristSingularity,
+      )
+      const detail =
+        mappedFailure === 'wrist-reconfiguration' && 'joints' in strictSolved
+          ? buildJointStepDetail(previousJoints, strictSolved.joints, jointRanges, [3, 5])
+          : solved.detail ??
+            ('joints' in strictSolved
+              ? buildJointStepDetail(previousJoints, strictSolved.joints, jointRanges)
+              : undefined)
       if (solved.failure === 'joint-limit') {
-        return { ok: false, failure: 'joint-limit' }
+        return withWaypointDiagnostic('joint-limit', detail, waypointIndex)
       }
       if (solved.failure === 'joint-step') {
-        return {
-          ok: false,
-          failure:
-            isMechanicalZeroWristPath && isNearWristSingularity(model, previousJoints)
-              ? 'wrist-reconfiguration'
-              : 'ik-not-converged',
-        }
+        return withWaypointDiagnostic(
+          mappedFailure,
+          detail,
+          waypointIndex,
+        )
       }
-      return {
-        ok: false,
-        failure: isMechanicalZeroWristPath && isNearWristSingularity(model, previousJoints)
-          ? 'wrist-singularity'
-          : 'ik-not-converged',
-      }
+      return withWaypointDiagnostic(
+        mappedFailure,
+        detail,
+        waypointIndex,
+      )
     }
     const maxJointStep = Math.max(
       ...solved.joints.map((value, index) => Math.abs(value - previousJoints[index])),
     )
     if (maxJointStep > MAX_JOINT_STEP_DEG) {
-      return {
-        ok: false,
-        failure:
-          isMechanicalZeroWristPath &&
-          isWristReconfiguration(model, previousJoints, solved.joints)
-          ? 'wrist-reconfiguration'
-          : 'ik-not-converged',
-      }
+      const wristReconfiguration =
+        isMechanicalZeroWristPath &&
+        isWristReconfiguration(model, previousJoints, solved.joints)
+      return withWaypointDiagnostic(
+        wristReconfiguration ? 'wrist-reconfiguration' : 'ik-not-converged',
+        buildJointStepDetail(
+          previousJoints,
+          solved.joints,
+          jointRanges,
+          wristReconfiguration ? [3, 5] : undefined,
+        ),
+        waypointIndex,
+      )
     }
     waypoints.push(solved.joints)
     previousJoints = solved.joints
   }
-  return { ok: true, waypoints, usedWristFallback }
+  return { ok: true, waypoints, appliedSingularityMode }
 }

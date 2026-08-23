@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Axis3d, Rotate3d } from '@lucide/vue'
-import type { PoseDisplay } from '@/robotics/types.ts'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { Axis3d, Copy, Rotate3d, SlidersHorizontal } from '@lucide/vue'
+import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
 import { injectRobotController } from '@/application/use-robot-controller.ts'
 import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
@@ -9,21 +9,31 @@ import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 interface Props {
   /** 独立挂载（测试）时直接传入；真实应用里优先使用共享机器人控制器的 pose。 */
   pose?: PoseDisplay
+  /** 独立挂载（测试）时直接传入；真实应用里优先使用共享机器人控制器的六轴关节。 */
+  joints?: JointAngles
   /** 紧凑模式：作为半透明角标叠放在 3D 场景角落，而非面板底部的大卡片。 */
   compact?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  pose: undefined,
+  joints: undefined,
   compact: false,
 })
 
 const EMPTY_POSE: PoseDisplay = { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
+const EMPTY_JOINTS: JointAngles = [0, 0, 0, 0, 0, 0]
 
 const controller = injectRobotController()
 const pose = computed(() => controller?.pose.value ?? props.pose ?? EMPTY_POSE)
+const joints = computed(() => controller?.joints.value ?? props.joints ?? EMPTY_JOINTS)
 
-/** 姿态表示方式：false=欧拉角(RX/RY/RZ)、true=ABB RAPID 四元数(q1/q2/q3/q4，q1 为标量 w)。 */
-const orientationAsQuat = ref(false)
+type ReadoutMode = 'euler' | 'quat' | 'joints'
+
+/** 读数方式：笛卡尔欧拉角、ABB RAPID 四元数，或六轴关节角。 */
+const readoutMode = ref<ReadoutMode>('euler')
+const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
+let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * 由欧拉角(RX/RY/RZ，ZYX 顺序)换算为 RAPID 四元数 [q1,q2,q3,q4]（q1=w），
@@ -43,6 +53,75 @@ const rapidQuat = computed<[number, number, number, number]>(() => {
 function format(value: number): string {
   return value.toFixed(1)
 }
+
+const readoutCells = computed(() => {
+  if (readoutMode.value === 'joints') {
+    return joints.value.map((value, index) => ({
+      label: `J${index + 1}`,
+      value: format(value),
+    }))
+  }
+  if (readoutMode.value === 'quat') {
+    return [
+      { label: 'X', value: format(pose.value.positionMm[0]) },
+      { label: 'Y', value: format(pose.value.positionMm[1]) },
+      { label: 'Z', value: format(pose.value.positionMm[2]) },
+      { label: 'q1', value: format(rapidQuat.value[0]) },
+      { label: 'q2', value: format(rapidQuat.value[1]) },
+      { label: 'q3', value: format(rapidQuat.value[2]) },
+      { label: 'q4', value: format(rapidQuat.value[3]) },
+    ]
+  }
+  return [
+    { label: 'X', value: format(pose.value.positionMm[0]) },
+    { label: 'Y', value: format(pose.value.positionMm[1]) },
+    { label: 'Z', value: format(pose.value.positionMm[2]) },
+    { label: 'RX', value: format(pose.value.orientationDeg[0]) },
+    { label: 'RY', value: format(pose.value.orientationDeg[1]) },
+    { label: 'RZ', value: format(pose.value.orientationDeg[2]) },
+  ]
+})
+
+function setReadoutMode(mode: ReadoutMode): void {
+  readoutMode.value = mode
+  copyState.value = 'idle'
+}
+
+function copyFallback(text: string): boolean {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    return document.execCommand('copy')
+  } finally {
+    textarea.remove()
+  }
+}
+
+async function copyReadout(): Promise<void> {
+  const text = readoutCells.value.map(({ label, value }) => `${label}: ${value}`).join('\t')
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+    else if (!copyFallback(text)) throw new Error('clipboard-unavailable')
+    copyState.value = 'copied'
+  } catch {
+    copyState.value = 'failed'
+  }
+  if (copyResetTimer !== undefined) clearTimeout(copyResetTimer)
+  copyResetTimer = setTimeout(() => {
+    copyState.value = 'idle'
+    copyResetTimer = undefined
+  }, 1500)
+}
+
+onBeforeUnmount(() => {
+  if (copyResetTimer !== undefined) clearTimeout(copyResetTimer)
+})
 </script>
 
 <template>
@@ -53,63 +132,76 @@ function format(value: number): string {
   >
     <div class="pose-readout-title">
       <span>{{ compact ? '位姿' : '当前位姿（World 坐标值）' }}</span>
-      <div class="orientation-toggle" role="group" aria-label="姿态表示方式">
+      <div class="orientation-toggle" role="group" aria-label="位姿表示方式">
         <button
           type="button"
-          :class="{ active: !orientationAsQuat }"
-          :aria-label="'欧拉角 RX/RY/RZ'"
-          :title="'欧拉角 RX/RY/RZ'"
-          @click="orientationAsQuat = false"
+          :class="{ active: readoutMode === 'euler' }"
+          :aria-pressed="readoutMode === 'euler'"
+          aria-label="欧拉角 RX/RY/RZ"
+          title="欧拉角 RX/RY/RZ"
+          @click="setReadoutMode('euler')"
         >
           <Axis3d :size="13" />
         </button>
         <button
           type="button"
-          :class="{ active: orientationAsQuat }"
-          :aria-label="'RAPID 四元数 q1..q4'"
-          :title="'RAPID 四元数 q1..q4'"
-          @click="orientationAsQuat = true"
+          :class="{ active: readoutMode === 'quat' }"
+          :aria-pressed="readoutMode === 'quat'"
+          aria-label="RAPID 四元数 q1..q4"
+          title="RAPID 四元数 q1..q4"
+          @click="setReadoutMode('quat')"
         >
           <Rotate3d :size="13" />
         </button>
+        <button
+          type="button"
+          :class="{ active: readoutMode === 'joints' }"
+          :aria-pressed="readoutMode === 'joints'"
+          aria-label="六轴关节 J1..J6"
+          title="六轴关节 J1..J6"
+          @click="setReadoutMode('joints')"
+        >
+          <SlidersHorizontal :size="13" />
+        </button>
       </div>
+      <button
+        type="button"
+        class="copy-readout"
+        :class="`copy-${copyState}`"
+        :aria-label="copyState === 'copied' ? '已复制当前读数' : '复制当前读数'"
+        :title="copyState === 'copied' ? '已复制当前读数' : '复制当前读数'"
+        @click="copyReadout"
+      >
+        <Copy :size="13" />
+      </button>
     </div>
-    <div class="pose-grid">
-      <div class="pose-cell">
-        <span>X</span><strong>{{ format(pose.positionMm[0]) }}</strong>
+    <template v-if="readoutMode === 'joints'">
+      <div class="pose-grid joint-grid">
+        <div v-for="cell in readoutCells.slice(0, 3)" :key="cell.label" class="pose-cell">
+          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+        </div>
       </div>
-      <div class="pose-cell">
-        <span>Y</span><strong>{{ format(pose.positionMm[1]) }}</strong>
+      <div class="pose-grid joint-grid">
+        <div v-for="cell in readoutCells.slice(3)" :key="cell.label" class="pose-cell">
+          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+        </div>
       </div>
-      <div class="pose-cell">
-        <span>Z</span><strong>{{ format(pose.positionMm[2]) }}</strong>
+    </template>
+    <template v-else>
+      <div class="pose-grid">
+        <div v-for="cell in readoutCells.slice(0, 3)" :key="cell.label" class="pose-cell">
+          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+        </div>
       </div>
-    </div>
-    <div v-if="!orientationAsQuat" class="pose-grid">
-      <div class="pose-cell">
-        <span>RX</span><strong>{{ format(pose.orientationDeg[0]) }}</strong>
+      <div
+        class="pose-grid"
+        :class="{ 'quat-grid': readoutMode === 'quat' }"
+      >
+        <div v-for="cell in readoutCells.slice(3)" :key="cell.label" class="pose-cell">
+          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+        </div>
       </div>
-      <div class="pose-cell">
-        <span>RY</span><strong>{{ format(pose.orientationDeg[1]) }}</strong>
-      </div>
-      <div class="pose-cell">
-        <span>RZ</span><strong>{{ format(pose.orientationDeg[2]) }}</strong>
-      </div>
-    </div>
-    <div v-else class="pose-grid quat-grid">
-      <div class="pose-cell">
-        <span>q1</span><strong>{{ format(rapidQuat[0]) }}</strong>
-      </div>
-      <div class="pose-cell">
-        <span>q2</span><strong>{{ format(rapidQuat[1]) }}</strong>
-      </div>
-      <div class="pose-cell">
-        <span>q3</span><strong>{{ format(rapidQuat[2]) }}</strong>
-      </div>
-      <div class="pose-cell">
-        <span>q4</span><strong>{{ format(rapidQuat[3]) }}</strong>
-      </div>
-    </div>
+    </template>
   </section>
 </template>
 
@@ -149,6 +241,10 @@ function format(value: number): string {
   margin-top: 3px;
 }
 
+.pose-readout.compact .pose-grid.joint-grid {
+  grid-template-columns: repeat(3, auto);
+}
+
 .pose-readout.compact .pose-cell {
   display: inline-flex;
   align-items: baseline;
@@ -169,7 +265,7 @@ function format(value: number): string {
 .pose-readout-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
   margin-bottom: 6px;
   color: var(--color-text-dim);
@@ -181,11 +277,39 @@ function format(value: number): string {
 .orientation-toggle {
   display: inline-flex;
   gap: 2px;
+  margin-left: auto;
   padding: 2px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm, 6px);
   background: var(--color-surface-deep);
   pointer-events: auto;
+}
+
+.copy-readout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--color-text-faint);
+  background: var(--color-surface-deep);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.copy-readout:hover {
+  border-color: var(--color-brand-strong);
+  color: var(--color-text-strong);
+}
+
+.copy-readout.copy-copied {
+  color: var(--color-success);
+}
+
+.copy-readout.copy-failed {
+  color: var(--color-danger);
 }
 
 .orientation-toggle button {
@@ -234,6 +358,7 @@ function format(value: number): string {
 
 .pose-cell {
   padding: 3px 10px;
+  user-select: text;
 }
 
 .pose-cell:nth-child(3n + 1) {

@@ -317,7 +317,7 @@ describe('executeMoveL 控制与时长', () => {
     })
 
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.error.kind).toBe('wrist-singularity')
+    if (!outcome.ok) expect(outcome.error.kind).toBe('wrist-reconfiguration')
     expect(runTrajectoryCalls).toBe(0)
   })
 

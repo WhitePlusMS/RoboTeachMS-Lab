@@ -532,3 +532,91 @@ describe('Motion Runner 暂停后 retarget 的时间轴', () => {
     expect(joints).toEqual(jointsAt(0))
   })
 })
+
+describe('Motion Runner 未来轨迹尾部追加', () => {
+  it('追加目标不重置已执行段，关节轨迹单调到达最新尾部', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const samples: number[] = []
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => {
+        joints = [...next]
+        samples.push(joints[0])
+      },
+    })
+
+    runner.appendTrajectory([jointsAt(10)], 100)
+    clock.advanceBy(50)
+    runner.appendTrajectory([jointsAt(20)], 100)
+    clock.advanceBy(50)
+    clock.advanceBy(100)
+
+    expect(samples.length).toBeGreaterThan(2)
+    expect(samples.every((value, index) => index === 0 || value >= samples[index - 1])).toBe(true)
+    expect(joints).toEqual(jointsAt(20))
+  })
+
+  it('追加结果带旧起点时只接入提交尾部之后的后缀', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const samples: number[] = []
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => {
+        joints = [...next]
+        samples.push(joints[0])
+      },
+    })
+
+    runner.appendTrajectory([jointsAt(10)], 50)
+    clock.advanceBy(50)
+    runner.appendTrajectory([jointsAt(5), jointsAt(20)], 50)
+    clock.advanceBy(50)
+
+    expect(samples.every((value, index) => index === 0 || value >= samples[index - 1])).toBe(true)
+    expect(joints).toEqual(jointsAt(20))
+  })
+
+  it('新结果整段落后于执行尾部时拒绝追加而不反向运动', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => {
+        joints = [...next]
+      },
+    })
+
+    runner.appendTrajectory([jointsAt(10)], 50)
+    clock.advanceBy(25)
+    runner.appendTrajectory([jointsAt(5), jointsAt(6)], 50)
+    clock.advanceBy(25)
+    expect(joints[0]).toBeGreaterThanOrEqual(10)
+  })
+
+  it('旧结果在尾部前后摆动时拒绝反向后缀', () => {
+    const clock = new ManualMotionClock()
+    let joints = jointsAt(0)
+    const samples: number[] = []
+    const runner = createMotionRunner({
+      clock,
+      getCurrentJoints: () => joints,
+      setJoints: (next) => {
+        joints = [...next]
+        samples.push(joints[0])
+      },
+    })
+
+    runner.appendTrajectory([jointsAt(10)], 50)
+    clock.advanceBy(25)
+    runner.appendTrajectory([jointsAt(5), jointsAt(20), jointsAt(0)], 50)
+    clock.advanceBy(25)
+
+    expect(joints).toEqual(jointsAt(10))
+    expect(samples.every((value, index) => index === 0 || value >= samples[index - 1])).toBe(true)
+  })
+})

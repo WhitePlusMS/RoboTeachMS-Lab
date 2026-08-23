@@ -2,8 +2,14 @@ import { Matrix, solve } from 'ml-matrix'
 import { clampDegStep, clampVectorMagnitude } from '@/robotics/math/vector.ts'
 import { radToDeg } from '@/robotics/math/angle.ts'
 import { orientationError } from '@/robotics/math/rotation3d.ts'
+import { buildIKCandidateCatalog, selectBestIKCandidate } from './ik-candidate-catalog.ts'
 import type { RobotModel } from './robot-model.ts'
-import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
+import type {
+  IKLockedJointTargets,
+  IKSolverConfig,
+  JointAngles,
+  Pose,
+} from './types.ts'
 
 /** 原项目使用的 Levenberg-Marquardt 阻尼最小二乘配置。 */
 export const DEFAULT_IK_CONFIG: IKSolverConfig = {
@@ -31,6 +37,64 @@ function clampJoints(
   }) as JointAngles
 }
 
+/** 在 FK、Jacobian 和候选验收前统一恢复锁定关节，保证约束贯穿整个数值迭代。 */
+function enforceLockedJoints(
+  joints: JointAngles,
+  lockedTargets: IKLockedJointTargets | undefined,
+): JointAngles {
+  if (!lockedTargets) return joints
+  return joints.map((value, index) => lockedTargets[index] ?? value) as JointAngles
+}
+
+function solveAnalyticCandidate(
+  targetPose: Pose,
+  initialJointsDeg: JointAngles,
+  model: RobotModel,
+  solverConfig: IKSolverConfig,
+  jointRanges: readonly (readonly [number, number])[] | undefined,
+): JointAngles | null | undefined {
+  if (!model.solveAllIK || solverConfig.positionOnly || solverConfig.lockedJointTargetsDeg) {
+    return undefined
+  }
+  const candidates = buildIKCandidateCatalog(targetPose, initialJointsDeg, model, jointRanges)
+  const best = selectBestIKCandidate(candidates, {
+    positionTolerance: solverConfig.posTolerance,
+    orientationTolerance: solverConfig.oriTolerance,
+  })
+  return best?.normalizedJoints ?? null
+}
+
+/**
+ * 在位置优先 IK 的冗余自由度中加入软关节连续性目标。
+ *
+ * 位置 Jacobian 只有 3 行，腕部奇异附近存在多个同样有效的关节解；仅靠阻尼项
+ * 会让数值求解器自行选择 J4/J6 分配。该正则项把“靠近上一 waypoint”加入同一个
+ * 正规方程，但不会像 lockedJointTargetsDeg 那样把关节硬锁死，也不会改变位置误差。
+ */
+function applyJointContinuityPenalty(
+  lhs: Matrix,
+  rhs: Matrix,
+  joints: JointAngles,
+  reference: JointAngles | undefined,
+  weights: readonly number[] | undefined,
+  lockedTargets: IKLockedJointTargets | undefined,
+): void {
+  if (!reference || !weights) return
+  for (let index = 0; index < joints.length; index += 1) {
+    const weight = weights[index]
+    if (
+      !Number.isFinite(weight) ||
+      weight <= 0 ||
+      !Number.isFinite(reference[index]) ||
+      (lockedTargets?.[index] !== null && lockedTargets?.[index] !== undefined)
+    ) {
+      continue
+    }
+    lhs.set(index, index, lhs.get(index, index) + weight)
+    rhs.set(index, 0, rhs.get(index, 0) + weight * (reference[index] - joints[index]))
+  }
+}
+
 /** 完整复制原项目的 6D 位姿 IK 入口。 */
 export function solveIK(
   targetPose: Pose,
@@ -42,7 +106,18 @@ export function solveIK(
   if (!model.isAvailable()) return null
 
   const cfg = { ...DEFAULT_IK_CONFIG, ...solverConfig }
-  const joints = clampJoints([...initialJointsDeg] as JointAngles, jointRanges)
+  const analytic = solveAnalyticCandidate(
+    targetPose,
+    initialJointsDeg,
+    model,
+    cfg,
+    jointRanges,
+  )
+  if (analytic !== undefined) return analytic
+  const joints = clampJoints(
+    enforceLockedJoints([...initialJointsDeg] as JointAngles, cfg.lockedJointTargetsDeg),
+    jointRanges,
+  )
   let lambda = cfg.damping
   const targetRotation = targetPose.rotation
 
@@ -73,12 +148,15 @@ export function solveIK(
     const jacobian = model.estimateJacobian(joints)
     if (!jacobian) return null
     const jacobianRows = jacobian.map((row, rowIndex) =>
-      row.map((value) =>
-        rowIndex < 3
-          ? value
-          : cfg.positionOnly === true
-            ? 0
-            : value * cfg.orientationScale,
+      row.map((value, jointIndex) =>
+        cfg.lockedJointTargetsDeg?.[jointIndex] !== null &&
+        cfg.lockedJointTargetsDeg?.[jointIndex] !== undefined
+          ? 0
+          : rowIndex < 3
+            ? value
+            : cfg.positionOnly === true
+              ? 0
+              : value * cfg.orientationScale,
       ),
     )
     const matrix = new Matrix(jacobianRows)
@@ -91,11 +169,24 @@ export function solveIK(
     ])
     const lhs = transpose.mmul(matrix).add(Matrix.eye(6).mul(lambda))
     const rhs = transpose.mmul(errorVector)
+    // 仅由调用方显式传入的 position-only wrist 回退会启用该软目标；严格 6D IK
+    // 不设置 reference，因此不会改变普通工作区的解析分支选择。
+    applyJointContinuityPenalty(
+      lhs,
+      rhs,
+      joints,
+      cfg.jointContinuityReferenceDeg,
+      cfg.jointContinuityWeights,
+      cfg.lockedJointTargetsDeg,
+    )
     let delta = solve(lhs, rhs, true).to1DArray()
     delta = clampDegStep(delta, radToDeg(cfg.maxStepRad))
 
     const candidate = clampJoints(
-      joints.map((value, index) => value + delta[index]) as JointAngles,
+      enforceLockedJoints(
+        joints.map((value, index) => value + delta[index]) as JointAngles,
+        cfg.lockedJointTargetsDeg,
+      ),
       jointRanges,
     )
     const candidatePose = model.forwardKinematics(candidate)

@@ -1,11 +1,13 @@
 import type { RobotProfile } from './robot-profile.ts'
 import type { CartesianPathResult } from './cartesian-path-planner.ts'
+import type { CartesianTargetPlanningOptions } from './cartesian-motion-planner.ts'
 import type { JointAngles, Pose } from './types.ts'
 
 interface PlannerRequest {
   requestId: number
   targetPose: Pose
   initialJoints: JointAngles
+  options?: CartesianTargetPlanningOptions
 }
 
 interface PlannerResponse {
@@ -15,24 +17,22 @@ interface PlannerResponse {
 
 interface PlanningTiming {
   requestId: number
-  retryCount: number
   queueMs: number
   computeMs: number
   totalMs: number
   driftDeg: number
-  retry: boolean
-  staleAccepted: boolean
   hasQueuedRequest: boolean
 }
 
 export interface CartesianPlannerWorkerAdapter {
-  plan: (targetPose: Pose, initialJoints: JointAngles) => Promise<CartesianPathResult | null>
+  plan: (
+    targetPose: Pose,
+    initialJoints: JointAngles,
+    options?: CartesianTargetPlanningOptions,
+  ) => Promise<CartesianPathResult | null>
   cancel: () => void
   dispose: () => void
 }
-
-/** 规划计算期间允许的自然连续运动漂移（度）；明显过期时才触发一次重规划。 */
-const PLANNING_DRIFT_TOLERANCE_DEG = 1
 
 function planningNow(): number {
   return typeof performance === 'undefined' ? Date.now() : performance.now()
@@ -40,13 +40,6 @@ function planningNow(): number {
 
 function roundMilliseconds(value: number): number {
   return Math.round(value * 10) / 10
-}
-
-function hasJointDrift(
-  expected: JointAngles,
-  actual: JointAngles,
-): boolean {
-  return Math.max(...actual.map((value, index) => Math.abs(value - expected[index]))) > PLANNING_DRIFT_TOLERANCE_DEG
 }
 
 function maxJointDrift(expected: JointAngles, actual: JointAngles): number {
@@ -63,7 +56,10 @@ function logPlanningTiming(timing: PlanningTiming): void {
   })
 }
 
-/** 浏览器 Worker adapter：一次只保留最新规划，过期 Worker 直接终止。 */
+/**
+ * 一个点动会话只创建一个 Worker；活动请求完成后复用实例，队列只保留最新目标。
+ * 规划期间的关节漂移只记录，不把旧结果重算成 retry，也不接受过期结果覆盖执行尾部。
+ */
 export function createCartesianPlannerWorkerAdapter(
   profile: RobotProfile,
   getCurrentJoints: () => JointAngles,
@@ -77,16 +73,18 @@ export function createCartesianPlannerWorkerAdapter(
   let active: {
     requestId: number
     targetPose: Pose
-    requestedAt: number
-    retryCount: number
     initialJoints: JointAngles
+    options?: CartesianTargetPlanningOptions
+    requestedAt: number
+    startedAt: number
     resolve: (result: CartesianPathResult | null) => void
   } | null = null
   let queued: {
     requestId: number
     targetPose: Pose
+    initialJoints: JointAngles
+    options?: CartesianTargetPlanningOptions
     requestedAt: number
-    retryCount: number
     resolve: (result: CartesianPathResult | null) => void
   } | null = null
 
@@ -101,107 +99,92 @@ export function createCartesianPlannerWorkerAdapter(
     queued?.resolve(null)
     active = null
     queued = null
+  }
+
+  function dispose(): void {
+    cancelPending()
     terminateWorker()
+  }
+
+  function ensureWorker(): Worker {
+    if (worker) return worker
+    const created = new Worker(new URL('./cartesian-planner-worker.ts', import.meta.url), {
+      type: 'module',
+    })
+    created.onmessage = (event: MessageEvent<PlannerResponse>) => {
+      if (!active || event.data.requestId !== active.requestId) return
+      const current = active
+      active = null
+      const finishedAt = planningNow()
+      logPlanningTiming({
+        requestId: current.requestId,
+        queueMs: current.startedAt - current.requestedAt,
+        computeMs: finishedAt - current.startedAt,
+        totalMs: finishedAt - current.requestedAt,
+        driftDeg: maxJointDrift(current.initialJoints, [...getCurrentJoints()] as JointAngles),
+        hasQueuedRequest: queued !== null,
+      })
+      current.resolve(event.data.result)
+      if (queued) {
+        const nextRequest = queued
+        queued = null
+        startWorker(nextRequest)
+      }
+    }
+    created.onerror = () => {
+      const current = active
+      active = null
+      terminateWorker()
+      current?.resolve(null)
+      if (queued) {
+        const nextRequest = queued
+        queued = null
+        startWorker(nextRequest)
+      }
+    }
+    worker = created
+    return created
   }
 
   function startWorker(request: {
     requestId: number
     targetPose: Pose
+    initialJoints: JointAngles
+    options?: CartesianTargetPlanningOptions
     requestedAt: number
-    retryCount: number
     resolve: (result: CartesianPathResult | null) => void
   }): void {
-    const startedAt = planningNow()
-    const next = new Worker(new URL('./cartesian-planner-worker.ts', import.meta.url), {
-      type: 'module',
-    })
-    next.onmessage = (event: MessageEvent<PlannerResponse>) => {
-      if (!active || event.data.requestId !== active.requestId) return
-      const current = active
-      active = null
-      const currentJoints = [...getCurrentJoints()] as JointAngles
-      const finishedAt = planningNow()
-      const driftDeg = maxJointDrift(current.initialJoints, currentJoints)
-      const shouldRetry =
-        queued === null &&
-        hasJointDrift(current.initialJoints, currentJoints) &&
-        current.retryCount === 0
-      // 计算期间动画可能已经推进；没有更新请求时，旧 waypoint 会从历史位置开始，
-      // 表现为长按笛卡尔按钮时机械臂抽动，因此最多丢弃一次结果并从当前位置重算。
-      if (shouldRetry) {
-        logPlanningTiming({
-          requestId: current.requestId,
-          retryCount: current.retryCount,
-          queueMs: startedAt - current.requestedAt,
-          computeMs: finishedAt - startedAt,
-          totalMs: finishedAt - current.requestedAt,
-          driftDeg,
-          retry: true,
-          staleAccepted: false,
-          hasQueuedRequest: false,
-        })
-        terminateWorker()
-        startWorker({
-          requestId: current.requestId,
-          targetPose: current.targetPose,
-          requestedAt: planningNow(),
-          retryCount: current.retryCount + 1,
-          resolve: current.resolve,
-        })
-        return
-      }
-      logPlanningTiming({
-        requestId: current.requestId,
-        retryCount: current.retryCount,
-        queueMs: startedAt - current.requestedAt,
-        computeMs: finishedAt - startedAt,
-        totalMs: finishedAt - current.requestedAt,
-        driftDeg,
-        retry: false,
-        staleAccepted: hasJointDrift(current.initialJoints, currentJoints),
-        hasQueuedRequest: queued !== null,
-      })
-      current.resolve(event.data.result)
-      terminateWorker()
-      if (queued) {
-        const nextRequest = queued
-        queued = null
-        startWorker(nextRequest)
-      }
-    }
-    next.onerror = () => {
-      if (!active) return
-      const current = active
-      active = null
-      current.resolve(null)
-      terminateWorker()
-      if (queued) {
-        const nextRequest = queued
-        queued = null
-        startWorker(nextRequest)
-      }
-    }
-    worker = next
-    const initialJoints = [...getCurrentJoints()] as JointAngles
+    const currentWorker = ensureWorker()
     active = {
       ...request,
-      initialJoints,
+      startedAt: planningNow(),
     }
     const message: PlannerRequest = {
       requestId: request.requestId,
       targetPose: request.targetPose,
-      // Worker 真正启动可能晚于 pointer tick；此处才读取当前运动状态，
-      // 避免排队期间继续运动后仍用入队时的旧关节规划。
-      initialJoints,
+      options: request.options,
+      // 规划锚点由会话显式提交；实时关节只用于完成后的漂移观测。
+      initialJoints: request.initialJoints,
     }
-    next.postMessage(message)
+    currentWorker.postMessage(message)
   }
 
-  function plan(targetPose: Pose, _initialJoints: JointAngles): Promise<CartesianPathResult | null> {
+  function plan(
+    targetPose: Pose,
+    initialJoints: JointAngles,
+    options?: CartesianTargetPlanningOptions,
+  ): Promise<CartesianPathResult | null> {
     const currentRequestId = ++requestId
     const requestedAt = planningNow()
     return new Promise((resolve) => {
-      const request = { requestId: currentRequestId, targetPose, requestedAt, retryCount: 0, resolve }
+      const request = {
+        requestId: currentRequestId,
+        targetPose,
+        initialJoints: [...initialJoints] as JointAngles,
+        options,
+        requestedAt,
+        resolve,
+      }
       if (active) {
         queued?.resolve(null)
         queued = request
@@ -211,5 +194,5 @@ export function createCartesianPlannerWorkerAdapter(
     })
   }
 
-  return { plan, cancel: cancelPending, dispose: cancelPending }
+  return { plan, cancel: cancelPending, dispose }
 }

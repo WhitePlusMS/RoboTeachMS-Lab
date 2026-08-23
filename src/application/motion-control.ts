@@ -29,6 +29,7 @@ export function useMotion(options: MotionControlOptions) {
     startEasedAnimation: runner.startEased,
     startSpeedLimitedAnimation: runner.startSpeedLimited,
     startCartesianTrajectory: runner.startTrajectory,
+    appendCartesianTrajectory: runner.appendTrajectory,
     pauseMotion: runner.pause,
     resumeMotion: runner.resume,
     getMotionStatus: runner.getStatus,

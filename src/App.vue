@@ -59,13 +59,19 @@ const {
   setStep,
 } = useJointControl({ profile })
 
-const { startEasedAnimation, startSpeedLimitedAnimation, startCartesianTrajectory, stopAnimation } =
+const {
+  startEasedAnimation,
+  startSpeedLimitedAnimation,
+  startCartesianTrajectory,
+  appendCartesianTrajectory,
+  stopAnimation,
+} =
   useMotion({
     getCurrentJoints: () => joints.value,
     setJoints: setJointsImmediate,
   })
 
-// Worker 排队任务必须在真正开始规划时读取 MotionRunner 的当前关节，不能只读取创建请求时的快照。
+// Worker 请求携带笛卡尔会话提交的显式关节锚点；当前关节只用于完成后的漂移观测。
 const cartesianPlanner =
   typeof Worker === 'undefined'
     ? null
@@ -77,6 +83,7 @@ function cancelCartesianPlanning(): void {
 
 /** 数值输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
 function setJoint(index: number, value: number): void {
+  endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
   stopAnimation()
@@ -102,6 +109,7 @@ onMounted(() => window.addEventListener('popstate', syncRoute))
 onBeforeUnmount(() => window.removeEventListener('popstate', syncRoute))
 
 function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
+  if (!isContinuous) endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
   const next = adjustJointAngle(
@@ -125,6 +133,7 @@ function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): vo
 }
 
 function reset(): void {
+  endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
   startEasedAnimation([...profile.homeJoints])
@@ -132,6 +141,7 @@ function reset(): void {
 }
 
 function resetMechanicalZero(): void {
+  endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
   startEasedAnimation([...profile.mechanicalZeroJoints])
@@ -139,6 +149,7 @@ function resetMechanicalZero(): void {
 }
 
 function randomize(): void {
+  endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
   startEasedAnimation(randomJointAngles(profile.jointRanges))
@@ -148,9 +159,11 @@ function randomize(): void {
 function animateCartesianTrajectory(
   trajectory: readonly JointAngles[],
   isContinuous = false,
+  generation?: number,
 ): void {
   programControl.stopActiveProgram()
-  startCartesianTrajectory(trajectory, isContinuous ? 140 : undefined)
+  if (isContinuous) appendCartesianTrajectory(trajectory, 140, generation)
+  else startCartesianTrajectory(trajectory)
 }
 
 /** RAPID 源码在 localStorage 的键名；用于跨刷新/重开浏览器保留用户编辑。 */
@@ -269,6 +282,7 @@ function getGizmoPose(): Pose | null {
 
 function handleGizmoDragStart(): void {
   gizmoDragUnreachable.value = false
+  endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
   stopAnimation()
@@ -292,18 +306,15 @@ const {
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
+  beginContinuous: beginCartesianContinuous,
+  endContinuous: endCartesianContinuous,
 } = useCartesianControl({
   joints,
   pose,
   profile,
-  // 连续点动和机械零位腕部特例恢复串行语义：规划期间不让 Worker 与 RAF
-  // 并行推进；其他离散目标仍可交给 Worker，避免长路径阻塞界面。
-  planTarget: (targetPose, initialJoints, isContinuous) =>
-    isContinuous ||
-    (profile.model.isMechanicalZeroSingularityNeighborhood?.(initialJoints) ?? false)
-      ? planCartesianTarget(targetPose, initialJoints, profile)
-      : cartesianPlanner?.plan(targetPose, initialJoints) ??
-        planCartesianTarget(targetPose, initialJoints, profile),
+  planTarget: (targetPose, initialJoints, context) =>
+    cartesianPlanner?.plan(targetPose, initialJoints, context) ??
+    planCartesianTarget(targetPose, initialJoints, profile, context),
   cancelPlanning: cartesianPlanner?.cancel,
   moveToTrajectory: animateCartesianTrajectory,
 })
@@ -387,6 +398,8 @@ provideRobotController({
   resetMechanicalZero,
   randomize,
   moveCartesian,
+  beginCartesianContinuous,
+  endCartesianContinuous,
   setCoordinateSystem,
   setPositionStep,
   setOrientationStep,
@@ -610,12 +623,13 @@ provideProgramPanelController({
   background: var(--color-scene-bg);
 }
 
-/* 位姿角标：紧凑叠放在 3D 场景右下角（原 viewport-caption 位置），不占面板空间。 */
+/* 位姿角标：紧凑叠放在 3D 场景右下角（原 viewport-caption 位置），不占面板空间。
+   卡片本身允许选中文本和点击复制；只有卡片矩形区域不再穿透给画布。 */
 .scene-pose-readout {
   position: absolute;
   right: 14px;
   bottom: 12px;
   z-index: var(--z-raised);
-  pointer-events: none;
+  pointer-events: auto;
 }
 </style>

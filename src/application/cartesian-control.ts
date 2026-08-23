@@ -1,9 +1,14 @@
-import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { degToRad, radToDeg } from '@/robotics/math/angle.ts'
 import { mat3Mul, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
 import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
-import type { CartesianPathFailure, CartesianPathResult } from '@/robotics/cartesian-path-planner.ts'
+import type {
+  CartesianPathFailure,
+  CartesianPathResult,
+  WaypointFailureDiagnostic,
+} from '@/robotics/cartesian-path-planner.ts'
 import { planCartesianTarget } from '@/robotics/cartesian-motion-planner.ts'
+import { createCartesianJogSession } from './cartesian-jog-session.ts'
 import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import type {
   CartesianAxis,
@@ -39,6 +44,26 @@ function mapPathFailureToStatus(failure: CartesianPathFailure): CartesianStatus 
   // 普通 IK 不收敛仍归入原有 unreachable 状态；规划器已经保留了更细的 failure 枚举，
   // 这里只保持控制面板状态数量精简，避免为一次数值失败增加重复的 UI 分支。
   return 'unreachable'
+}
+
+function formatFailureDiagnostic(diagnostic: WaypointFailureDiagnostic | null): string {
+  if (!diagnostic) return ''
+  const waypoint = `第 ${diagnostic.waypointIndex} 个路径点`
+  if (diagnostic.axisIndex < 0 || diagnostic.axisIndex > 5) {
+    return `${waypoint} 未找到可验收的关节解，无法归因到单个关节`
+  }
+  const axis = `J${diagnostic.axisIndex + 1}`
+  const current = `当前 ${diagnostic.previousAngleDeg.toFixed(2)}°`
+  const attempted = diagnostic.attemptedAngleDeg === undefined
+    ? ''
+    : `，尝试 ${diagnostic.attemptedAngleDeg.toFixed(2)}°`
+  const delta = diagnostic.deltaDeg === undefined
+    ? ''
+    : `，变化 ${diagnostic.deltaDeg.toFixed(2)}°`
+  const limit = diagnostic.limitRangeDeg
+    ? `，允许范围 ${diagnostic.limitRangeDeg[0]}°~${diagnostic.limitRangeDeg[1]}°`
+    : ''
+  return `${waypoint}：${axis} 无法继续（${current}${attempted}${delta}${limit}）`
 }
 
 const AXIS_INDEX: Record<CartesianAxis, number> = {
@@ -148,14 +173,23 @@ export interface CartesianControlOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
   profile: RobotProfile
-  moveToTrajectory: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
+  moveToTrajectory: (
+    trajectory: readonly JointAngles[],
+    isContinuous?: boolean,
+    generation?: number,
+  ) => void
   /** 可替换规划 adapter；缺省为同步实现，生产 App 注入 Worker adapter。 */
   planTarget?: (
     targetPose: Pose,
     initialJoints: JointAngles,
-    isContinuous?: boolean,
+    context: CartesianPlanningContext,
   ) => CartesianPathResult | Promise<CartesianPathResult | null>
   cancelPlanning?: () => void
+}
+
+export interface CartesianPlanningContext {
+  isContinuous: boolean
+  allowWristEntry: boolean
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -173,78 +207,151 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const positionStep = ref<PositionStep>(1)
   const orientationStep = ref<OrientationStep>(1)
   const status = ref<CartesianStatus>('ready')
+  const failureDiagnostic = ref<WaypointFailureDiagnostic | null>(null)
+  const jogSession = createCartesianJogSession()
   let planningVersion = 0
+  let continuousPlanning = false
+  let queuedContinuousTarget: { target: PoseDisplay; context: CartesianPlanningContext } | null = null
+  let continuousTimer: ReturnType<typeof setInterval> | null = null
   const planTarget =
-    options.planTarget ?? ((target: Pose, initial: JointAngles) =>
-      planCartesianTarget(target, initial, options.profile))
+    options.planTarget ??
+    ((target: Pose, initial: JointAngles, context: CartesianPlanningContext) =>
+      planCartesianTarget(target, initial, options.profile, context))
 
   const statusMessage = computed(() => {
+    const detail = formatFailureDiagnostic(failureDiagnostic.value)
+    const withDetail = (message: string) => (detail ? `${message}；${detail}` : message)
     if (status.value === 'solved') return '笛卡尔路径规划成功，严格姿态目标运动已提交'
     if (status.value === 'planning') return '笛卡尔路径规划中，正在等待最新目标'
     if (status.value === 'wrist-solved') {
-      return 'SingArea\\Wrist 已提交：TCP 路径保持线性，腕部姿态允许误差'
+      return '机械零位腕部奇异已自动进入 SingArea\\Wrist：TCP 路径保持线性，姿态允许局部误差'
     }
     if (status.value === 'invalid') return '输入无效，未执行目标'
     if (status.value === 'singularity') {
-      return '自动腕部插补仍无法连续通过奇异（J5≈0°）；请修改目标姿态，或先用关节 Jog 脱离'
+      return withDetail('自动腕部插补仍无法连续通过奇异（J5≈0°）；请修改目标姿态，或先用关节 Jog 脱离')
     }
     if (status.value === 'reconfiguration') {
-      return '目标将导致机器人构型重新配置，请修改奇异点另一侧第一个目标的姿态，或先用关节 Jog 脱离'
+      return withDetail('目标将导致机器人构型重新配置，请修改奇异点另一侧第一个目标的姿态，或先用关节 Jog 脱离')
     }
-    if (status.value === 'joint-limit') return '目标会触及关节限位，未执行目标'
-    if (status.value === 'joint-step') return '路径需要跨越非腕部构型跳变，未执行目标'
-    if (status.value === 'not-converged') return '逆解未收敛，未执行目标'
-    if (status.value === 'unreachable') return '路径不可达，未执行目标'
+    if (status.value === 'joint-limit') return withDetail('目标会触及关节限位，未执行目标')
+    if (status.value === 'joint-step') return withDetail('路径需要跨越非腕部构型跳变，未执行目标')
+    if (status.value === 'not-converged') return withDetail('逆解未收敛，未执行目标')
+    if (status.value === 'unreachable') return withDetail('路径不可达，未执行目标')
     return '就绪'
   })
 
   function commitPlanResult(
     result: CartesianPathResult | null,
     isContinuous: boolean,
+    target: PoseDisplay,
   ): boolean {
+    failureDiagnostic.value = null
     if (result === null) {
+      if (isContinuous) jogSession.rollback()
       status.value = 'unreachable'
       return false
     }
     if (result.ok) {
-      options.moveToTrajectory(result.waypoints, isContinuous)
-      status.value = result.usedWristFallback ? 'wrist-solved' : 'solved'
+      if (isContinuous) {
+        const tail = result.waypoints[result.waypoints.length - 1]
+        if (tail) jogSession.commit(target, tail)
+      }
+      options.moveToTrajectory(
+        result.waypoints,
+        isContinuous,
+        isContinuous ? jogSession.getGeneration() : undefined,
+      )
+      status.value = result.appliedSingularityMode === 'wrist' ? 'wrist-solved' : 'solved'
       return true
     }
+    failureDiagnostic.value = result.diagnostic ?? null
+    if (isContinuous) jogSession.rollback()
     status.value = mapPathFailureToStatus(result.failure)
     return false
   }
 
-  function solveTarget(target: PoseDisplay, isContinuous: boolean): boolean | null {
+  function solveTarget(
+    target: PoseDisplay,
+    context: CartesianPlanningContext,
+  ): boolean | null {
+    if (context.isContinuous && continuousPlanning) {
+      queuedContinuousTarget = { target, context }
+      return null
+    }
     const robotTarget = toRobotPose(target)
     const currentVersion = ++planningVersion
-    const planned = planTarget(robotTarget, [...options.joints.value], isContinuous)
+    const currentGeneration = context.isContinuous ? jogSession.getGeneration() : null
+    if (context.isContinuous) continuousPlanning = true
+    const planningJoints = context.isContinuous
+      ? jogSession.getPlanningJoints(options.joints.value)
+      : [...options.joints.value] as JointAngles
+    const planned = planTarget(robotTarget, planningJoints, context)
     if (planned instanceof Promise) {
       status.value = 'planning'
       void planned.then((result) => {
+        if (context.isContinuous) continuousPlanning = false
         if (currentVersion !== planningVersion) return
-        commitPlanResult(result, isContinuous)
+        if (context.isContinuous && currentGeneration !== jogSession.getGeneration()) return
+        if (queuedContinuousTarget && currentVersion === planningVersion) {
+          const queuedTarget = queuedContinuousTarget
+          queuedContinuousTarget = null
+          solveTarget(queuedTarget.target, queuedTarget.context)
+          return
+        }
+        commitPlanResult(result, context.isContinuous, target)
       })
       return null
     }
-    return commitPlanResult(planned, isContinuous)
+    if (context.isContinuous) continuousPlanning = false
+    return commitPlanResult(planned, context.isContinuous, target)
+  }
+
+  function beginContinuous(axis: CartesianAxis, direction: CartesianDirection): void {
+    if (!jogSession.isActive()) jogSession.begin(options.pose.value, options.joints.value)
+    if (continuousTimer !== null) return
+
+    // 首步立即规划，后续由控制器统一节拍；面板不再自行创建重复定时器。
+    move(axis, direction, true)
+    continuousTimer = setInterval(() => move(axis, direction, true), 100)
+  }
+
+  function endContinuous(): void {
+    if (continuousTimer !== null) {
+      clearInterval(continuousTimer)
+      continuousTimer = null
+    }
+    planningVersion += 1
+    queuedContinuousTarget = null
+    continuousPlanning = false
+    options.cancelPlanning?.()
+    jogSession.end()
   }
 
   function move(axis: CartesianAxis, direction: CartesianDirection, isContinuous = false): void {
     if (!isContinuous) {
-      planningVersion += 1
-      options.cancelPlanning?.()
+      endContinuous()
     }
     const step =
       axis === 'rx' || axis === 'ry' || axis === 'rz' ? orientationStep.value : positionStep.value
+    const isTranslation = axis === 'x' || axis === 'y' || axis === 'z'
+    if (isContinuous && !jogSession.isActive()) {
+      jogSession.begin(options.pose.value, options.joints.value)
+    }
+    const basePose = isContinuous
+      ? jogSession.getAnchor(options.pose.value)
+      : options.pose.value
     const target = applyCartesianDelta(
-      options.pose.value,
+      basePose,
       axis,
       direction,
       step,
       coordinateSystem.value,
     )
-    solveTarget(target, isContinuous)
+    if (isContinuous) jogSession.request(target)
+    solveTarget(target, {
+      isContinuous,
+      allowWristEntry: isTranslation,
+    })
   }
 
   function setField(axis: CartesianAxis, value: number): void {
@@ -258,9 +365,11 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     if (axis === 'x' || axis === 'y' || axis === 'z') target.positionMm[AXIS_INDEX[axis]] = value
     else target.orientationDeg[AXIS_INDEX[axis]] = value
-    planningVersion += 1
-    options.cancelPlanning?.()
-    solveTarget(target, false)
+    endContinuous()
+    solveTarget(target, {
+      isContinuous: false,
+      allowWristEntry: false,
+    })
   }
 
   function setCoordinateSystem(value: CoordinateSystem): void {
@@ -277,6 +386,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (isOrientationStep(value)) orientationStep.value = value
   }
 
+  onBeforeUnmount(endContinuous)
+
   return {
     coordinateSystem,
     positionStep,
@@ -284,6 +395,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
     status,
     statusMessage,
     move,
+    beginContinuous,
+    endContinuous,
     setField,
     setCoordinateSystem,
     setPositionStep,

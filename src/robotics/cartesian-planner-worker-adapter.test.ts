@@ -17,7 +17,7 @@ const joints: JointAngles = [0, 0, 0, 0, 0, 0]
 const success: CartesianPathResult = {
   ok: true,
   waypoints: [[1, 1, 1, 1, 1, 1]],
-  usedWristFallback: false,
+  appliedSingularityMode: null,
 }
 
 class FakeWorker {
@@ -27,18 +27,28 @@ class FakeWorker {
   terminated = false
   requestId = 0
   initialJoints: JointAngles | null = null
+  options: { allowWristEntry?: boolean } | undefined
 
   constructor() {
     FakeWorker.instances.push(this)
   }
 
-  postMessage(message: { requestId: number; initialJoints: JointAngles }): void {
+  postMessage(message: {
+    requestId: number
+    initialJoints: JointAngles
+    options?: { allowWristEntry?: boolean }
+  }): void {
     this.requestId = message.requestId
     this.initialJoints = message.initialJoints
+    this.options = message.options
   }
 
   terminate(): void {
     this.terminated = true
+  }
+
+  fail(): void {
+    this.onerror?.()
   }
 
   complete(result: CartesianPathResult): void {
@@ -62,14 +72,14 @@ describe('cartesian planner Worker adapter', () => {
 
     FakeWorker.instances[0].complete(success)
     await expect(first).resolves.toEqual(success)
-    expect(FakeWorker.instances).toHaveLength(2)
+    expect(FakeWorker.instances).toHaveLength(1)
 
-    FakeWorker.instances[1].complete(success)
+    FakeWorker.instances[0].complete(success)
     await expect(second).resolves.toEqual(success)
     adapter.dispose()
   })
 
-  it('显式取消会终止当前与排队规划', async () => {
+  it('显式取消结算当前与排队规划但保留常驻 Worker', async () => {
     Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     const adapter = createCartesianPlannerWorkerAdapter(ABB_IRB1200_PROFILE, () => [...joints])
 
@@ -80,6 +90,8 @@ describe('cartesian planner Worker adapter', () => {
 
     await expect(first).resolves.toBeNull()
     await expect(second).resolves.toBeNull()
+    expect(running.terminated).toBe(false)
+    adapter.dispose()
     expect(running.terminated).toBe(true)
   })
 
@@ -98,14 +110,14 @@ describe('cartesian planner Worker adapter', () => {
 
     FakeWorker.instances[0].complete(success)
     await expect(first).resolves.toEqual(success)
-    expect(FakeWorker.instances[1].initialJoints).toEqual(currentJoints)
+    expect(FakeWorker.instances[0].initialJoints).toEqual([1, 1, 1, 1, 1, 1])
 
-    FakeWorker.instances[1].complete(success)
+    FakeWorker.instances[0].complete(success)
     await expect(second).resolves.toEqual(success)
     adapter.dispose()
   })
 
-  it('规划期间当前关节已推进时丢弃旧结果并从当前位置重规划', async () => {
+  it('规划期间当前关节已推进时记录漂移但不重算旧结果', async () => {
     Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     let currentJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const adapter = createCartesianPlannerWorkerAdapter(
@@ -117,17 +129,12 @@ describe('cartesian planner Worker adapter', () => {
     currentJoints = [5, 5, 5, 5, 5, 5]
 
     FakeWorker.instances[0].complete(success)
-    await Promise.resolve()
-
-    expect(FakeWorker.instances).toHaveLength(2)
-    expect(FakeWorker.instances[1].initialJoints).toEqual(currentJoints)
-
-    FakeWorker.instances[1].complete(success)
     await expect(result).resolves.toEqual(success)
+    expect(FakeWorker.instances).toHaveLength(1)
     adapter.dispose()
   })
 
-  it('同一目标最多漂移重算一次，不因持续运动无限占用 Worker', async () => {
+  it('持续运动期间同一目标只使用一次 Worker 计算', async () => {
     Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     let currentJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const adapter = createCartesianPlannerWorkerAdapter(
@@ -138,13 +145,8 @@ describe('cartesian planner Worker adapter', () => {
     const result = adapter.plan(pose, currentJoints)
     currentJoints = [5, 5, 5, 5, 5, 5]
     FakeWorker.instances[0].complete(success)
-    await Promise.resolve()
-
-    expect(FakeWorker.instances).toHaveLength(2)
-    currentJoints = [10, 10, 10, 10, 10, 10]
-    FakeWorker.instances[1].complete(success)
     await expect(result).resolves.toEqual(success)
-    expect(FakeWorker.instances).toHaveLength(2)
+    expect(FakeWorker.instances).toHaveLength(1)
     adapter.dispose()
   })
 
@@ -162,6 +164,35 @@ describe('cartesian planner Worker adapter', () => {
 
     await expect(result).resolves.toEqual(success)
     expect(FakeWorker.instances).toHaveLength(1)
+    adapter.dispose()
+  })
+
+  it('把本次 Wrist 资格上下文原样发送到常驻 Worker', async () => {
+    Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
+    const adapter = createCartesianPlannerWorkerAdapter(ABB_IRB1200_PROFILE, () => [...joints])
+
+    const result = adapter.plan(pose, joints, { allowWristEntry: true })
+    expect(FakeWorker.instances[0].options).toEqual({ allowWristEntry: true })
+    FakeWorker.instances[0].complete(success)
+    await expect(result).resolves.toEqual(success)
+    adapter.dispose()
+  })
+
+  it('空闲 Worker 崩溃后下一次规划创建新实例', async () => {
+    Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
+    const adapter = createCartesianPlannerWorkerAdapter(ABB_IRB1200_PROFILE, () => [...joints])
+
+    const first = adapter.plan(pose, joints)
+    const broken = FakeWorker.instances[0]
+    broken.complete(success)
+    await expect(first).resolves.toEqual(success)
+    broken.fail()
+    expect(broken.terminated).toBe(true)
+
+    const second = adapter.plan(pose, joints)
+    expect(FakeWorker.instances).toHaveLength(2)
+    FakeWorker.instances[1].complete(success)
+    await expect(second).resolves.toEqual(success)
     adapter.dispose()
   })
 })
