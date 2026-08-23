@@ -80,9 +80,14 @@ function runPath(yDirection: -1 | 1): MonitoredStep[] {
     joints = executed.joints
     reports.push(executed.report)
   }
-  // 从机械零位 Y±50 后持续 Z+，覆盖约 889→1109 mm 的上升区间。
-  for (let step = 1; step <= 22; step += 1) {
-    const executed = executeStep(joints, 2, 10, `${signLabel}/Z${step}`)
+  // 先降到显示值约 700 mm，再完整覆盖最低点→最高点的 Z 上升区间。
+  for (let step = 1; step <= 19; step += 1) {
+    const executed = executeStep(joints, 2, -10, `${signLabel}/Z-${step}`)
+    joints = executed.joints
+    reports.push(executed.report)
+  }
+  for (let step = 1; step <= 40; step += 1) {
+    const executed = executeStep(joints, 2, 10, `${signLabel}/Z+${step}`)
     joints = executed.joints
     reports.push(executed.report)
   }
