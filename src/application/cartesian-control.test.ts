@@ -177,71 +177,7 @@ describe('笛卡尔坐标增量', () => {
     expect(poseRef.value.positionMm[1]).toBeGreaterThan(yBefore + 9)
   })
 
-  it('低 J5 边界支路连续上行时使用 Wrist 实际姿态作为下一帧锚点', () => {
-    const model = ABB_IRB1200_PROFILE.model
-    const joints = ref<JointAngles>([-2.5, 26.7, -20.8, -203.4, 6.3, 203.3])
-    const poseRef = computed<PoseDisplay>(() => {
-      const currentPose = model.forwardKinematics(joints.value)
-      if (!currentPose) return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
-      return {
-        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
-        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
-      }
-    })
-    const control = useCartesianControl({
-      joints,
-      pose: poseRef,
-      profile: ABB_IRB1200_PROFILE,
-      moveToTrajectory: (trajectory) => {
-        const finalJoints = trajectory[trajectory.length - 1]
-        if (finalJoints) joints.value = [...finalJoints]
-      },
-    })
-    control.setPositionStep(50)
-
-    control.move('z', 1, true)
-    expect(control.status.value).toBe('wrist-solved')
-    const firstPose = [...poseRef.value.orientationDeg]
-    control.setPositionStep(10)
-    control.move('z', 1, true)
-    expect(['solved', 'wrist-solved']).toContain(control.status.value)
-    expect(poseRef.value.positionMm[2]).toBeGreaterThan(849)
-    expect(poseRef.value.orientationDeg).not.toEqual(firstPose)
-    control.endContinuous()
-  })
-
-  it('只有平移点动允许自动进入腕部插补，旋转点动不允许', () => {
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
-    const poseRef = computed<PoseDisplay>(() => ({
-      positionMm: [0, 0, 0],
-      orientationDeg: [0, 0, 0],
-    }))
-    const entryFlags: boolean[] = []
-    let requestCount = 0
-    const control = useCartesianControl({
-      joints,
-      pose: poseRef,
-      profile: ABB_IRB1200_PROFILE,
-      planTarget: (_target, _initial, context) => {
-        entryFlags.push(context.allowWristEntry)
-        requestCount += 1
-        return {
-          ok: true,
-          waypoints: [[0, 0, 0, 0, 0, 0]],
-          appliedSingularityMode: requestCount <= 2 ? 'wrist' : null,
-        }
-      },
-      moveToTrajectory: () => undefined,
-    })
-
-    control.move('y', 1)
-    control.move('z', 1)
-    control.move('rx', 1)
-
-    expect(entryFlags).toEqual([true, true, false])
-  })
-
-  it('机械零位字段直达不自动进入 SingArea\\Wrist', () => {
+  it('机械零位字段直达与平移点动共用同一 wrist 回退入口', () => {
     const model = new AbbDhRobotModel()
     const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
     const poseRef = computed<PoseDisplay>(() => {
@@ -260,7 +196,7 @@ describe('笛卡尔坐标增量', () => {
 
     control.setField('y', poseRef.value.positionMm[1] + 1)
 
-    expect(control.status.value).toBe('reconfiguration')
+    expect(control.status.value).toBe('wrist-solved')
   })
 
   it('非机械零位工作区的 J5=0 大步长不得显示机械零位重构提示', () => {

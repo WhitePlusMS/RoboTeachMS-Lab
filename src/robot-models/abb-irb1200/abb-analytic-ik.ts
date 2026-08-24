@@ -1,5 +1,5 @@
 import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
-import type { IKCandidate, JointAngles, Pose } from '@/robotics/types.ts'
+import type { ABBConfiguration, IKCandidate, JointAngles, Pose } from '@/robotics/types.ts'
 import { forwardAbbKinematicsFramesDegrees } from './abb-kinematics.ts'
 import {
   ABB_IRB1200_5_90_STANDARD_DH,
@@ -82,7 +82,36 @@ function getRotation(pose: Pose): Rotation3 {
   return pose.rotation as Rotation3
 }
 
-function solvePlanarBranches(q1: number, wrist: Vector3): JointAngles[] {
+/** ABB 构型象限：0=[0,90)，-1=[-90,0)，1=[90,180)，-2=[-180,-90)，依此类推。 */
+export function abbQuadrant(angleDeg: number): number {
+  return Math.floor(angleDeg / 90)
+}
+
+/**
+ * 由分支元数据生成 ABB robtarget 构型 [cf1, cf4, cf6, cfx]。
+ * cfx 采用 Ilian Bonev 描述的 3 位二进制十进制值（000=0 到 111=7）：
+ * bit 2 = arm front(0)/back(1)，bit 1 = elbow up(0)/down(1)，bit 0 = wrist no-flip(0)/flip(1)。
+ */
+export function abbConfigurationFromBranch(
+  jointsDeg: JointAngles,
+  armBit: 0 | 1,
+  elbowBit: 0 | 1,
+  wristBit: 0 | 1,
+): ABBConfiguration {
+  return [
+    abbQuadrant(jointsDeg[0]),
+    abbQuadrant(jointsDeg[3]),
+    abbQuadrant(jointsDeg[5]),
+    (armBit << 2) | (elbowBit << 1) | wristBit,
+  ]
+}
+
+interface PlanarBranch {
+  joints: JointAngles
+  elbowBit: 0 | 1
+}
+
+function solvePlanarBranches(q1: number, wrist: Vector3): PlanarBranch[] {
   const radial = Math.cos(q1) * wrist[0] + Math.sin(q1) * wrist[1]
   const vertical = wrist[2] - D1_MM
   const distance = Math.hypot(radial, vertical)
@@ -94,25 +123,31 @@ function solvePlanarBranches(q1: number, wrist: Vector3): JointAngles[] {
   )
   const elbowAngle = Math.acos(cosine)
   const targetAngle = Math.atan2(radial, vertical)
-  const branches: JointAngles[] = []
+  const branches: PlanarBranch[] = []
 
-  for (const sign of [1, -1] as const) {
+  for (const [index, sign] of ([1, -1] as const).entries()) {
     // DH 链的向量形式是 (r,z)=(L sin(q),L cos(q))，所以目标夹角直接对应 q2。
     const q2 = targetAngle + sign * elbowAngle
     const remainingRadial = radial - A2_MM * Math.sin(q2)
     const remainingVertical = vertical - A2_MM * Math.cos(q2)
     const wristPlanarAngle = Math.atan2(remainingRadial, remainingVertical)
     const q3 = wristPlanarAngle - q2 - L3_PHASE_RAD
-    branches.push([q1, q2, q3, 0, 0, 0])
+    // 第一个分支（+elbowAngle）对应 elbow up(0)，第二个对应 elbow down(1)。
+    branches.push({ joints: [q1, q2, q3, 0, 0, 0], elbowBit: index as 0 | 1 })
   }
   return branches
+}
+
+interface WristBranch {
+  joints: JointAngles
+  wristBit: 0 | 1
 }
 
 function solveWristBranches(
   targetRotation: Rotation3,
   q123: JointAngles,
   referenceJoints: JointAngles | undefined,
-): JointAngles[] {
+): WristBranch[] {
   const frames = forwardAbbKinematicsFramesDegrees(
     q123.map((value, index) => (index < 3 ? (value * 180) / Math.PI : 0)) as JointAngles,
   )
@@ -120,35 +155,29 @@ function solveWristBranches(
   const r36 = multiplyRotation3(transpose(r03), targetRotation)
   const cosine5 = clampUnit(r36[2][2])
   const sineMagnitude5 = Math.sqrt(Math.max(0, 1 - cosine5 * cosine5))
-  const branches: JointAngles[] = []
+  const branches: WristBranch[] = []
   const q4Reference = referenceJoints ? (referenceJoints[3] * Math.PI) / 180 : 0
 
   if (sineMagnitude5 <= EPSILON) {
     // 腕部奇异时 J4/J6 只确定和（q5≈0）或差（q5≈pi）。选择离参考姿态最近
     // 的 J4，再由目标 R36 反算另一轴；不丢弃姿态，也不擅自固定 J4=0。
+    // 奇异时 no-flip/flip 已无几何区分，约定 q4 取参考值的记 no-flip(0)，
+    // q4 取参考值 + π 的记 flip(1)，保证同一参考下的构型标签确定。
     if (cosine5 >= 0) {
       const qSum = Math.atan2(r36[1][0], r36[0][0])
-      for (const q4 of [q4Reference, q4Reference + Math.PI]) {
-        branches.push([
-          q123[0],
-          q123[1],
-          q123[2],
-          q4,
-          0,
-          qSum - q4,
-        ])
+      for (const [index, q4] of [q4Reference, q4Reference + Math.PI].entries()) {
+        branches.push({
+          joints: [q123[0], q123[1], q123[2], q4, 0, qSum - q4],
+          wristBit: index as 0 | 1,
+        })
       }
     } else {
       const qDifference = Math.atan2(-r36[1][0], -r36[0][0])
-      for (const q4 of [q4Reference, q4Reference + Math.PI]) {
-        branches.push([
-          q123[0],
-          q123[1],
-          q123[2],
-          q4,
-          Math.PI,
-          q4 - qDifference,
-        ])
+      for (const [index, q4] of [q4Reference, q4Reference + Math.PI].entries()) {
+        branches.push({
+          joints: [q123[0], q123[1], q123[2], q4, Math.PI, q4 - qDifference],
+          wristBit: index as 0 | 1,
+        })
       }
     }
     return branches
@@ -164,7 +193,11 @@ function solveWristBranches(
     const q4 = branchSign > 0 ? q4PositiveSine : q4PositiveSine + Math.PI
     const q5 = Math.atan2(sine5, cosine5)
     const q6 = branchSign > 0 ? q6PositiveSine : q6PositiveSine + Math.PI
-    branches.push([q123[0], q123[1], q123[2], q4, q5, q6])
+    // sin(q5) 符号即 ABB wrist no-flip(0)/flip(1) 位。
+    branches.push({
+      joints: [q123[0], q123[1], q123[2], q4, q5, q6],
+      wristBit: sine5 >= 0 ? 0 : 1,
+    })
   }
 
   if (sineMagnitude5 <= WRIST_SINGULAR_SINE_THRESHOLD) {
@@ -175,15 +208,21 @@ function solveWristBranches(
       : Math.atan2(-r36[1][0], -r36[0][0])
     const q5Positive = Math.atan2(sineMagnitude5, cosine5)
     branches.push(
-      [q123[0], q123[1], q123[2], q4Reference, q5Positive, qSum - q4Reference],
-      [
-        q123[0],
-        q123[1],
-        q123[2],
-        q4Reference + Math.PI,
-        -q5Positive,
-        qSum - q4Reference - Math.PI,
-      ],
+      {
+        joints: [q123[0], q123[1], q123[2], q4Reference, q5Positive, qSum - q4Reference],
+        wristBit: 0,
+      },
+      {
+        joints: [
+          q123[0],
+          q123[1],
+          q123[2],
+          q4Reference + Math.PI,
+          -q5Positive,
+          qSum - q4Reference - Math.PI,
+        ],
+        wristBit: 1,
+      },
     )
   }
   return branches
@@ -227,10 +266,12 @@ export function solveAbbAnalyticIK(
   const firstAxisBranches = uniqueAngles([baseAngle, baseAngle + Math.PI])
   const candidates: IKCandidate[] = []
 
-  for (const q1 of firstAxisBranches) {
-    for (const q123 of solvePlanarBranches(q1, wristCenter)) {
-      for (const jointsRad of solveWristBranches(targetRotation, q123, referenceJoints)) {
-        const joints = jointsRad.map((value) => (value * 180) / Math.PI) as JointAngles
+  for (const [q1BranchIndex, q1] of firstAxisBranches.entries()) {
+    // q1 分支索引即 ABB arm 位：0 = baseAngle（front），1 = baseAngle + π（back）。
+    const armBit = q1BranchIndex as 0 | 1
+    for (const planar of solvePlanarBranches(q1, wristCenter)) {
+      for (const wristBranch of solveWristBranches(targetRotation, planar.joints, referenceJoints)) {
+        const joints = wristBranch.joints.map((value) => (value * 180) / Math.PI) as JointAngles
         if (!isFiniteJointVector(joints)) continue
         const residual = candidateResidual(targetPose, joints)
         candidates.push({
@@ -241,10 +282,47 @@ export function solveAbbAnalyticIK(
             residual.positionErrorMm > POSITION_EPSILON_MM ||
             residual.orientationErrorRad > ORIENTATION_EPSILON_RAD,
           isSingular:
-            Math.abs(jointsRad[4]) <= (ABB_WRIST_SINGULARITY_THRESHOLD_DEG * Math.PI) / 180,
+            Math.abs(wristBranch.joints[4]) <= (ABB_WRIST_SINGULARITY_THRESHOLD_DEG * Math.PI) / 180,
+          configuration: abbConfigurationFromBranch(
+            joints,
+            armBit,
+            planar.elbowBit,
+            wristBranch.wristBit,
+          ),
         })
       }
     }
   }
   return candidates
+}
+
+/**
+ * 由实际关节姿态反推 ABB 构型 [cf1, cf4, cf6, cfx]。
+ * 做法：FK 得到当前位姿后重新枚举解析分支，取与当前关节（按 ±180° 回绕）最接近
+ * 的分支的构型标签。标签与求解器出自同一分支规则，保证 confdata 语义一致，
+ * 可供多解选择“保持当前构型”使用。
+ */
+export function abbConfigurationFromJoints(jointsDeg: JointAngles): ABBConfiguration | null {
+  const matrix = forwardAbbKinematicsFramesDegrees(jointsDeg)[6]
+  const data = matrix.data
+  const pose: Pose = {
+    position: [data[0][3], data[1][3], data[2][3]],
+    euler: [0, 0, 0],
+    rotation: matrix.getRotation(),
+  }
+  let best: ABBConfiguration | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const candidate of solveAbbAnalyticIK(pose, jointsDeg)) {
+    if (!candidate.configuration) continue
+    const distance = Math.max(
+      ...candidate.joints.map((value, index) =>
+        Math.abs(wrapRadians(((value - jointsDeg[index]) * Math.PI) / 180)),
+      ),
+    )
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = candidate.configuration
+    }
+  }
+  return best
 }

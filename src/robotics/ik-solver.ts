@@ -60,6 +60,7 @@ function solveAnalyticCandidate(
   const best = selectBestIKCandidate(candidates, {
     positionTolerance: solverConfig.posTolerance,
     orientationTolerance: solverConfig.oriTolerance,
+    referenceConfiguration: model.deriveConfiguration?.(initialJointsDeg) ?? undefined,
   })
   return best?.normalizedJoints ?? null
 }

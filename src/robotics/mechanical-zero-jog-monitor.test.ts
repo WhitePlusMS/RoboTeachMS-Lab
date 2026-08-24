@@ -37,9 +37,7 @@ function executeStep(
   if (!currentPose) throw new Error(`${label}: FK 失败`)
   const target = clonePose(currentPose)
   target.position[axis] += deltaMm
-  const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE, {
-    allowWristEntry: true,
-  })
+  const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE)
   if (!result.ok) {
     throw new Error(`${label}: ${result.failure} ${JSON.stringify(result.diagnostic ?? {})}`)
   }

@@ -312,9 +312,9 @@ const {
   joints,
   pose,
   profile,
-  planTarget: (targetPose, initialJoints, context) =>
-    cartesianPlanner?.plan(targetPose, initialJoints, context) ??
-    planCartesianTarget(targetPose, initialJoints, profile, context),
+  planTarget: (targetPose, initialJoints) =>
+    cartesianPlanner?.plan(targetPose, initialJoints) ??
+    planCartesianTarget(targetPose, initialJoints, profile),
   cancelPlanning: cartesianPlanner?.cancel,
   moveToTrajectory: animateCartesianTrajectory,
 })

@@ -38,6 +38,13 @@ export interface Pose {
   rotation: number[][]
 }
 
+/**
+ * ABB robtarget 构型参数 [cf1, cf4, cf6, cfx]。
+ * cf1/cf4/cf6 是 J1/J4/J6 所在象限（每 90° 一档，含负值）；
+ * cfx 是 arm/elbow/wrist 三个二进制位的 0-7 十进制值。
+ */
+export type ABBConfiguration = [cf1: number, cf4: number, cf6: number, cfx: number]
+
 /** 解析/几何逆解返回的单个构型候选；候选必须通过 FK 残差验收后才可执行。 */
 export interface IKCandidate {
   joints: JointAngles
@@ -45,6 +52,8 @@ export interface IKCandidate {
   orientationErrorRad: number
   isLeastSquares: boolean
   isSingular: boolean
+  /** 候选分支对应的 ABB 构型参数；不提供解析逆解的模型可省略。 */
+  configuration?: ABBConfiguration
 }
 
 /** 机器人关节动画参数；速度单位为度/秒，时长单位为毫秒。 */
@@ -80,7 +89,7 @@ export interface IKSolverConfig {
   positionOnly?: boolean
   /**
    * 位置优先模式下保留的姿态任务权重；0 表示完全位置优先，1 表示完整姿态权重。
-   * 仅由局部腕部策略显式设置，默认值不改变既有严格 IK 与纯 position-only 行为。
+   * 仅与显式 positionOnly 搭配使用，默认值不改变既有严格 IK 与纯 position-only 行为。
    */
   orientationWeight?: number
   /** 在迭代全过程固定指定关节；用于 LockAxis4，而不是在求解后破坏性改写关节结果。 */

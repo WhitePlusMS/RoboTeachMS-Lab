@@ -1,13 +1,11 @@
 import type { RobotProfile } from './robot-profile.ts'
 import type { CartesianPathResult } from './cartesian-path-planner.ts'
-import type { CartesianTargetPlanningOptions } from './cartesian-motion-planner.ts'
 import type { JointAngles, Pose } from './types.ts'
 
 interface PlannerRequest {
   requestId: number
   targetPose: Pose
   initialJoints: JointAngles
-  options?: CartesianTargetPlanningOptions
 }
 
 interface PlannerResponse {
@@ -28,7 +26,6 @@ export interface CartesianPlannerWorkerAdapter {
   plan: (
     targetPose: Pose,
     initialJoints: JointAngles,
-    options?: CartesianTargetPlanningOptions,
   ) => Promise<CartesianPathResult | null>
   cancel: () => void
   dispose: () => void
@@ -74,7 +71,6 @@ export function createCartesianPlannerWorkerAdapter(
     requestId: number
     targetPose: Pose
     initialJoints: JointAngles
-    options?: CartesianTargetPlanningOptions
     requestedAt: number
     startedAt: number
     resolve: (result: CartesianPathResult | null) => void
@@ -83,7 +79,6 @@ export function createCartesianPlannerWorkerAdapter(
     requestId: number
     targetPose: Pose
     initialJoints: JointAngles
-    options?: CartesianTargetPlanningOptions
     requestedAt: number
     resolve: (result: CartesianPathResult | null) => void
   } | null = null
@@ -150,7 +145,6 @@ export function createCartesianPlannerWorkerAdapter(
     requestId: number
     targetPose: Pose
     initialJoints: JointAngles
-    options?: CartesianTargetPlanningOptions
     requestedAt: number
     resolve: (result: CartesianPathResult | null) => void
   }): void {
@@ -162,7 +156,6 @@ export function createCartesianPlannerWorkerAdapter(
     const message: PlannerRequest = {
       requestId: request.requestId,
       targetPose: request.targetPose,
-      options: request.options,
       // 规划锚点由会话显式提交；实时关节只用于完成后的漂移观测。
       initialJoints: request.initialJoints,
     }
@@ -172,7 +165,6 @@ export function createCartesianPlannerWorkerAdapter(
   function plan(
     targetPose: Pose,
     initialJoints: JointAngles,
-    options?: CartesianTargetPlanningOptions,
   ): Promise<CartesianPathResult | null> {
     const currentRequestId = ++requestId
     const requestedAt = planningNow()
@@ -181,7 +173,6 @@ export function createCartesianPlannerWorkerAdapter(
         requestId: currentRequestId,
         targetPose,
         initialJoints: [...initialJoints] as JointAngles,
-        options,
         requestedAt,
         resolve,
       }

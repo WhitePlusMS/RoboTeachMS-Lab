@@ -4,6 +4,7 @@ import {
   isCandidateAtJointLimit,
   JOINT_LIMIT_EPS_DEG,
   selectBestIKCandidate,
+  type IKCandidateRecord,
 } from './ik-candidate-catalog.ts'
 import {
   MAX_CARTESIAN_JOINT_STEP_DEG,
@@ -18,12 +19,12 @@ export const MAX_JOINT_STEP_DEG = MAX_CARTESIAN_JOINT_STEP_DEG
 
 /**
  * 机械零位第一次脱离腕部奇异时的 J5 目标偏置（度）。
- * 该偏置只作为 position-only IK 的初值，不会改变普通工作区的严格姿态规划。
+ * 只作为解析逃离支路上 DLS 位置精化的初值偏置，不改变普通工作区的严格姿态规划。
  */
 const WRIST_ESCAPE_J5_DEG = 2
 /** 局部 SingArea\Wrist 允许的最大 TCP 姿态误差；位置仍使用严格 IK 容差。 */
 const WRIST_ORIENTATION_TOLERANCE_RAD = (2 * Math.PI) / 180
-/** wrist 回退中的 J4 连续性正则；仅作用于机械零位的 position-only 求解。 */
+/** wrist 逃离精化中的 J4 连续性正则；避免 DLS 在位置冗余下跳到另一腕部构型。 */
 const WRIST_J4_CONTINUITY_WEIGHT = 100
 /** 已应用的腕部奇异回退模式；当前仅 'wrist'。 */
 export type AppliedSingularityMode = 'wrist'
@@ -172,6 +173,7 @@ function resolveAnalyticJointSolution(
     orientationTolerance: config.oriTolerance,
     maxJointStepDeg: continuityLimitDeg,
     rejectAtJointLimit: true,
+    referenceConfiguration: model.deriveConfiguration?.(referenceJoints) ?? undefined,
   })
   if (!bestCandidate?.normalizedJoints) {
     const normalizedCandidates = residualCandidates
@@ -230,19 +232,49 @@ function isWristReconfiguration(
   )
 }
 
-/** 从当前关节生成一次有方向的腕部脱离初值，避免 position-only IK 继续停在 J5=0。 */
-function buildWristEscapeReference(
-  currentJoints: JointAngles,
-  direction: -1 | 1,
+/**
+ * 腕部奇异逃离的解析支路选择：在统一候选目录中选出落在目标 J5 侧、姿态偏差在
+ * SingArea\Wrist 窗口内、连续性合法且离参考姿态最近的表示。
+ *
+ * 解析 IK 是构型事实的唯一来源；这里不做位置残差硬过滤——逃离候选允许的姿态
+ * 偏差会以 d6·sin(θ) 量级体现为位置残差，位置精度由调用方在同一解析支路上
+ * 用 DLS 局部精化恢复。找不到合法候选时返回 null，由调用方按失败处理。
+ */
+function selectWristEscapeCandidate(
+  targetPose: Pose,
+  referenceJoints: JointAngles,
+  model: RobotModel,
   jointRanges: readonly (readonly [number, number])[],
-): JointAngles {
-  const reference = [...currentJoints] as JointAngles
-  const [minJ5, maxJ5] = jointRanges[4]
-  reference[4] = Math.max(
-    minJ5,
-    Math.min(maxJ5, direction * WRIST_ESCAPE_J5_DEG),
-  )
-  return reference
+  escapeDirection: -1 | 1,
+  continuityLimitDeg?: number,
+): IKCandidateRecord | null {
+  const candidates = buildIKCandidateCatalog(targetPose, referenceJoints, model, jointRanges)
+  const valid = candidates.filter((candidate) => {
+    if (candidate.normalizedJoints === null) return false
+    if (!candidate.withinJointRanges || candidate.atJointLimit) return false
+    if (candidate.orientationErrorRad > WRIST_ORIENTATION_TOLERANCE_RAD) return false
+    const j5 = candidate.normalizedJoints[4]
+    // J5 恰为 0 时仍处于奇异面上，两侧皆可接受，由连续性距离决定。
+    if (j5 !== 0 && Math.sign(j5) !== escapeDirection) return false
+    if (continuityLimitDeg !== undefined && candidate.maxJointDeltaDeg > continuityLimitDeg) {
+      return false
+    }
+    return true
+  })
+  let best: IKCandidateRecord | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const candidate of valid) {
+    const distance = normalizedJointDistance(
+      candidate.normalizedJoints as JointAngles,
+      referenceJoints,
+      jointRanges,
+    )
+    if (distance < bestDistance) {
+      best = candidate
+      bestDistance = distance
+    }
+  }
+  return best
 }
 
 /**
@@ -504,30 +536,63 @@ export function resolveJointSolution(
     return strictSolved
   }
 
-  const wristReference = !context.escapeDone
-    ? buildWristEscapeReference(referenceJoints, context.escapeDirection, jointRanges)
-    : referenceJoints
-  const wristSolved = resolveJointSolutionStrict(
+  // 腕部逃离的唯一决策入口：解析候选目录选出 J5 侧与 J4 连续的支路，
+  // DLS 只在该支路上做位置精化（解析法对允许姿态偏差的逃离点没有精确解）。
+  const escapeCandidate = selectWristEscapeCandidate(
     effectivePose,
-    wristReference,
+    referenceJoints,
     model,
     jointRanges,
-    {
-      ...solverConfig,
-      positionOnly: true,
-      // 机械零位 wrist 用 wristReference 脱离奇异点，并对 J4 增加连续性软约束，
-      // 避免 position-only 求解器随机跳到另一腕部构型。
-      jointContinuityReferenceDeg: referenceJoints,
-      jointContinuityWeights: [0, 0, 0, WRIST_J4_CONTINUITY_WEIGHT, 0, 0],
-    },
+    context.escapeDirection,
     continuityLimitDeg,
   )
 
-  if ('failure' in wristSolved) {
-    return wristSolved
+  if (escapeCandidate === null) {
+    return {
+      failure: 'joint-step',
+      detail: 'detail' in strictSolved ? strictSolved.detail : undefined,
+    }
   }
 
-  const actualFlangePose = model.forwardKinematics(wristSolved.joints)
+  const config = { ...DEFAULT_IK_CONFIG, ...solverConfig }
+  let escapeJoints = escapeCandidate.normalizedJoints as JointAngles
+  if (escapeCandidate.positionErrorMm > config.posTolerance) {
+    // 解析候选确定了构型分支；把 J5 推到逃离侧后由 DLS 恢复位置精度，
+    // J4 连续性正则防止精化过程跳到另一腕部构型。
+    const escapeSeed = [...escapeJoints] as JointAngles
+    const [minJ5, maxJ5] = jointRanges[4]
+    escapeSeed[4] = Math.max(
+      minJ5,
+      Math.min(maxJ5, context.escapeDirection * WRIST_ESCAPE_J5_DEG),
+    )
+    const refined = solveIK(
+      effectivePose,
+      escapeSeed,
+      model,
+      {
+        ...solverConfig,
+        positionOnly: true,
+        jointContinuityReferenceDeg: escapeJoints,
+        jointContinuityWeights: [0, 0, 0, WRIST_J4_CONTINUITY_WEIGHT, 0, 0],
+      },
+      jointRanges,
+    )
+    if (
+      refined === null ||
+      isJointAtLimit(refined, jointRanges) ||
+      (continuityLimitDeg !== undefined &&
+        Math.max(...refined.map((value, index) => Math.abs(value - referenceJoints[index]))) >
+          continuityLimitDeg)
+    ) {
+      return {
+        failure: 'joint-step',
+        detail: 'detail' in strictSolved ? strictSolved.detail : undefined,
+      }
+    }
+    escapeJoints = refined
+  }
+
+  const actualFlangePose = model.forwardKinematics(escapeJoints)
   const targetFlangePose = effectivePose
   const orientationErrorRad = actualFlangePose
     ? rotationDistanceRad(targetFlangePose.rotation, actualFlangePose.rotation)
@@ -540,14 +605,14 @@ export function resolveJointSolution(
   }
 
   // 第一次回退必须真正离开 J5≈0；离开后后续 waypoint 恢复严格姿态。
-  context.escapeDone = !isNearWristSingularity(model, wristSolved.joints)
+  context.escapeDone = !isNearWristSingularity(model, escapeJoints)
   if (context.escapeDone && actualFlangePose) {
     context.escapePose = {
       euler: [...actualFlangePose.euler],
       rotation: actualFlangePose.rotation.map((row) => [...row]),
     }
   }
-  return { joints: wristSolved.joints, wristContext: context }
+  return { joints: escapeJoints, wristContext: context }
 }
 
 /**

@@ -190,7 +190,6 @@ export interface CartesianControlOptions {
 
 export interface CartesianPlanningContext {
   isContinuous: boolean
-  allowWristEntry: boolean
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -216,8 +215,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
   let continuousTimer: ReturnType<typeof setInterval> | null = null
   const planTarget =
     options.planTarget ??
-    ((target: Pose, initial: JointAngles, context: CartesianPlanningContext) =>
-      planCartesianTarget(target, initial, options.profile, context))
+    ((target: Pose, initial: JointAngles) =>
+      planCartesianTarget(target, initial, options.profile))
 
   const statusMessage = computed(() => {
     const detail = formatFailureDiagnostic(failureDiagnostic.value)
@@ -356,7 +355,6 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     const step =
       axis === 'rx' || axis === 'ry' || axis === 'rz' ? orientationStep.value : positionStep.value
-    const isTranslation = axis === 'x' || axis === 'y' || axis === 'z'
     if (isContinuous && !jogSession.isActive()) {
       jogSession.begin(options.pose.value, options.joints.value)
     }
@@ -371,10 +369,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
       coordinateSystem.value,
     )
     if (isContinuous) jogSession.request(target)
-    solveTarget(target, {
-      isContinuous,
-      allowWristEntry: isTranslation,
-    })
+    solveTarget(target, { isContinuous })
   }
 
   function setField(axis: CartesianAxis, value: number): void {
@@ -389,10 +384,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (axis === 'x' || axis === 'y' || axis === 'z') target.positionMm[AXIS_INDEX[axis]] = value
     else target.orientationDeg[AXIS_INDEX[axis]] = value
     endContinuous()
-    solveTarget(target, {
-      isContinuous: false,
-      allowWristEntry: false,
-    })
+    solveTarget(target, { isContinuous: false })
   }
 
   function setCoordinateSystem(value: CoordinateSystem): void {

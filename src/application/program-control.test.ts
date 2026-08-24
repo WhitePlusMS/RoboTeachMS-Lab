@@ -91,7 +91,7 @@ describe('program-control adapter', () => {
     error.mockRestore()
   })
 
-  it('规划失败日志包含源码位置、指令文本与关节级诊断', async () => {
+  it('规划失败日志包含源码位置、指令文本与错误码', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
     const source = ref(`MODULE PlanningFailure
@@ -118,12 +118,13 @@ ENDMODULE`)
       expect.objectContaining({
         instructionNumber: 1,
         instructionText: 'MoveL pImpossible,v100,fine,tool0;',
-        errorCode: 'wrist-reconfiguration',
+        errorCode: 'unreachable',
         errorMessage: expect.any(String),
       }),
     )
+    // pImpossible（1500mm）超出 IRB1200 臂展，属于全局不可达，无关节级诊断。
     const details = call?.[1] as { diagnostic: unknown }
-    expect(details.diagnostic).not.toBeUndefined()
+    expect(details.diagnostic).toBeNull()
     error.mockRestore()
   })
 })

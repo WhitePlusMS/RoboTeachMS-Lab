@@ -27,7 +27,6 @@ class FakeWorker {
   terminated = false
   requestId = 0
   initialJoints: JointAngles | null = null
-  options: { allowWristEntry?: boolean } | undefined
 
   constructor() {
     FakeWorker.instances.push(this)
@@ -36,11 +35,9 @@ class FakeWorker {
   postMessage(message: {
     requestId: number
     initialJoints: JointAngles
-    options?: { allowWristEntry?: boolean }
   }): void {
     this.requestId = message.requestId
     this.initialJoints = message.initialJoints
-    this.options = message.options
   }
 
   terminate(): void {
@@ -167,19 +164,7 @@ describe('cartesian planner Worker adapter', () => {
     adapter.dispose()
   })
 
-  it('把本次 Wrist 资格上下文原样发送到常驻 Worker', async () => {
-    Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
-    const adapter = createCartesianPlannerWorkerAdapter(ABB_IRB1200_PROFILE, () => [...joints])
-
-    const result = adapter.plan(pose, joints, { allowWristEntry: true })
-    expect(FakeWorker.instances[0].options).toEqual({ allowWristEntry: true })
-    FakeWorker.instances[0].complete(success)
-    await expect(result).resolves.toEqual(success)
-    adapter.dispose()
-  })
-
-  it('空闲 Worker 崩溃后下一次规划创建新实例', async () => {
-    Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
+  it('空闲 Worker 崩溃后下一次规划创建新实例', async () => {    Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     const adapter = createCartesianPlannerWorkerAdapter(ABB_IRB1200_PROFILE, () => [...joints])
 
     const first = adapter.plan(pose, joints)

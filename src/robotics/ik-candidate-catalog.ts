@@ -1,5 +1,5 @@
 import type { RobotModel } from './robot-model.ts'
-import type { IKCandidate, JointAngles, Pose } from './types.ts'
+import type { ABBConfiguration, IKCandidate, JointAngles, Pose } from './types.ts'
 
 const RANGE_EPSILON_DEG = 1e-7
 /** 候选接近关节限位的统一软边界，单位为度。 */
@@ -7,6 +7,8 @@ export const JOINT_LIMIT_EPS_DEG = 0.5
 
 /** 解析候选经过统一归一化后的完整记录；目录不负责选择最终构型。 */
 export interface IKCandidateRecord extends IKCandidate {
+  /** 解析分支的 ABB 构型参数 [cf1, cf4, cf6, cfx]；供构型一致性筛选直接使用。 */
+  configuration?: ABBConfiguration
   /** 将 ±360° 等价表示恢复到关节范围且尽量贴近参考姿态后的关节值。 */
   normalizedJoints: JointAngles | null
   /** 所有轴都能在给定限位内表示时为 true。 */
@@ -24,6 +26,12 @@ export interface IKCandidateSelectionOptions {
   orientationTolerance: number
   maxJointStepDeg?: number
   rejectAtJointLimit?: boolean
+  /**
+   * 当前姿态的 ABB 构型 [cf1, cf4, cf6, cfx]。提供时优先选择与该构型完全一致
+   * 的候选（真实控制器语义：未声明 SingArea 时运动不改变构型）；仅当没有任何
+   * 合法候选能保持构型时才退回到全局最近候选。
+   */
+  referenceConfiguration?: ABBConfiguration
 }
 
 /**
@@ -145,7 +153,18 @@ export function selectBestIKCandidate(
       candidate.orientationErrorRad <= options.orientationTolerance &&
       (options.maxJointStepDeg === undefined || candidate.maxJointDeltaDeg <= options.maxJointStepDeg),
   )
-  return valid.reduce<IKCandidateRecord | null>(
+  // ABB 构型语义：能在当前 [cf1, cf4, cf6, cfx] 下到达时，不允许跳到别的分支，
+  // 即使异构型候选离参考姿态更近。
+  const referenceConfiguration = options.referenceConfiguration
+  const pool = referenceConfiguration
+    ? valid.filter(
+        (candidate) =>
+          candidate.configuration !== undefined &&
+          candidate.configuration.every((value, index) => value === referenceConfiguration[index]),
+      )
+    : []
+  const selectable = pool.length > 0 ? pool : valid
+  return selectable.reduce<IKCandidateRecord | null>(
     (best, candidate) =>
       best === null || candidate.distanceFromReferenceDeg < best.distanceFromReferenceDeg
         ? candidate

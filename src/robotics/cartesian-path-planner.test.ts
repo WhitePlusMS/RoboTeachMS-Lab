@@ -99,12 +99,7 @@ describe('Cartesian path planner', () => {
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
 
-    const result = planCartesianTarget(
-      targetPose,
-      startJoints,
-      ABB_IRB1200_PROFILE,
-      { allowWristEntry: true },
-    )
+    const result = planCartesianTarget(targetPose, startJoints, ABB_IRB1200_PROFILE)
 
     expect(result).toMatchObject({ ok: false, failure: 'joint-step' })
   })
@@ -355,42 +350,4 @@ describe('Cartesian path planner', () => {
     expect(Math.abs(joints[5])).toBeLessThan(45)
     expect(joints[4]).toBeGreaterThan(20)
   })
-
-  it('低 J5 且 J4/J6 接近边界时，局部姿态过渡应保持上行支路连续', () => {
-    const initialJoints: JointAngles = [-2.5, 26.7, -20.8, -203.4, 6.3, 203.3]
-    const startPose = ABB_IRB1200_PROFILE.model.forwardKinematics(initialJoints)
-    expect(startPose).not.toBeNull()
-    if (!startPose) return
-    const targetPose = clonePose(startPose)
-    targetPose.position[2] += 50
-
-    const result = planCartesianTarget(
-      targetPose,
-      initialJoints,
-      ABB_IRB1200_PROFILE,
-      { allowWristEntry: true },
-    )
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.appliedSingularityMode).toBe('wrist')
-    const endpoint = ABB_IRB1200_PROFILE.model.forwardKinematics(
-      result.waypoints[result.waypoints.length - 1],
-    )
-    expect(endpoint).not.toBeNull()
-    if (!endpoint) return
-    expect(endpoint.position[2]).toBeCloseTo(targetPose.position[2], 1)
-    expect(rotationDistanceDegrees(endpoint.rotation, targetPose.rotation)).toBeLessThanOrEqual(2.01)
-    const maxWristStep = Math.max(
-      ...result.waypoints.map((joints, index) => {
-        const previous = index === 0 ? initialJoints : result.waypoints[index - 1]
-        return Math.max(
-          Math.abs(joints[3] - previous[3]),
-          Math.abs(joints[5] - previous[5]),
-        )
-      }),
-    )
-    expect(maxWristStep).toBeLessThanOrEqual(5)
-  })
-
 })
