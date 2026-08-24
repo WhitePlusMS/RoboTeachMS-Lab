@@ -90,6 +90,42 @@ describe('program-control adapter', () => {
     info.mockRestore()
     error.mockRestore()
   })
+
+  it('规划失败日志包含源码位置、指令文本与关节级诊断', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const source = ref(`MODULE PlanningFailure
+    CONST robtarget pImpossible := [[1500,0,889.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    PROC main()
+        MoveL pImpossible,v100,fine,tool0;
+    ENDPROC
+ENDMODULE`)
+    const { motion } = makeMotion()
+    const ctrl = useProgramController({
+      source,
+      profile: ABB_IRB1200_PROFILE,
+      joints,
+      motion,
+    })
+
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('error')
+    const call = error.mock.calls.find(([label]) => label === '[ABB-PROGRAM] 程序规划错误')
+    expect(call).toBeDefined()
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        instructionNumber: 1,
+        instructionText: 'MoveL pImpossible,v100,fine,tool0;',
+        errorCode: 'wrist-reconfiguration',
+        errorMessage: expect.any(String),
+      }),
+    )
+    const details = call?.[1] as { diagnostic: unknown }
+    expect(details.diagnostic).not.toBeUndefined()
+    error.mockRestore()
+  })
 })
 
 /**

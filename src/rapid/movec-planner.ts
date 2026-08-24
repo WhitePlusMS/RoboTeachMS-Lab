@@ -98,10 +98,14 @@ export function planMoveC(
     // 由共享 waypoint 求解器逐点决定是否需要腕部姿态回退，不能把整条圆弧
     // 预先降级为 position-only，否则非奇异段也会丢失编程姿态。
     {},
-    movec.singArea === 'wrist' ? 'wrist' : 'strict',
   )
   if (!waypoints.ok || waypoints.waypoints.length === 0) {
-    if (!waypoints.ok) return { ok: false, error: cartesianPathFailureToMotionError(waypoints.failure) }
+    if (!waypoints.ok) {
+      return {
+        ok: false,
+        error: cartesianPathFailureToMotionError(waypoints.failure, waypoints.diagnostic),
+      }
+    }
     return {
       ok: false,
       error: {

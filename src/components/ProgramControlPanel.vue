@@ -220,6 +220,7 @@ const errorText = computed(() => {
         v-if="props.snapshot.diagnostics.length > 0"
         class="rapid-diagnostics"
         aria-label="RAPID 诊断"
+        tabindex="0"
       >
         <ul>
           <li
@@ -362,6 +363,11 @@ const errorText = computed(() => {
 
 /* 诊断列表：去边框化，hairline 分隔，仅保留极淡底色。 */
 .rapid-diagnostics {
+  box-sizing: border-box;
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 10px 2px 0;
   border-top: 1px solid var(--color-border);
 }

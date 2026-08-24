@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { solveIK } from './ik-solver.ts'
 import { solveGizmoTarget } from './ik-waypoint-solver.ts'
 import type { JointAngles, Pose } from './types.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
@@ -39,9 +38,8 @@ describe('solveGizmoTarget', () => {
     }) as JointAngles
   }
 
-  it('全范围关节小幅旋转：多初值失败率不劣于单初值', { timeout: 60000 }, () => {
-    let single = 0
-    let multi = 0
+  it('全范围关节小幅旋转：共享候选图保持有限失败率', { timeout: 60000 }, () => {
+    let failures = 0
     const N = 2000
     for (let i = 0; i < N; i++) {
       const j = randJ(1.0)
@@ -53,16 +51,14 @@ describe('solveGizmoTarget', () => {
       })()
       const tR = mul(cur.rotation, axisMat(ax, 5))
       const target: Pose = { position: [...cur.position], euler: [0, 0, 0], rotation: tR }
-      if (!solveIK(target, j, model, {}, ABB_JOINT_RANGES)) single++
-      if (!solveGizmoTarget(target, j, model, ABB_JOINT_RANGES)) multi++
+      if (!solveGizmoTarget(target, j, model, ABB_JOINT_RANGES)) failures++
     }
-    console.log(`full-range 5°: solveIK失败 ${single}/${N}, solveGizmoTarget失败 ${multi}/${N}`)
-    expect(multi).toBeLessThanOrEqual(single)
+    console.log(`full-range 5°: shared candidate graph failures ${failures}/${N}`)
+    expect(failures).toBeLessThan(N * 0.05)
   })
 
-  it('中等范围关节旋转极少失败且不劣于单初值', { timeout: 60000 }, () => {
-    let single = 0
-    let multi = 0
+  it('中等范围关节旋转：共享候选图保持有限失败率', { timeout: 60000 }, () => {
+    let failures = 0
     const N = 2000
     for (let i = 0; i < N; i++) {
       const j = randJ(0.8)
@@ -74,10 +70,9 @@ describe('solveGizmoTarget', () => {
       })()
       const tR = mul(cur.rotation, axisMat(ax, 5))
       const target: Pose = { position: [...cur.position], euler: [0, 0, 0], rotation: tR }
-      if (!solveIK(target, j, model, {}, ABB_JOINT_RANGES)) single++
-      if (!solveGizmoTarget(target, j, model, ABB_JOINT_RANGES)) multi++
+      if (!solveGizmoTarget(target, j, model, ABB_JOINT_RANGES)) failures++
     }
-    console.log(`mid-range 5°: solveIK失败 ${single}/${N}, solveGizmoTarget失败 ${multi}/${N}`)
-    expect(multi).toBeLessThanOrEqual(single)
+    console.log(`mid-range 5°: shared candidate graph failures ${failures}/${N}`)
+    expect(failures).toBeLessThan(N * 0.05)
   })
 })

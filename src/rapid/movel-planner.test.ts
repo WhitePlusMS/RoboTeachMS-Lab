@@ -6,6 +6,7 @@ import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
 import { mat3Mul, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import type { JointAngles } from '@/robotics/types.ts'
 import { executeMoveL, planMoveL } from './movel-planner.ts'
+import { planMoveJ } from './movej-planner.ts'
 import { internalQuatToRapid } from './plan-shared.ts'
 import {
   defaultTool0,
@@ -14,6 +15,7 @@ import {
   NO_EXTERNAL_AXIS,
   type RapidPose,
   type RobTarget,
+  type StructuredMoveJ,
   type StructuredMoveL,
 } from './rapid-types.ts'
 
@@ -42,6 +44,17 @@ function makeMoveL(target: RobTarget, overrides: Partial<StructuredMoveL> = {}):
     tool: defaultTool0(),
     wobj: defaultWobj0(),
     ...overrides,
+  }
+}
+
+function makeMoveJ(target: RobTarget): StructuredMoveJ {
+  return {
+    kind: 'movej',
+    target,
+    speed: { v_tcp: 100, v_ori: 100, v_leax: 100, v_reax: 100 },
+    zone: defaultZoneFine(),
+    tool: defaultTool0(),
+    wobj: defaultWobj0(),
   }
 }
 
@@ -295,8 +308,7 @@ describe('executeMoveL 控制与时长', () => {
     }
   })
 
-  it('不可达 / 构型跳变规划失败发生在运动启动前，runTrajectory 不被调用', async () => {
-    // ABB 机械零位 J5=0° 是腕部奇异，Y 点动必须在启动前拒绝且不调用执行 seam。
+  it('机械零位 Y 点动默认由算法自动 wrist 回退并成功执行', async () => {
     const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const start = degreeFrameFromPose(startJoints)
     const target: RobTarget = {
@@ -316,9 +328,8 @@ describe('executeMoveL 控制与时长', () => {
       },
     })
 
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.error.kind).toBe('wrist-reconfiguration')
-    expect(runTrajectoryCalls).toBe(0)
+    expect(outcome.ok).toBe(true)
+    expect(runTrajectoryCalls).toBe(1)
   })
 
   it('MoveL 使用 SingArea\\Wrist 时允许腕部姿态误差并保持 TCP 位置路径', () => {
@@ -339,6 +350,35 @@ describe('executeMoveL 控制与时长', () => {
     )
 
     expect(result.ok).toBe(true)
+  })
+})
+
+describe('planMoveL 长距离路径自适应采样', () => {
+  it('机械零位 MoveJ 到高点后长距离 Z MoveL 不因 J6 临界步长误报 unreachable', () => {
+    const orientation = [
+      0.000608391,
+      0.716910335,
+      -0.000625622,
+      0.697164837,
+    ] as [number, number, number, number]
+    const pTop: RobTarget = {
+      trans: [533, -50, 1139.1],
+      rot: orientation,
+      robconf: [0, 0, 0, 0],
+      extax: [...NO_EXTERNAL_AXIS],
+    }
+    const pBottom: RobTarget = {
+      ...pTop,
+      trans: [533, -50, -310.9],
+    }
+
+    const moveJ = planMoveJ(makeMoveJ(pTop), ABB_MODEL, [0, 0, 0, 0, 0, 0], ABB_JOINT_RANGES)
+    expect(moveJ.ok).toBe(true)
+    if (!moveJ.ok) return
+
+    const moveL = planMoveL(makeMoveL(pBottom), ABB_MODEL, moveJ.joints, ABB_JOINT_RANGES)
+    expect(moveL.ok).toBe(true)
+    if (moveL.ok) expect(maxJointStep([moveJ.joints, ...moveL.waypoints])).toBeLessThanOrEqual(5)
   })
 })
 

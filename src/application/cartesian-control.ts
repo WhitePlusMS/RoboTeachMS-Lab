@@ -8,6 +8,7 @@ import type {
   WaypointFailureDiagnostic,
 } from '@/robotics/cartesian-path-planner.ts'
 import { planCartesianTarget } from '@/robotics/cartesian-motion-planner.ts'
+import { buildJointPathAudit } from '@/robotics/joint-path-audit.ts'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
 import type { RobotProfile } from '@/robotics/robot-profile.ts'
 import type {
@@ -224,7 +225,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (status.value === 'solved') return '笛卡尔路径规划成功，严格姿态目标运动已提交'
     if (status.value === 'planning') return '笛卡尔路径规划中，正在等待最新目标'
     if (status.value === 'wrist-solved') {
-      return '机械零位腕部奇异已自动进入 SingArea\\Wrist：TCP 路径保持线性，姿态允许局部误差'
+      return '局部腕部姿态过渡已启用：TCP 路径保持线性，姿态允许≤2°误差'
     }
     if (status.value === 'invalid') return '输入无效，未执行目标'
     if (status.value === 'singularity') {
@@ -234,7 +235,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
       return withDetail('目标将导致机器人构型重新配置，请修改奇异点另一侧第一个目标的姿态，或先用关节 Jog 脱离')
     }
     if (status.value === 'joint-limit') return withDetail('目标会触及关节限位，未执行目标')
-    if (status.value === 'joint-step') return withDetail('路径需要跨越非腕部构型跳变，未执行目标')
+    if (status.value === 'joint-step') return withDetail('路径相邻关节步长超过连续运动限制，未执行目标')
     if (status.value === 'not-converged') return withDetail('逆解未收敛，未执行目标')
     if (status.value === 'unreachable') return withDetail('路径不可达，未执行目标')
     return '就绪'
@@ -244,6 +245,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     result: CartesianPathResult | null,
     isContinuous: boolean,
     target: PoseDisplay,
+    initialJoints: JointAngles,
   ): boolean {
     failureDiagnostic.value = null
     if (result === null) {
@@ -252,9 +254,30 @@ export function useCartesianControl(options: CartesianControlOptions) {
       return false
     }
     if (result.ok) {
+      const audit = buildJointPathAudit(initialJoints, result.waypoints)
+      if (audit) {
+        console.info(
+          '[CARTESIAN-JOINT-AUDIT]',
+          JSON.stringify({ path: 'CartesianJog', target: target.positionMm, ...audit }),
+        )
+      }
       if (isContinuous) {
         const tail = result.waypoints[result.waypoints.length - 1]
-        if (tail) jogSession.commit(target, tail)
+        if (tail) {
+          // Wrist 姿态过渡会有受控姿态偏差；下一帧必须以实际 FK 姿态为锚，
+          // 否则会反复追逐原始目标，造成连续长按的来回顿挫。
+          const actualPose =
+            result.appliedSingularityMode === 'wrist'
+              ? options.profile.model.forwardKinematics(tail)
+              : null
+          const committedPose = actualPose
+            ? {
+                positionMm: [...actualPose.position] as PoseDisplay['positionMm'],
+                orientationDeg: actualPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+              }
+            : target
+          jogSession.commit(committedPose, tail)
+        }
       }
       options.moveToTrajectory(
         result.waypoints,
@@ -298,12 +321,12 @@ export function useCartesianControl(options: CartesianControlOptions) {
           solveTarget(queuedTarget.target, queuedTarget.context)
           return
         }
-        commitPlanResult(result, context.isContinuous, target)
+        commitPlanResult(result, context.isContinuous, target, planningJoints)
       })
       return null
     }
     if (context.isContinuous) continuousPlanning = false
-    return commitPlanResult(planned, context.isContinuous, target)
+    return commitPlanResult(planned, context.isContinuous, target, planningJoints)
   }
 
   function beginContinuous(axis: CartesianAxis, direction: CartesianDirection): void {

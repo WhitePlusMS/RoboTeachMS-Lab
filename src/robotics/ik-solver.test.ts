@@ -51,19 +51,13 @@ describe('KUKA 数值逆解', () => {
   })
 })
 
-describe('ABB IRB 1200 数值逆解', () => {
+describe('ABB IRB 1200 解析逆解', () => {
   const model = new AbbDhRobotModel()
 
-  it('复用 KUKA 的六维 DLS 算法完成 FK→IK→FK 闭环', () => {
+  it('解析法完成 FK→IK→FK 闭环', () => {
     const source: JointAngles = [25, -20, 35, 15, -25, 30]
     const target = model.forwardKinematics(source) as Pose
-    const result = solveIK(
-      target,
-      ABB_MECHANICAL_ZERO_JOINTS,
-      model,
-      { maxIterations: 250 },
-      ABB_JOINT_RANGES,
-    )
+    const result = solveIK(target, ABB_MECHANICAL_ZERO_JOINTS, model, {}, ABB_JOINT_RANGES)
 
     expect(result).not.toBeNull()
     const solved = model.forwardKinematics(result as JointAngles) as Pose
@@ -87,10 +81,45 @@ describe('ABB IRB 1200 数值逆解', () => {
     })
   })
 
+  it('解析 IK 返回全部 ABB 构型分支，覆盖远离机械零位的目标', () => {
+    const samples: JointAngles[] = [
+      [0, -80, 60, 0, 30, 0],
+      [90, -30, 50, 120, -45, -90],
+      [-90, 20, -100, -120, 80, 180],
+      [140, -60, 0, 200, -100, 270],
+    ]
+
+    samples.forEach((source) => {
+      const target = model.forwardKinematics(source) as Pose
+      const result = solveIK(target, ABB_MECHANICAL_ZERO_JOINTS, model, {}, ABB_JOINT_RANGES)
+
+      expect(result, `纯 ABB DH 求解失败：${source.join(',')}`).not.toBeNull()
+      const solved = model.forwardKinematics(result as JointAngles) as Pose
+      const positionError = Math.hypot(
+        solved.position[0] - target.position[0],
+        solved.position[1] - target.position[1],
+        solved.position[2] - target.position[2],
+      )
+      expect(positionError, `ABB DH 位置残差：${source.join(',')}`).toBeLessThan(1)
+      const orientationErrorVector = orientationError(target.rotation, solved.rotation)
+      expect(Math.hypot(...orientationErrorVector), `ABB DH 姿态残差：${source.join(',')}`).toBeLessThan(1e-8)
+    })
+  })
+})
+
+describe('ABB IRB 1200 数值兜底', () => {
+  const model = new AbbDhRobotModel()
+
   it('ABB 位置-only 回退仍使用相同模型和关节限位', () => {
     const target = model.forwardKinematics([0, -25, 45, 0, 20, 0]) as Pose
     target.position[0] += 5
-    const result = solveIK(target, ABB_MECHANICAL_ZERO_JOINTS, model, {}, ABB_JOINT_RANGES)
+    const result = solveIK(
+      target,
+      ABB_MECHANICAL_ZERO_JOINTS,
+      model,
+      { positionOnly: true },
+      ABB_JOINT_RANGES,
+    )
 
     expect(result).not.toBeNull()
     const solved = model.forwardKinematics(result as JointAngles) as Pose
@@ -142,36 +171,5 @@ describe('ABB IRB 1200 数值逆解', () => {
     const solved = model.forwardKinematics(result as JointAngles) as Pose
     expect(Math.abs(solved.position[1] - target.position[1])).toBeLessThan(0.05)
     expect(Math.abs((result as JointAngles)[3])).toBeLessThan(0.5)
-  })
-
-  it('解析 IK 返回全部 ABB 构型分支，覆盖远离机械零位的目标', () => {
-    const samples: JointAngles[] = [
-      [0, -80, 60, 0, 30, 0],
-      [90, -30, 50, 120, -45, -90],
-      [-90, 20, -100, -120, 80, 180],
-      [140, -60, 0, 200, -100, 270],
-    ]
-
-    samples.forEach((source) => {
-      const target = model.forwardKinematics(source) as Pose
-      const result = solveIK(
-        target,
-        ABB_MECHANICAL_ZERO_JOINTS,
-        model,
-        { maxIterations: 250 },
-        ABB_JOINT_RANGES,
-      )
-
-      expect(result, `纯 ABB DH 求解失败：${source.join(',')}`).not.toBeNull()
-      const solved = model.forwardKinematics(result as JointAngles) as Pose
-      const positionError = Math.hypot(
-        solved.position[0] - target.position[0],
-        solved.position[1] - target.position[1],
-        solved.position[2] - target.position[2],
-      )
-      expect(positionError, `ABB DH 位置残差：${source.join(',')}`).toBeLessThan(1)
-      const orientationErrorVector = orientationError(target.rotation, solved.rotation)
-      expect(Math.hypot(...orientationErrorVector), `ABB DH 姿态残差：${source.join(',')}`).toBeLessThan(1e-8)
-    })
   })
 })

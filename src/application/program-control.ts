@@ -56,6 +56,88 @@ export interface ProgramControllerError extends ProgramError {
   sourceRange?: RapidSourceRange
 }
 
+/**
+ * 把执行器保存的错误补齐为浏览器控制台可直接定位的对象。
+ *
+ * 这里不重新计算 IK，也不读取 UI 当前姿态；所有数值都来自失败时的
+ * waypoint 诊断，避免日志与实际失败原因发生二次偏差。
+ */
+function describeProgramError(
+  error: ProgramError,
+  program: readonly RapidExecutableInstruction[],
+): {
+  summary: string
+  instructionNumber: number
+  instructionIndex: number
+  sourceLine: number | null
+  sourceColumn: number | null
+  instructionText: string | null
+  errorCode: ProgramError['code']
+  errorMessage: string
+  diagnostic: {
+    waypointIndex: number | null
+    axis: string | null
+    axisIndex: number | null
+    previousAngleDeg: number | null
+    attemptedAngleDeg: number | null
+    deltaDeg: number | null
+    limitRangeDeg: readonly [number, number] | null
+  } | null
+} {
+  const instruction = program[error.index]
+  const failureDiagnostic = error.diagnostic
+    ? {
+        waypointIndex: error.diagnostic.waypointIndex ?? null,
+        axis: error.diagnostic.axisIndex === undefined ? null : `J${error.diagnostic.axisIndex + 1}`,
+        axisIndex: error.diagnostic.axisIndex ?? null,
+        previousAngleDeg: error.diagnostic.previousAngleDeg ?? null,
+        attemptedAngleDeg: error.diagnostic.attemptedAngleDeg ?? null,
+        deltaDeg: error.diagnostic.deltaDeg ?? null,
+        limitRangeDeg: error.diagnostic.limitRangeDeg ?? null,
+      }
+    : null
+  const sourceLine = instruction?.sourceRange.start.line ?? null
+  const sourceColumn = instruction?.sourceRange.start.column ?? null
+  const location =
+    sourceLine === null
+      ? `程序指令 #${error.index + 1}`
+      : `程序指令 #${error.index + 1}（第 ${sourceLine} 行，第 ${sourceColumn} 列）`
+  const diagnosticText = failureDiagnostic
+    ? [
+        failureDiagnostic.waypointIndex === null
+          ? null
+          : `waypoint #${failureDiagnostic.waypointIndex}`,
+        failureDiagnostic.axis === null ? null : `失败轴 ${failureDiagnostic.axis}`,
+        failureDiagnostic.previousAngleDeg === null
+          ? null
+          : `前值 ${failureDiagnostic.previousAngleDeg.toFixed(3)}°`,
+        failureDiagnostic.attemptedAngleDeg === null
+          ? null
+          : `尝试值 ${failureDiagnostic.attemptedAngleDeg.toFixed(3)}°`,
+        failureDiagnostic.deltaDeg === null
+          ? null
+          : `步长 ${failureDiagnostic.deltaDeg.toFixed(3)}°`,
+        failureDiagnostic.limitRangeDeg === null
+          ? null
+          : `限位 [${failureDiagnostic.limitRangeDeg[0]}°, ${failureDiagnostic.limitRangeDeg[1]}°]`,
+      ]
+        .filter((part): part is string => part !== null)
+        .join('，')
+    : '规划器未提供关节级诊断（可能在起点正解、输入校验或全局候选筛选阶段失败）'
+
+  return {
+    summary: `${location}：${error.message}；错误码 ${error.code}；${diagnosticText}`,
+    instructionNumber: error.index + 1,
+    instructionIndex: error.index,
+    sourceLine,
+    sourceColumn,
+    instructionText: instruction?.sourceText ?? null,
+    errorCode: error.code,
+    errorMessage: error.message,
+    diagnostic: failureDiagnostic,
+  }
+}
+
 export interface ProgramControllerSnapshot extends Omit<ProgramSnapshot, 'error'> {
   error: ProgramControllerError | null
   diagnostics: readonly RapidDiagnostic[]
@@ -558,7 +640,15 @@ export function useProgramController(options: ProgramControllerOptions): Program
       } else if (final === 'stopped') {
         console.info('[ABB-PROGRAM] 程序停止或等待下一步')
       } else if (final === 'error') {
-        console.error('[ABB-PROGRAM] 程序规划错误', executor.getSnapshot().error?.message)
+        const error = executor.getSnapshot().error
+        if (error) {
+          console.error(
+            '[ABB-PROGRAM] 程序规划错误',
+            describeProgramError(error, loadedProgram),
+          )
+        } else {
+          console.error('[ABB-PROGRAM] 程序规划错误：执行器未提供错误快照')
+        }
       }
       sync()
       stopPolling()

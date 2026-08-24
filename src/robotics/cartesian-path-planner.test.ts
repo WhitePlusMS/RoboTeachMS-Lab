@@ -74,25 +74,39 @@ describe('Cartesian path planner', () => {
 
     const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
 
-    expect(path).toMatchObject({ ok: false, failure: 'ik-not-converged' })
+    expect(path).toMatchObject({ ok: false, failure: 'joint-step' })
     if (!path.ok) {
       expect(path.diagnostic?.axisIndex).toBe(3)
       expect(path.diagnostic?.waypointIndex).toBe(1)
     }
   })
 
-  it('非机械零位邻域即使 J5=0 也禁止 SingArea\\Wrist 回退', () => {
+  it('非机械零位邻域即使 J5=0 也禁止自动 wrist 回退', () => {
     const model = new AbbDhRobotModel()
     const startJoints: JointAngles = [15, -20, 30, 0, 0, -300]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
-      orientationMode: 'wrist',
-    })
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
 
-    expect(path).toMatchObject({ ok: false, failure: 'ik-not-converged' })
+    expect(path).toMatchObject({ ok: false, failure: 'joint-step' })
     if (!path.ok) expect(path.diagnostic?.axisIndex).toBe(3)
+  })
+
+  it('非机械零位的平移入口不会把 J5=0 多圈腕姿态切成自动 Wrist', () => {
+    const model = new AbbDhRobotModel()
+    const startJoints: JointAngles = [15, -20, 30, 0, 0, -300]
+    const targetPose = clonePose(model.forwardKinematics(startJoints))
+    targetPose.position[0] += 5
+
+    const result = planCartesianTarget(
+      targetPose,
+      startJoints,
+      ABB_IRB1200_PROFILE,
+      { allowWristEntry: true },
+    )
+
+    expect(result).toMatchObject({ ok: false, failure: 'joint-step' })
   })
 
   it('把 ABB 的 10 度姿态点动拆成连续的小角度 waypoint', () => {
@@ -126,27 +140,29 @@ describe('Cartesian path planner', () => {
     expect(maxOrientationStep).toBeLessThan(1.5)
   })
 
-  it('机械零位的 Y 点动报告腕部构型重分配，而不是普通不可达', () => {
+  it('机械零位的 Y 点动由算法自动触发 wrist 回退并保持 TCP 位置', () => {
     const model = new AbbDhRobotModel()
     const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[1] += 1
 
     const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
-    expect(path).toMatchObject({ ok: false, failure: 'wrist-reconfiguration' })
-    if (!path.ok) expect([3, 5]).toContain(path.diagnostic?.axisIndex)
+
+    expect(path.ok).toBe(true)
+    if (!path.ok) return
+    expect(path.appliedSingularityMode).toBe('wrist')
+    const endpoint = model.forwardKinematics(path.waypoints[path.waypoints.length - 1])
+    expect(endpoint.position[1]).toBeCloseTo(targetPose.position[1], 1)
   })
 
-  it('SingArea\\Wrist 在腕部奇异处保持 TCP 位置并允许姿态误差', () => {
+  it('机械零位腕部奇异处算法自动保持 TCP 位置并允许姿态误差', () => {
     const model = new AbbDhRobotModel()
     const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
     targetPose.position[1] += 1
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
-      orientationMode: 'wrist',
-    })
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
 
     expect(path.ok).toBe(true)
     if (!path.ok) return
@@ -161,16 +177,14 @@ describe('Cartesian path planner', () => {
     expect(maxOrientationError).toBeLessThanOrEqual(2.01)
   })
 
-  it('SingArea\\Wrist 在非奇异路径优先保持原目标姿态', () => {
+  it('非奇异路径由算法保持严格姿态且不触发 wrist 回退', () => {
     const model = new AbbDhRobotModel()
     const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
     targetPose.position[0] += 5
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
-      orientationMode: 'wrist',
-    })
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
 
     expect(path.ok).toBe(true)
     if (!path.ok) return
@@ -179,7 +193,7 @@ describe('Cartesian path planner', () => {
     expect(rotationDistanceDegrees(endpoint.rotation, targetPose.rotation)).toBeLessThan(0.5)
   })
 
-  it('SingArea\\Wrist 在非奇异的平移加姿态路径不应全局退化为 position-only', () => {
+  it('非奇异的平移加姿态路径不应被算法全局退化为 position-only', () => {
     const model = new AbbDhRobotModel()
     const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const startPose = model.forwardKinematics(startJoints)
@@ -196,9 +210,7 @@ describe('Cartesian path planner', () => {
     )
     targetPose.euler = rotationMatrixToEulerZYX(targetPose.rotation)
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
-      orientationMode: 'wrist',
-    })
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
 
     expect(path.ok).toBe(true)
     if (!path.ok) return
@@ -216,9 +228,7 @@ describe('Cartesian path planner', () => {
       for (const direction of [-1, 1]) {
         const targetPose = clonePose(startPose)
         targetPose.position[axis] += direction
-        const result = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
-          orientationMode: 'wrist',
-        })
+        const result = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
         expect(result.ok, `axis=${axis}, direction=${direction}`).toBe(true)
         if (result.ok) expect(result.appliedSingularityMode, `axis=${axis}, direction=${direction}`).toBeNull()
       }
@@ -344,6 +354,43 @@ describe('Cartesian path planner', () => {
     expect(Math.abs(joints[3])).toBeLessThan(45)
     expect(Math.abs(joints[5])).toBeLessThan(45)
     expect(joints[4]).toBeGreaterThan(20)
+  })
+
+  it('低 J5 且 J4/J6 接近边界时，局部姿态过渡应保持上行支路连续', () => {
+    const initialJoints: JointAngles = [-2.5, 26.7, -20.8, -203.4, 6.3, 203.3]
+    const startPose = ABB_IRB1200_PROFILE.model.forwardKinematics(initialJoints)
+    expect(startPose).not.toBeNull()
+    if (!startPose) return
+    const targetPose = clonePose(startPose)
+    targetPose.position[2] += 50
+
+    const result = planCartesianTarget(
+      targetPose,
+      initialJoints,
+      ABB_IRB1200_PROFILE,
+      { allowWristEntry: true },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.appliedSingularityMode).toBe('wrist')
+    const endpoint = ABB_IRB1200_PROFILE.model.forwardKinematics(
+      result.waypoints[result.waypoints.length - 1],
+    )
+    expect(endpoint).not.toBeNull()
+    if (!endpoint) return
+    expect(endpoint.position[2]).toBeCloseTo(targetPose.position[2], 1)
+    expect(rotationDistanceDegrees(endpoint.rotation, targetPose.rotation)).toBeLessThanOrEqual(2.01)
+    const maxWristStep = Math.max(
+      ...result.waypoints.map((joints, index) => {
+        const previous = index === 0 ? initialJoints : result.waypoints[index - 1]
+        return Math.max(
+          Math.abs(joints[3] - previous[3]),
+          Math.abs(joints[5] - previous[5]),
+        )
+      }),
+    )
+    expect(maxWristStep).toBeLessThanOrEqual(5)
   })
 
 })

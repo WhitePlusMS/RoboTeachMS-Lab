@@ -1,4 +1,4 @@
-import type { MotionPlanError, MotionPlanErrorKind } from './plan-shared.ts'
+import type { MotionPlanDiagnostic, MotionPlanError, MotionPlanErrorKind } from './plan-shared.ts'
 import type {
   RapidScalarValue,
   RapidScalarVariable,
@@ -27,6 +27,7 @@ export interface ProgramError {
   index: number
   code: MotionPlanErrorKind | 'runtime-error'
   message: string
+  diagnostic?: MotionPlanDiagnostic
 }
 
 /** 调用方主动查询的稳定程序快照；字段不可被调用方直接改写内部状态。 */
@@ -171,7 +172,13 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
     outcome: InstructionOutcome,
   ): 'continue' | 'stopped' | 'error' {
     if (!outcome.ok) {
-      error = { index, code: outcome.error.kind, message: outcome.error.message }
+      const diagnostic = 'diagnostic' in outcome.error ? outcome.error.diagnostic : undefined
+      error = {
+        index,
+        code: outcome.error.kind,
+        message: outcome.error.message,
+        ...(diagnostic ? { diagnostic } : {}),
+      }
       motionPointer = null
       stopRequested = false
       stopReason = null

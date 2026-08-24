@@ -168,6 +168,43 @@ describe('ProgramExecutor 运行与指针语义', () => {
     expect(seam.calls).toEqual(['movej'])
   })
 
+  it('规划错误保留 waypoint 与关节级诊断，供控制器日志定位', async () => {
+    const seam = new FakeSeam()
+    const executor = createProgramExecutor([makeMoveJ()], seam)
+    const runPromise = executor.run()
+    await Promise.resolve()
+    seam.resolveNext({
+      ok: false,
+      error: {
+        kind: 'unreachable',
+        message: '逆解未收敛，目标未执行。',
+        diagnostic: {
+          waypointIndex: 17,
+          axisIndex: 3,
+          previousAngleDeg: 12.5,
+          attemptedAngleDeg: 168.2,
+          deltaDeg: 155.7,
+          limitRangeDeg: [-270, 270],
+        },
+      },
+    })
+
+    expect(await runPromise).toBe('error')
+    expect(executor.getSnapshot().error).toEqual({
+      index: 0,
+      code: 'unreachable',
+      message: '逆解未收敛，目标未执行。',
+      diagnostic: {
+        waypointIndex: 17,
+        axisIndex: 3,
+        previousAngleDeg: 12.5,
+        attemptedAngleDeg: 168.2,
+        deltaDeg: 155.7,
+        limitRangeDeg: [-270, 270],
+      },
+    })
+  })
+
   it('重复 run 请求幂等，不产生第二条执行链', async () => {
     const seam = new FakeSeam()
     const executor = createProgramExecutor([makeMoveJ(), makeMoveJ()], seam)

@@ -25,9 +25,8 @@ const WRIST_ESCAPE_J5_DEG = 2
 const WRIST_ORIENTATION_TOLERANCE_RAD = (2 * Math.PI) / 180
 /** wrist 回退中的 J4 连续性正则；仅作用于机械零位的 position-only 求解。 */
 const WRIST_J4_CONTINUITY_WEIGHT = 100
-/** 腕部姿态策略：strict 保持完整位姿；wrist 只在受控奇异路径允许姿态误差。 */
-export type CartesianOrientationMode = 'strict' | 'wrist'
-export type AppliedSingularityMode = Exclude<CartesianOrientationMode, 'strict'>
+/** 已应用的腕部奇异回退模式；当前仅 'wrist'。 */
+export type AppliedSingularityMode = 'wrist'
 
 /** 共享的笛卡尔路径失败原因；上层可据此给出可操作的诊断提示。 */
 export type WaypointFailureReason =
@@ -36,6 +35,22 @@ export type WaypointFailureReason =
   | 'joint-limit'
   | 'joint-step'
   | 'ik-not-converged'
+
+/**
+ * 腕部奇异处理在单点 IK 入口内的可复用上下文。
+ * 由路径规划器在 waypoint 之间维护，保证逃离方向、姿态窗口等状态连续。
+ */
+export interface WristSingularityContext {
+  /** 第一次脱离 J5≈0 时选择的目标 J5 侧。 */
+  escapeDirection: -1 | 1
+  /** 是否已经真正离开腕部奇异面。 */
+  escapeDone: boolean
+  /**
+   * 成功脱离后沿用的姿态窗口；后续 waypoint 在此窗口内保持 TCP 位置，
+   * 姿态由脱离后的实际法兰位姿固定，避免反复切回严格目标。
+   */
+  escapePose: Pick<Pose, 'euler' | 'rotation'> | null
+}
 
 /** 单个 waypoint 失败时的关节级诊断；角度单位为度，轴索引从 0 开始。 */
 export interface JointFailureDetail {
@@ -78,7 +93,9 @@ type JointSolutionFailure = {
   detail?: JointFailureDetail
 }
 
-type JointSolutionResult = { joints: JointAngles } | JointSolutionFailure
+type JointSolutionResult =
+  | { joints: JointAngles; wristContext?: WristSingularityContext }
+  | JointSolutionFailure
 
 /** 找出最能解释失败的关节轴；优先选择最大步长，避免把 J1 的小误差误报为腕部故障。 */
 function buildJointStepDetail(
@@ -228,32 +245,6 @@ function buildWristEscapeReference(
   return reference
 }
 
-/** 根据首个 TCP waypoint 的位移方向选择 J5 脱离方向；纯姿态目标默认取正向。 */
-function getWristEscapeDirection(
-  poses: readonly Pose[],
-  initialJoints: JointAngles,
-  model: RobotModel,
-): -1 | 1 {
-  if (poses.length === 0) return 1
-  const startPose = model.forwardKinematics(initialJoints)
-  if (!startPose) return 1
-  let dominantDelta = 0
-  let dominantAxis = -1
-  for (let index = 0; index < 3; index += 1) {
-    const delta = poses[0].position[index] - startPose.position[index]
-    if (Math.abs(delta) > Math.abs(dominantDelta)) {
-      dominantDelta = delta
-      dominantAxis = index
-    }
-  }
-  // ABB 机械零位沿 Y 脱离时，Y 正负两侧都优先进入同一正 J5 腕部侧。
-  // 负 Y 若按位移符号选择负 J5，后续保持 TCP 直线会被带入 J4/J6 翻腕分支；
-  // 这里不是锁定 J4，而是只决定第一次脱离奇异点时的腕部拓扑，后续关节仍由
-  // 严格位姿 IK 连续求解。X/Z 脱离仍保持原来的方向规则。
-  if (dominantAxis === 1) return 1
-  return dominantDelta < 0 ? -1 : 1
-}
-
 /**
  * 生成有限、确定性、受关节范围约束的备用 IK 初值：由当前关节姿态派生各构型翻转
  * （腕部翻转、J1 肩部镜像、肩肘翻转），钳位到关节范围并去重。数量有固定上限，
@@ -384,7 +375,7 @@ function mapJointSolutionFailure(
   if (failure === 'joint-step') {
     return mechanicalZeroWristPath && nearWristSingularity
       ? 'wrist-reconfiguration'
-      : 'ik-not-converged'
+      : 'joint-step'
   }
   return mechanicalZeroWristPath && nearWristSingularity
     ? 'wrist-singularity'
@@ -392,14 +383,13 @@ function mapJointSolutionFailure(
 }
 
 /**
- * 末端拖拽操作轴的 IK 求解：以当前关节为主初值，失败后再扫备用初值；与 `resolveJointSolution`
- * 的唯一区别是**不拒绝落在关节范围边界的解**。
+ * 末端拖拽操作轴的轻量笛卡尔目标求解。
  *
- * gizmo 的拖拽在运动学位姿上连续、但可能在关节边界/奇异附近（尤其旋转时手腕极限），单初值
- * DLS 常在某一关节贴边时陷入窄收敛盆地而误判不可达；翻转构型初值多数能把解带回可达分支。
- * 相比 MoveJ/L/C 规划（必须拒绝贴边解以保持段间连续），末端拖拽本来就允许停在边界上，因此
- * 这里的多初值策略接受贴边解，选中所有可达候选中离当前关节最近的解，避免可直接到达的旋转
- * 被误报「末端位置不可达」而回弹。
+ * 操作轴每个 pointer frame 只需要求一个目标点，不应像 MoveL 一样生成数百个空间 waypoint；
+ * 但它仍必须和 Jog 共用同一套解析候选、残差验收、J4/J6 连续性代价、相邻步长和软限位规则。
+ * 因此这里复用一层 `planStrictCandidateGraph`，而不是再走单点数值 IK + 备用 seed 的另一套
+ * 分支选择。目标跨越超过一帧可承受的关节步长时返回 null，由操作轴回弹到最近有效姿态，
+ * 不允许拖拽过程悄悄切换到另一条构型支路。
  */
 export function solveGizmoTarget(
   targetPose: Pose,
@@ -408,21 +398,39 @@ export function solveGizmoTarget(
   jointRanges: readonly (readonly [number, number])[],
   solverConfig: Partial<IKSolverConfig> = {},
 ): JointAngles | null {
-  const primary = solveIK(targetPose, referenceJoints, model, solverConfig, jointRanges)
-  if (primary) return primary
+  const graph = planStrictCandidateGraph(
+    [targetPose],
+    referenceJoints,
+    model,
+    jointRanges,
+    (pose) => pose,
+    // 单帧拖拽不使用 MoveL 的 5°硬拒绝；候选连续性代价和软限位仍保持统一。
+    { solverConfig, maxJointStepDeg: null },
+  )
+  if (!graph.ok || graph.waypoints.length === 0) return null
+  return graph.waypoints[0]
+}
 
-  let best: JointAngles | null = null
-  let bestDistance = Number.POSITIVE_INFINITY
-  for (const seed of buildAlternateIKSeeds(referenceJoints, jointRanges)) {
-    const candidate = solveIK(targetPose, seed, model, solverConfig, jointRanges)
-    if (!candidate) continue
-    const distance = normalizedJointDistance(candidate, referenceJoints, jointRanges)
-    if (distance < bestDistance) {
-      best = candidate
-      bestDistance = distance
+/** 根据单点目标相对当前 TCP 的位移方向选择 J5 脱离方向。 */
+function getSinglePointWristEscapeDirection(
+  targetPose: Pose,
+  referenceJoints: JointAngles,
+  model: RobotModel,
+): -1 | 1 {
+  const startPose = model.forwardKinematics(referenceJoints)
+  if (!startPose) return 1
+  let dominantDelta = 0
+  let dominantAxis = -1
+  for (let index = 0; index < 3; index += 1) {
+    const delta = targetPose.position[index] - startPose.position[index]
+    if (Math.abs(delta) > Math.abs(dominantDelta)) {
+      dominantDelta = delta
+      dominantAxis = index
     }
   }
-  return best
+  // ABB 机械零位沿 Y 脱离时，Y 正负两侧都优先进入同一正 J5 腕部侧。
+  if (dominantAxis === 1) return 1
+  return dominantDelta < 0 ? -1 : 1
 }
 
 /**
@@ -435,8 +443,118 @@ export function solveGizmoTarget(
  *
  * `solverConfig` 可调 IK 精度（缺省 `{}` 取 solveIK 的 DEFAULT_IK_CONFIG）；MoveL
  * 传送更紧的定位精度，MoveJ/MoveC 用缺省值。
+ *
+ * `wristContext`（票据 02）：把原本只在 `solvePoseWaypoints` 中实现的腕部奇异回退
+ * 下沉到单点 IK 入口。路径规划器在机械零位腕部路径起点创建 `WristSingularityContext`
+ * 并在相邻 waypoint 之间传递；MoveJ / Gizmo 等单点调用不传上下文时不触发回退，避免
+ * 把关节空间运动错误降级为 position-only。
  */
 export function resolveJointSolution(
+  targetPose: Pose,
+  referenceJoints: JointAngles,
+  model: RobotModel,
+  jointRanges: readonly (readonly [number, number])[],
+  solverConfig: Partial<IKSolverConfig> = {},
+  continuityLimitDeg?: number,
+  wristContext?: WristSingularityContext,
+): JointSolutionResult {
+  // wrist 回退仅在被显式传递的上下文中激活：路径规划器在机械零位腕部路径起点创建
+  // wristContext 并在相邻 waypoint 之间传递；MoveJ / Gizmo 等单点调用不传上下文，
+  // 因此不会自动把关节空间运动降级为 position-only。
+  const wristModeActive = wristContext !== undefined
+  const context: WristSingularityContext = wristModeActive
+    ? (wristContext ?? {
+        escapeDirection: getSinglePointWristEscapeDirection(targetPose, referenceJoints, model),
+        escapeDone: false,
+        escapePose: null,
+      })
+    : { escapeDirection: 1, escapeDone: false, escapePose: null }
+
+  // 一旦成功脱离奇异点，后续 waypoint 沿用当时的实际姿态窗口，保持 TCP 直线。
+  const effectivePose = context.escapePose
+    ? {
+        ...targetPose,
+        euler: [...context.escapePose.euler] as Pose['euler'],
+        rotation: context.escapePose.rotation.map((row) => [...row]),
+      }
+    : targetPose
+
+  const strictSolved = resolveJointSolutionStrict(
+    effectivePose,
+    referenceJoints,
+    model,
+    jointRanges,
+    solverConfig,
+    continuityLimitDeg,
+  )
+
+  // 非 wrist 模式直接返回严格解。
+  if (!wristModeActive) return strictSolved
+
+  const nearWristSingularity = isNearWristSingularity(model, referenceJoints)
+  const wristFallbackNeeded =
+    ('failure' in strictSolved && nearWristSingularity) ||
+    ('joints' in strictSolved &&
+      isWristReconfiguration(model, referenceJoints, strictSolved.joints))
+
+  if (!wristFallbackNeeded) {
+    if ('joints' in strictSolved && context.escapeDone) {
+      return { joints: strictSolved.joints, wristContext: context }
+    }
+    return strictSolved
+  }
+
+  const wristReference = !context.escapeDone
+    ? buildWristEscapeReference(referenceJoints, context.escapeDirection, jointRanges)
+    : referenceJoints
+  const wristSolved = resolveJointSolutionStrict(
+    effectivePose,
+    wristReference,
+    model,
+    jointRanges,
+    {
+      ...solverConfig,
+      positionOnly: true,
+      // 机械零位 wrist 用 wristReference 脱离奇异点，并对 J4 增加连续性软约束，
+      // 避免 position-only 求解器随机跳到另一腕部构型。
+      jointContinuityReferenceDeg: referenceJoints,
+      jointContinuityWeights: [0, 0, 0, WRIST_J4_CONTINUITY_WEIGHT, 0, 0],
+    },
+    continuityLimitDeg,
+  )
+
+  if ('failure' in wristSolved) {
+    return wristSolved
+  }
+
+  const actualFlangePose = model.forwardKinematics(wristSolved.joints)
+  const targetFlangePose = effectivePose
+  const orientationErrorRad = actualFlangePose
+    ? rotationDistanceRad(targetFlangePose.rotation, actualFlangePose.rotation)
+    : Number.POSITIVE_INFINITY
+  if (orientationErrorRad > WRIST_ORIENTATION_TOLERANCE_RAD) {
+    return {
+      failure: 'joint-step',
+      detail: 'detail' in strictSolved ? strictSolved.detail : undefined,
+    }
+  }
+
+  // 第一次回退必须真正离开 J5≈0；离开后后续 waypoint 恢复严格姿态。
+  context.escapeDone = !isNearWristSingularity(model, wristSolved.joints)
+  if (context.escapeDone && actualFlangePose) {
+    context.escapePose = {
+      euler: [...actualFlangePose.euler],
+      rotation: actualFlangePose.rotation.map((row) => [...row]),
+    }
+  }
+  return { joints: wristSolved.joints, wristContext: context }
+}
+
+/**
+ * 严格姿态单点求解：解析法优先，失败后用 DLS + 备用初值。
+ * 这是原 `resolveJointSolution` 的核心逻辑，被下沉后的入口复用。
+ */
+function resolveJointSolutionStrict(
   targetPose: Pose,
   referenceJoints: JointAngles,
   model: RobotModel,
@@ -453,6 +571,7 @@ export function resolveJointSolution(
     continuityLimitDeg,
   )
   if (analytic !== undefined) return analytic
+  // 解析法不可用（无 solveAllIK、positionOnly 或锁定关节）时自然走数值 DLS。
   const primary = solveIK(targetPose, referenceJoints, model, solverConfig, jointRanges)
   const isContinuous = (joints: JointAngles): boolean =>
     continuityLimitDeg === undefined ||
@@ -506,6 +625,10 @@ export function resolveJointSolution(
  *
  * 逆解用共享的多初值策略（主初值 + 确定性构型翻转备用初值，选离参考最近的解），
  * 避免单一连续性初值在圆弧这类连续位姿上陷入狭窄收敛盆地而误判不可达。
+ *
+ * 腕部奇异处理已下沉到 `resolveJointSolution`；本函数只负责维护 waypoint 之间的
+ * `WristSingularityContext`。严格路径优先使用全局候选图规划；机械零位腕部路径直接
+ * 走局部求解，由 `resolveJointSolution` 算法决定是否启用 wrist 回退。
  */
 export function solvePoseWaypoints(
   poses: readonly Pose[],
@@ -514,7 +637,6 @@ export function solvePoseWaypoints(
   jointRanges: readonly (readonly [number, number])[],
   toFlange: (pose: Pose) => Pose,
   solverConfig: Partial<IKSolverConfig> = {},
-  orientationMode: CartesianOrientationMode = 'strict',
 ): WaypointSolveResult {
   const waypoints: JointAngles[] = []
   let previousJoints = [...initialJoints] as JointAngles
@@ -526,13 +648,10 @@ export function solvePoseWaypoints(
   // 只有机械零位腕部特例需要相邻步长护栏；普通严格路径保持原有解析分支选择，
   // 避免仅为诊断而改变非奇异工作区的运动构型。
   const continuityLimitDeg = isMechanicalZeroWristPath ? MAX_JOINT_STEP_DEG : undefined
-  const wristFallbackAllowed =
-    orientationMode === 'wrist' &&
-    isMechanicalZeroWristPath
 
-  // 所有严格解析路径先使用全局候选图，避免逐 waypoint 最近分支把任一腕部推向
-  // 等价构型；图规划失败时继续走现有局部求解，以保留结构化失败诊断。
-  if (orientationMode === 'strict' && model.solveAllIK) {
+  // 非机械零位的严格解析路径先使用全局候选图，避免逐 waypoint 最近分支把任一腕部推向
+  // 等价构型；机械零位腕部路径直接走局部求解，并预创建 wristContext 供单点 IK 使用。
+  if (!isMechanicalZeroWristPath && model.solveAllIK) {
     const graph = planStrictCandidateGraph(
       poses,
       initialJoints,
@@ -549,81 +668,33 @@ export function solvePoseWaypoints(
       }
     }
   }
-  const wristEscapeDirection = getWristEscapeDirection(poses, initialJoints, model)
-  let wristEscapeDone = false
-  let wristEscapePose: Pick<Pose, 'euler' | 'rotation'> | null = null
+
+  let wristContext: WristSingularityContext | undefined
+  if (isMechanicalZeroWristPath && poses.length > 0) {
+    wristContext = {
+      escapeDirection: getSinglePointWristEscapeDirection(
+        toFlange(poses[0]),
+        initialJoints,
+        model,
+      ),
+      escapeDone: false,
+      escapePose: null,
+    }
+  }
   for (let waypointIndex = 0; waypointIndex < poses.length; waypointIndex += 1) {
     const pose = poses[waypointIndex]
-    // 机械零位 Wrist 的局部通行窗口沿用脱离后的姿态；窗口结束后由路径规划器
-    // 恢复严格目标，避免把 SingArea\Wrist 误扩展到普通工作区。
-    const effectivePose = wristEscapePose
-      ? {
-          ...pose,
-          euler: [...wristEscapePose.euler] as Pose['euler'],
-          rotation: wristEscapePose.rotation.map((row) => [...row]),
-        }
-      : pose
-    const strictSolved = resolveJointSolution(
-      toFlange(effectivePose),
+    const solved = resolveJointSolution(
+      toFlange(pose),
       previousJoints,
       model,
       jointRanges,
       solverConfig,
       continuityLimitDeg,
+      wristContext,
     )
-    let solved = strictSolved
-    // SingArea\\Wrist 只在机械零位按需回退，普通工作区始终保持严格姿态。
-    const wristFallbackNeeded =
-      wristFallbackAllowed &&
-      (('failure' in strictSolved && isNearWristSingularity(model, previousJoints)) ||
-        ('joints' in strictSolved &&
-          isWristReconfiguration(model, previousJoints, strictSolved.joints)))
-    if (wristFallbackNeeded) {
-      const wristReference =
-        !wristEscapeDone
-          ? buildWristEscapeReference(previousJoints, wristEscapeDirection, jointRanges)
-          : previousJoints
-      const wristSolved = resolveJointSolution(
-        toFlange(effectivePose),
-        wristReference,
-        model,
-        jointRanges,
-        {
-          ...solverConfig,
-          positionOnly: true,
-          // 机械零位 wrist 用 wristReference 脱离奇异点，并对 J4 增加连续性软约束，
-          // 避免 position-only 求解器随机跳到另一腕部构型。
-          jointContinuityReferenceDeg: previousJoints,
-          jointContinuityWeights: [0, 0, 0, WRIST_J4_CONTINUITY_WEIGHT, 0, 0],
-        },
-        continuityLimitDeg,
-      )
-      if ('joints' in wristSolved) {
-        const actualFlangePose = model.forwardKinematics(wristSolved.joints)
-        const targetFlangePose = toFlange(effectivePose)
-        const orientationErrorRad = actualFlangePose
-          ? rotationDistanceRad(targetFlangePose.rotation, actualFlangePose.rotation)
-          : Number.POSITIVE_INFINITY
-        if (orientationErrorRad <= WRIST_ORIENTATION_TOLERANCE_RAD) {
-          solved = wristSolved
-          appliedSingularityMode = 'wrist'
-          // 第一次回退必须真正离开 J5≈0；离开后后续 waypoint 恢复严格姿态。
-          wristEscapeDone = !isNearWristSingularity(model, wristSolved.joints)
-          if (wristEscapeDone && actualFlangePose) {
-            wristEscapePose = {
-              euler: [...actualFlangePose.euler],
-              rotation: actualFlangePose.rotation.map((row) => [...row]),
-            }
-          }
-        } else {
-          solved = {
-            failure: 'joint-step',
-            detail: 'detail' in strictSolved ? strictSolved.detail : undefined,
-          }
-        }
-      } else {
-        solved = wristSolved
-      }
+    if ('joints' in solved && solved.wristContext) {
+      wristContext = solved.wristContext
+      if (!appliedSingularityMode) appliedSingularityMode = 'wrist'
     }
     if ('failure' in solved) {
       const nearWristSingularity = isNearWristSingularity(model, previousJoints)
@@ -632,28 +703,11 @@ export function solvePoseWaypoints(
         isMechanicalZeroWristPath,
         nearWristSingularity,
       )
-      const detail =
-        mappedFailure === 'wrist-reconfiguration' && 'joints' in strictSolved
-          ? buildJointStepDetail(previousJoints, strictSolved.joints, jointRanges, [3, 5])
-          : solved.detail ??
-            ('joints' in strictSolved
-              ? buildJointStepDetail(previousJoints, strictSolved.joints, jointRanges)
-              : undefined)
+      const detail = solved.detail
       if (solved.failure === 'joint-limit') {
         return withWaypointDiagnostic('joint-limit', detail, waypointIndex)
       }
-      if (solved.failure === 'joint-step') {
-        return withWaypointDiagnostic(
-          mappedFailure,
-          detail,
-          waypointIndex,
-        )
-      }
-      return withWaypointDiagnostic(
-        mappedFailure,
-        detail,
-        waypointIndex,
-      )
+      return withWaypointDiagnostic(mappedFailure, detail, waypointIndex)
     }
     const maxJointStep = Math.max(
       ...solved.joints.map((value, index) => Math.abs(value - previousJoints[index])),
@@ -663,7 +717,7 @@ export function solvePoseWaypoints(
         isMechanicalZeroWristPath &&
         isWristReconfiguration(model, previousJoints, solved.joints)
       return withWaypointDiagnostic(
-        wristReconfiguration ? 'wrist-reconfiguration' : 'ik-not-converged',
+        wristReconfiguration ? 'wrist-reconfiguration' : 'joint-step',
         buildJointStepDetail(
           previousJoints,
           solved.joints,

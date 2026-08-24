@@ -78,6 +78,11 @@ export interface IKSolverConfig {
   orientationScale: number
   /** SingArea\\Wrist 仅约束 TCP 位置，允许控制器在腕部奇异附近产生姿态误差。 */
   positionOnly?: boolean
+  /**
+   * 位置优先模式下保留的姿态任务权重；0 表示完全位置优先，1 表示完整姿态权重。
+   * 仅由局部腕部策略显式设置，默认值不改变既有严格 IK 与纯 position-only 行为。
+   */
+  orientationWeight?: number
   /** 在迭代全过程固定指定关节；用于 LockAxis4，而不是在求解后破坏性改写关节结果。 */
   lockedJointTargetsDeg?: IKLockedJointTargets
   /**

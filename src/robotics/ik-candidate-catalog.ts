@@ -1,7 +1,6 @@
 import type { RobotModel } from './robot-model.ts'
 import type { IKCandidate, JointAngles, Pose } from './types.ts'
 
-const NORMALIZATION_TURNS = [-2, -1, 0, 1, 2] as const
 const RANGE_EPSILON_DEG = 1e-7
 /** 候选接近关节限位的统一软边界，单位为度。 */
 export const JOINT_LIMIT_EPS_DEG = 0.5
@@ -27,27 +26,47 @@ export interface IKCandidateSelectionOptions {
   rejectAtJointLimit?: boolean
 }
 
-function normalizeToRanges(
+/**
+ * 枚举解析候选在关节范围内的全部等价角度表示。
+ *
+ * 不能在这里只保留离固定 reference 最近的一份表示：例如 J4 的 92° 与
+ * -268°、J6 的 -92° 与 268° 在姿态上等价，但路径层可能需要其中不同的
+ * 圈数才能与上一 waypoint 连续。候选目录只负责保留合法表示，最终选择交给
+ * 当前关节参考或整条路径候选图。
+ */
+function enumerateRangeRepresentations(
   candidate: JointAngles,
-  reference: JointAngles,
   ranges: readonly (readonly [number, number])[] | undefined,
-): JointAngles | null {
-  if (!ranges) return [...candidate] as JointAngles
-  const normalized = [...candidate] as JointAngles
-  for (let index = 0; index < normalized.length; index += 1) {
+): JointAngles[] {
+  if (!ranges) return [[...candidate] as JointAngles]
+  const perAxis: number[][] = []
+  for (let index = 0; index < candidate.length; index += 1) {
     const range = ranges[index]
-    if (!range) return null
+    if (!range) return []
     const [min, max] = range
-    const values = NORMALIZATION_TURNS
-      .map((turns) => candidate[index] + turns * 360)
-      .filter((value) => value >= min - RANGE_EPSILON_DEG && value <= max + RANGE_EPSILON_DEG)
-    if (values.length === 0) return null
-    values.sort((left, right) =>
-      Math.abs(left - reference[index]) - Math.abs(right - reference[index]),
-    )
-    normalized[index] = values[0]
+    const firstTurns = Math.ceil((min - candidate[index]) / 360 - RANGE_EPSILON_DEG)
+    const lastTurns = Math.floor((max - candidate[index]) / 360 + RANGE_EPSILON_DEG)
+    const values: number[] = []
+    for (let turns = firstTurns; turns <= lastTurns; turns += 1) {
+      const value = candidate[index] + turns * 360
+      if (value >= min - RANGE_EPSILON_DEG && value <= max + RANGE_EPSILON_DEG) {
+        values.push(value)
+      }
+    }
+    if (values.length === 0) return []
+    perAxis.push(values)
   }
-  return normalized
+  let representations: JointAngles[] = [[] as unknown as JointAngles]
+  for (const values of perAxis) {
+    const next: JointAngles[] = []
+    for (const prefix of representations) {
+      for (const value of values) {
+        next.push([...prefix, value] as unknown as JointAngles)
+      }
+    }
+    representations = next
+  }
+  return representations
 }
 
 /** 判定候选是否触及任一模型关节限位，供路径规划器统一使用。 */
@@ -76,25 +95,40 @@ export function buildIKCandidateCatalog(
   jointRanges?: readonly (readonly [number, number])[],
 ): IKCandidateRecord[] {
   if (!model.solveAllIK) return []
-  return model.solveAllIK(targetPose, referenceJoints).map((candidate) => {
-    const normalizedJoints = normalizeToRanges(candidate.joints, referenceJoints, jointRanges)
-    const withinJointRanges = normalizedJoints !== null
-    const candidateJoints = normalizedJoints ?? candidate.joints
-    const deltas = candidateJoints.map((value, index) =>
-      Math.abs(value - referenceJoints[index]),
-    )
-    return {
-      ...candidate,
-      normalizedJoints,
-      withinJointRanges,
-      atJointLimit:
-        normalizedJoints !== null && jointRanges !== undefined
-          ? isCandidateAtJointLimit(normalizedJoints, jointRanges)
-          : false,
-      maxJointDeltaDeg: Math.max(...deltas),
-      distanceFromReferenceDeg: Math.hypot(...deltas),
+  return model.solveAllIK(targetPose, referenceJoints).flatMap<IKCandidateRecord>(
+    (candidate): IKCandidateRecord[] => {
+    const representations = enumerateRangeRepresentations(candidate.joints, jointRanges)
+    if (representations.length === 0) {
+      const deltas = candidate.joints.map((value, index) =>
+        Math.abs(value - referenceJoints[index]),
+      )
+      return [{
+        ...candidate,
+        normalizedJoints: null,
+        withinJointRanges: false,
+        atJointLimit: false,
+        maxJointDeltaDeg: Math.max(...deltas),
+        distanceFromReferenceDeg: Math.hypot(...deltas),
+      }]
     }
-  })
+    return representations.map((representation) => {
+      const deltas = representation.map((value, index) =>
+        Math.abs(value - referenceJoints[index]),
+      )
+      return {
+        ...candidate,
+        normalizedJoints: representation,
+        withinJointRanges: true,
+        atJointLimit:
+          jointRanges !== undefined
+            ? isCandidateAtJointLimit(representation, jointRanges)
+            : false,
+        maxJointDeltaDeg: Math.max(...deltas),
+        distanceFromReferenceDeg: Math.hypot(...deltas),
+      }
+    })
+    },
+  )
 }
 
 /** 从候选目录统一选择离参考姿态最近的合法候选；不改变目录顺序或原始记录。 */

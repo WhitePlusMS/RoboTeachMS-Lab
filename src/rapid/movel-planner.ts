@@ -2,6 +2,7 @@ import { planCartesianPath } from '@/robotics/cartesian-path-planner.ts'
 import type { MotionResult } from '@/robotics/motion-runner.ts'
 import type { RobotModel } from '@/robotics/robot-model.ts'
 import type { JointAngles } from '@/robotics/types.ts'
+import { buildJointPathAudit } from '@/robotics/joint-path-audit.ts'
 import {
   cartesianPathFailureToMotionError,
   simulateDurationMs,
@@ -62,10 +63,15 @@ export function planMoveL(
   const waypoints = planCartesianPath(tcpTarget, currentJoints, model, jointRanges, {
     tcpStart: flangeToWorldTcpPose(currentFlange, movel.tool),
     toFlange: (tcp) => worldTcpToFlangePose(tcp, movel.tool),
-    orientationMode: movel.singArea === 'wrist' ? 'wrist' : 'strict',
+    // 腕部奇异回退由底层 IK 根据机械零位邻域自动判断，不再依赖显式 SingArea 开关。
   })
   if (!waypoints.ok || waypoints.waypoints.length === 0) {
-    if (!waypoints.ok) return { ok: false, error: cartesianPathFailureToMotionError(waypoints.failure) }
+    if (!waypoints.ok) {
+      return {
+        ok: false,
+        error: cartesianPathFailureToMotionError(waypoints.failure, waypoints.diagnostic),
+      }
+    }
     return {
       ok: false,
       error: {
@@ -92,8 +98,16 @@ export async function executeMoveL(
   movel: StructuredMoveL,
   seam: MoveLExecutionSeam,
 ): Promise<MoveLOutcome> {
-  const plan = planMoveL(movel, seam.model, seam.currentJoints(), seam.jointRanges)
+  const initialJoints = seam.currentJoints()
+  const plan = planMoveL(movel, seam.model, initialJoints, seam.jointRanges)
   if (!plan.ok) return { ok: false, error: plan.error }
+  const audit = buildJointPathAudit(initialJoints, plan.waypoints)
+  if (audit) {
+    console.info(
+      '[CARTESIAN-JOINT-AUDIT]',
+      JSON.stringify({ path: 'MoveL', target: movel.target.trans, ...audit }),
+    )
+  }
   const result = await seam.runTrajectory(plan.waypoints, plan.durationMs)
   return { ok: true, result }
 }

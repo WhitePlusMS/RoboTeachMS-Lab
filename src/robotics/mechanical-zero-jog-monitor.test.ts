@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
 import { planCartesianTarget } from './cartesian-motion-planner.ts'
+import { buildIKCandidateCatalog } from './ik-candidate-catalog.ts'
 import type { JointAngles, Pose } from './types.ts'
 
 const JOINT_LABELS = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6'] as const
@@ -41,6 +42,27 @@ function executeStep(
   })
   if (!result.ok) {
     throw new Error(`${label}: ${result.failure} ${JSON.stringify(result.diagnostic ?? {})}`)
+  }
+
+  if (label.endsWith('Z-19') || label.endsWith('Z+1')) {
+    const candidates = buildIKCandidateCatalog(
+      target,
+      joints,
+      ABB_IRB1200_PROFILE.model,
+      ABB_IRB1200_PROFILE.jointRanges,
+    )
+      .filter((candidate) =>
+        candidate.normalizedJoints !== null &&
+        candidate.withinJointRanges &&
+        !candidate.atJointLimit &&
+        candidate.positionErrorMm <= 0.05 &&
+        candidate.orientationErrorRad <= 0.001,
+      )
+      .map((candidate) => candidate.normalizedJoints as JointAngles)
+      .map((candidate) =>
+        candidate.map((value) => Number(value.toFixed(1))),
+      )
+    console.log(`[IK-BRANCH-AUDIT] ${label} candidates=${JSON.stringify(candidates)}`)
   }
 
   let previous = joints

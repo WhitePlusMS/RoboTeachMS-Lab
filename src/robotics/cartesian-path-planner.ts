@@ -6,8 +6,8 @@ import {
 import type { RobotModel } from './robot-model.ts'
 import type { IKSolverConfig, JointAngles, Pose } from './types.ts'
 import {
+  MAX_JOINT_STEP_DEG,
   solvePoseWaypoints,
-  type CartesianOrientationMode,
   type WaypointFailureDiagnostic,
   type WaypointFailureReason,
   type WaypointSolveResult,
@@ -15,13 +15,19 @@ import {
 
 export type CartesianPathFailure = WaypointFailureReason
 export type CartesianPathResult = WaypointSolveResult
-export type { CartesianOrientationMode }
 export type { WaypointFailureDiagnostic }
 
 const DEFAULT_LINEAR_STEP_MM = 1
 const DEFAULT_ANGULAR_STEP_RAD = Math.PI / 180
 /** waypoint 采样上限：仅作为「单条 MoveL 的采样点数」性能护栏，不再据此拒绝长距离轨迹。 */
 const MAX_WAYPOINTS = 200
+/**
+ * 只为临界关节步长失败提供有限的路径加密预算。
+ * 180° 构型跳变不会进入该重试，因此不会通过无限加密掩盖真实构型问题。
+ */
+const MAX_ADAPTIVE_WAYPOINTS = MAX_WAYPOINTS * 4
+const MAX_ADAPTIVE_RETRIES = 2
+const ADAPTIVE_STEP_RETRY_FACTOR = 2
 /** MoveL 逆解精度：延续原内联实现的紧容差（教学定位精度），逆解交由共享多初值求解器执行。 */
 const MOVE_L_IK_CONFIG: Partial<IKSolverConfig> = {
   maxIterations: 150,
@@ -63,9 +69,10 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
  * - `tcpStart`：直线插补的起点 TCP 位姿（默认取 `model.forwardKinematics(initialJoints)`，
  *   即“法兰即 TCP”的 tool0/wobj0 快照）。提供后插补在 TCP 空间进行。
  * - `toFlange`：把插补得到的 TCP 位姿变换为机械法兰位姿后再送入 IK；缺省为原样（tool0 时法兰=TCP）。
- * - `orientationMode`：`strict` 保持完整姿态；`wrist` 对齐 ABB `SingArea\\Wrist`，先保持
- *   完整姿态，仅在机械零位腕部奇异邻域回退。
  * 未提供 options 时行为与旧版一致（Jog 笛卡尔控制）。
+ *
+ * 腕部奇异回退由底层 IK 根据当前关节是否处于机械零位腕部邻域自动判断，不再通过
+ * `orientationMode` 显式开关控制。
  */
 export function planCartesianPath(
   targetPose: Pose,
@@ -75,7 +82,6 @@ export function planCartesianPath(
   opts?: {
     tcpStart?: Pose
     toFlange?: (pose: Pose) => Pose
-    orientationMode?: CartesianOrientationMode
   },
 ): CartesianPathResult {
   const startPose = opts?.tcpStart ?? model.forwardKinematics(initialJoints)
@@ -93,42 +99,60 @@ export function planCartesianPath(
     startQuaternion.reduce((sum, value, index) => sum + value * targetQuaternion[index], 0),
   )
   const angularDistance = 2 * Math.acos(Math.max(-1, Math.min(1, quaternionDot)))
-  // 自适应步距：短路径用细步距保精度（连续直线/姿态采样），长路径自动放宽步距，
-  // 使 waypoint 数始终被 MAX_WAYPOINTS 钳制——不再存在「距离超过上限即 unreachable」的拒绝。
-  const linearStep = Math.max(DEFAULT_LINEAR_STEP_MM, distance / MAX_WAYPOINTS)
-  const angularStep = Math.max(DEFAULT_ANGULAR_STEP_RAD, angularDistance / MAX_WAYPOINTS)
-  const segmentCount = Math.max(
+  // 初始采样：短路径用细步距保精度，长路径先用性能护栏限制到 MAX_WAYPOINTS。
+  const initialLinearStep = Math.max(DEFAULT_LINEAR_STEP_MM, distance / MAX_WAYPOINTS)
+  const initialAngularStep = Math.max(DEFAULT_ANGULAR_STEP_RAD, angularDistance / MAX_WAYPOINTS)
+  const initialSegmentCount = Math.max(
     1,
-    Math.ceil(distance / linearStep),
-    Math.ceil(angularDistance / angularStep),
+    Math.ceil(distance / initialLinearStep),
+    Math.ceil(angularDistance / initialAngularStep),
   )
-  const poses: Pose[] = []
-  for (let segment = 1; segment <= segmentCount; segment += 1) {
-    const progress = segment / segmentCount
-    const waypointRotation = quaternionToRotationMatrix(
-      slerpQuaternion(startQuaternion, targetQuaternion, progress),
-    )
-    poses.push({
-      position: startPose.position.map(
-        (value, axis) => value + (targetPose.position[axis] - value) * progress,
-      ) as Pose['position'],
-      euler: rotationMatrixToEulerZYX(waypointRotation),
-      rotation: waypointRotation,
-    })
+
+  const buildPoses = (segmentCount: number): Pose[] => {
+    const poses: Pose[] = []
+    for (let segment = 1; segment <= segmentCount; segment += 1) {
+      const progress = segment / segmentCount
+      const waypointRotation = quaternionToRotationMatrix(
+        slerpQuaternion(startQuaternion, targetQuaternion, progress),
+      )
+      poses.push({
+        position: startPose.position.map(
+          (value, axis) => value + (targetPose.position[axis] - value) * progress,
+        ) as Pose['position'],
+        euler: rotationMatrixToEulerZYX(waypointRotation),
+        rotation: waypointRotation,
+      })
+    }
+    return poses
   }
 
-  // 逆解交给 MoveL/MoveC 共享的多初值逐点求解器（含相邻构型跳变护栏），
-  // 并保持 MoveL 原有的紧 IK 容差。
-  const orientationMode = opts?.orientationMode ?? 'strict'
-  return solvePoseWaypoints(
-    poses,
-    initialJoints,
-    model,
-    jointRanges,
-    toFlange,
-    // 始终先使用完整位姿 IK；`solvePoseWaypoints` 只在单个 waypoint
-    // 接近腕部奇异或发生构型重新分配时，按 SingArea\\Wrist 语义局部回退。
-    MOVE_L_IK_CONFIG,
-    orientationMode,
-  )
+  const solveAtSegmentCount = (segmentCount: number): CartesianPathResult =>
+    solvePoseWaypoints(
+      buildPoses(segmentCount),
+      initialJoints,
+      model,
+      jointRanges,
+      toFlange,
+      // 始终先使用完整位姿 IK；`solvePoseWaypoints` 只在单个 waypoint
+      // 接近腕部奇异或发生构型重新分配时，按算法自动局部回退。
+      MOVE_L_IK_CONFIG,
+    )
+
+  let segmentCount = initialSegmentCount
+  let result = solveAtSegmentCount(segmentCount)
+  for (let retry = 0; retry < MAX_ADAPTIVE_RETRIES; retry += 1) {
+    if (result.ok || result.failure !== 'joint-step') return result
+    // 只有“略微超过”连续性阈值才值得加密；大步长很可能是构型跳变，
+    // 必须保留失败并交给上层提示用户调整姿态/先脱离奇异点。
+    const delta = result.diagnostic?.deltaDeg
+    if (delta === undefined || delta > MAX_JOINT_STEP_DEG * 2) return result
+    const nextSegmentCount = Math.min(
+      MAX_ADAPTIVE_WAYPOINTS,
+      segmentCount * ADAPTIVE_STEP_RETRY_FACTOR,
+    )
+    if (nextSegmentCount <= segmentCount) return result
+    segmentCount = nextSegmentCount
+    result = solveAtSegmentCount(segmentCount)
+  }
+  return result
 }

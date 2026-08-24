@@ -113,13 +113,20 @@ export function solveIK(
     cfg,
     jointRanges,
   )
-  if (analytic !== undefined) return analytic
+  if (analytic !== undefined) {
+    // 解析法可用时直接返回其结论；失败时不自行切换到数值法，避免 ABB 等
+    // 可解析模型在奇异/限位附近被 DLS 拉到错误构型分支。
+    return analytic
+  }
   const joints = clampJoints(
     enforceLockedJoints([...initialJointsDeg] as JointAngles, cfg.lockedJointTargetsDeg),
     jointRanges,
   )
   let lambda = cfg.damping
   const targetRotation = targetPose.rotation
+  const orientationWeight = cfg.positionOnly === true
+    ? Math.max(0, Math.min(1, cfg.orientationWeight ?? 0))
+    : 1
 
   for (let iter = 0; iter < cfg.maxIterations; iter += 1) {
     const currentPose = model.forwardKinematics(joints)
@@ -141,7 +148,10 @@ export function solveIK(
     )
     const oriNorm = Math.hypot(...eOriRaw)
 
-    if (posNorm < cfg.posTolerance && (cfg.positionOnly === true || oriNorm < cfg.oriTolerance)) {
+    if (
+      posNorm < cfg.posTolerance &&
+      (cfg.positionOnly === true && orientationWeight === 0 || oriNorm < cfg.oriTolerance)
+    ) {
       return joints
     }
 
@@ -155,7 +165,7 @@ export function solveIK(
           : rowIndex < 3
             ? value
             : cfg.positionOnly === true
-              ? 0
+              ? value * cfg.orientationScale * orientationWeight
               : value * cfg.orientationScale,
       ),
     )
@@ -163,9 +173,9 @@ export function solveIK(
     const transpose = matrix.transpose()
     const errorVector = Matrix.columnVector([
       ...ePos,
-      cfg.positionOnly === true ? 0 : eOri[0] * cfg.orientationScale,
-      cfg.positionOnly === true ? 0 : eOri[1] * cfg.orientationScale,
-      cfg.positionOnly === true ? 0 : eOri[2] * cfg.orientationScale,
+      cfg.positionOnly === true ? eOri[0] * cfg.orientationScale * orientationWeight : eOri[0] * cfg.orientationScale,
+      cfg.positionOnly === true ? eOri[1] * cfg.orientationScale * orientationWeight : eOri[1] * cfg.orientationScale,
+      cfg.positionOnly === true ? eOri[2] * cfg.orientationScale * orientationWeight : eOri[2] * cfg.orientationScale,
     ])
     const lhs = transpose.mmul(matrix).add(Matrix.eye(6).mul(lambda))
     const rhs = transpose.mmul(errorVector)
@@ -208,9 +218,9 @@ export function solveIK(
     )
     const candidateErrorNorm = Math.hypot(
       ...candidatePositionError,
-      cfg.positionOnly === true ? 0 : candidateOrientation[0] * cfg.orientationScale,
-      cfg.positionOnly === true ? 0 : candidateOrientation[1] * cfg.orientationScale,
-      cfg.positionOnly === true ? 0 : candidateOrientation[2] * cfg.orientationScale,
+      cfg.positionOnly === true ? candidateOrientation[0] * cfg.orientationScale * orientationWeight : candidateOrientation[0] * cfg.orientationScale,
+      cfg.positionOnly === true ? candidateOrientation[1] * cfg.orientationScale * orientationWeight : candidateOrientation[1] * cfg.orientationScale,
+      cfg.positionOnly === true ? candidateOrientation[2] * cfg.orientationScale * orientationWeight : candidateOrientation[2] * cfg.orientationScale,
     )
 
     if (candidateErrorNorm < errorNorm) {

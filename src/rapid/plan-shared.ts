@@ -49,37 +49,57 @@ export type MotionPlanErrorKind =
   | 'wrist-reconfiguration'
   | 'joint-step'
 
+/**
+ * 运动规划失败的可选关节级上下文。
+ *
+ * waypoint 求解器内部使用 0 起始的轴索引；这里保持纯数据结构，避免
+ * RAPID 规划层依赖 robotics 实现类型。日志层再把 axisIndex 映射为 J1..J6。
+ */
+export interface MotionPlanDiagnostic {
+  waypointIndex?: number
+  axisIndex?: number
+  previousAngleDeg?: number
+  attemptedAngleDeg?: number
+  deltaDeg?: number
+  limitRangeDeg?: readonly [number, number]
+}
+
 export interface MotionPlanError {
   kind: MotionPlanErrorKind
   message: string
+  diagnostic?: MotionPlanDiagnostic
 }
 
 /** 把笛卡尔 waypoint 失败映射为 RAPID 运行时可定位的规划错误，禁止吞成普通 unreachable。 */
 export function cartesianPathFailureToMotionError(
   failure: CartesianPathFailure,
+  diagnostic?: MotionPlanDiagnostic,
 ): MotionPlanError {
+  const withDiagnostic = (error: MotionPlanError): MotionPlanError =>
+    diagnostic ? { ...error, diagnostic } : error
+
   switch (failure) {
     case 'wrist-singularity':
-      return {
+      return withDiagnostic({
         kind: 'wrist-singularity',
         message:
           '严格保持姿态的直线/圆弧运动不能通过腕部奇异（J5≈0°）；请修改奇异点另一侧第一个目标的姿态，启用 SingArea\\Wrist，或先用关节 Jog 脱离。',
-      }
+      })
     case 'wrist-reconfiguration':
-      return {
+      return withDiagnostic({
         kind: 'wrist-reconfiguration',
         message:
           '目标将导致机器人构型重新配置；请修改奇异点另一侧第一个目标的姿态，启用 SingArea\\Wrist，或先用关节 Jog 脱离。',
-      }
+      })
     case 'joint-step':
-      return {
+      return withDiagnostic({
         kind: 'joint-step',
-        message: '路径相邻关节步长超过连续运动限制，未执行。',
-      }
+        message: '路径相邻关节步长超过连续运动限制，已拒绝该路径点。',
+      })
     case 'joint-limit':
-      return { kind: 'joint-limit', message: '路径会触及关节限位，未执行。' }
+      return withDiagnostic({ kind: 'joint-limit', message: '路径会触及关节限位，未执行。' })
     case 'ik-not-converged':
-      return { kind: 'unreachable', message: '逆解未收敛，目标未执行。' }
+      return withDiagnostic({ kind: 'unreachable', message: '逆解未收敛，目标未执行。' })
   }
 }
 

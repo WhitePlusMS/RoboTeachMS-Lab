@@ -7,6 +7,11 @@ export interface CandidateGraphOptions {
   solverConfig?: Partial<IKSolverConfig>
   /** J4/J6 的边代价权重；只影响分支选择，不锁死任何关节。 */
   wristContinuityWeight?: number
+  /**
+   * 相邻 waypoint 的硬步长上限；未提供时沿用笛卡尔路径默认 5°。
+   * 传 `null` 表示单目标轻量求解不做硬步长拒绝，只保留连续性代价。
+   */
+  maxJointStepDeg?: number | null
 }
 
 export type CandidateGraphResult =
@@ -29,9 +34,14 @@ function edgeCost(
   }, 0)
 }
 
-function exceedsJointStep(previous: JointAngles, next: JointAngles): boolean {
+function exceedsJointStep(
+  previous: JointAngles,
+  next: JointAngles,
+  maxJointStepDeg: number | null,
+): boolean {
+  if (maxJointStepDeg === null) return false
   return next.some(
-    (value, index) => Math.abs(value - previous[index]) > MAX_CARTESIAN_JOINT_STEP_DEG,
+    (value, index) => Math.abs(value - previous[index]) > maxJointStepDeg,
   )
 }
 
@@ -66,6 +76,9 @@ export function planStrictCandidateGraph(
   if (!model.solveAllIK) return { ok: false, failure: 'unreachable' }
   const config = { ...DEFAULT_IK_CONFIG, ...options.solverConfig }
   const wristContinuityWeight = options.wristContinuityWeight ?? DEFAULT_WRIST_CONTINUITY_WEIGHT
+  const maxJointStepDeg = options.maxJointStepDeg === undefined
+    ? MAX_CARTESIAN_JOINT_STEP_DEG
+    : options.maxJointStepDeg
   const layers: JointAngles[][] = []
   let hasOutOfRangeCandidate = false
 
@@ -85,7 +98,7 @@ export function planStrictCandidateGraph(
   const previousIndices: number[][] = []
   costs.push(
     layers[0].map((candidate) =>
-      exceedsJointStep(initialJoints, candidate)
+      exceedsJointStep(initialJoints, candidate, maxJointStepDeg)
         ? Number.POSITIVE_INFINITY
         : edgeCost(initialJoints, candidate, wristContinuityWeight),
     ),
@@ -101,7 +114,10 @@ export function planStrictCandidateGraph(
       let bestPrevious = -1
       for (let previousIndex = 0; previousIndex < layers[layerIndex - 1].length; previousIndex += 1) {
         const previous = layers[layerIndex - 1][previousIndex]
-        if (!Number.isFinite(costs[layerIndex - 1][previousIndex]) || exceedsJointStep(previous, candidate)) {
+        if (
+          !Number.isFinite(costs[layerIndex - 1][previousIndex]) ||
+          exceedsJointStep(previous, candidate, maxJointStepDeg)
+        ) {
           continue
         }
         const cost = costs[layerIndex - 1][previousIndex] +

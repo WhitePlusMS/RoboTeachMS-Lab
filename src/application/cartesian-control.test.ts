@@ -81,7 +81,7 @@ describe('笛卡尔坐标增量', () => {
 
     control.setField('x', 100000)
 
-    expect(control.status.value).toBe('unreachable')
+    expect(control.status.value).toBe('joint-step')
     expect(joints.value).toEqual(before)
   })
 
@@ -120,6 +120,7 @@ describe('笛卡尔坐标增量', () => {
     const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
+      if (!currentPose) return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
       return {
         positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
@@ -149,6 +150,7 @@ describe('笛卡尔坐标增量', () => {
     const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
+      if (!currentPose) return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
       return {
         positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
@@ -173,6 +175,39 @@ describe('笛卡尔坐标增量', () => {
 
     expect(['solved', 'wrist-solved']).toContain(control.status.value)
     expect(poseRef.value.positionMm[1]).toBeGreaterThan(yBefore + 9)
+  })
+
+  it('低 J5 边界支路连续上行时使用 Wrist 实际姿态作为下一帧锚点', () => {
+    const model = ABB_IRB1200_PROFILE.model
+    const joints = ref<JointAngles>([-2.5, 26.7, -20.8, -203.4, 6.3, 203.3])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      if (!currentPose) return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const control = useCartesianControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      moveToTrajectory: (trajectory) => {
+        const finalJoints = trajectory[trajectory.length - 1]
+        if (finalJoints) joints.value = [...finalJoints]
+      },
+    })
+    control.setPositionStep(50)
+
+    control.move('z', 1, true)
+    expect(control.status.value).toBe('wrist-solved')
+    const firstPose = [...poseRef.value.orientationDeg]
+    control.setPositionStep(10)
+    control.move('z', 1, true)
+    expect(['solved', 'wrist-solved']).toContain(control.status.value)
+    expect(poseRef.value.positionMm[2]).toBeGreaterThan(849)
+    expect(poseRef.value.orientationDeg).not.toEqual(firstPose)
+    control.endContinuous()
   })
 
   it('只有平移点动允许自动进入腕部插补，旋转点动不允许', () => {
@@ -247,8 +282,8 @@ describe('笛卡尔坐标增量', () => {
 
     control.setField('x', poseRef.value.positionMm[0] + 5)
 
-    expect(control.status.value).toBe('unreachable')
-    expect(control.statusMessage.value).toContain('路径不可达')
+    expect(control.status.value).toBe('joint-step')
+    expect(control.statusMessage.value).toContain('路径相邻关节步长超过连续运动限制')
     expect(control.statusMessage.value).not.toContain('目标将导致机器人构型重新配置')
     expect(control.statusMessage.value).not.toContain('保留最近一次有效姿态')
   })

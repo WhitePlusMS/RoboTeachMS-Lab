@@ -165,4 +165,32 @@ describe('Ticket 01 — 诊断稳定契约', () => {
     expect(result.program[0]).toMatchObject({ kind: 'singarea', mode: 'wrist' })
     expect(result.program[2]).toMatchObject({ kind: 'singarea', mode: 'off' })
   })
+
+  it('机械零位 Y-50/Z1139.1→-310.9 MoveL 示例在页面 RAPID 子集中可直接执行', () => {
+    // 与 ABB_MOVEL_ZERO_WRIST_TEST.md 的默认代码保持一致，防止文档再次使用页面尚未支持的完整 RAPID 语法。
+    const source = `MODULE MoveLZeroTest
+  CONST robtarget pZero := [[533.1,0,889.1],[0,1,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pTop := [[533.0,-50,1139.1],[0.000608391,0.716910335,-0.000625622,0.697164837],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  CONST robtarget pBottom := [[533.0,-50,-310.9],[0.000608391,0.716910335,-0.000625622,0.697164837],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+  PROC main()
+    MoveJ pZero,v20,fine,tool0;
+    SingArea \\Off;
+    MoveJ pTop,v100,fine,tool0;
+    MoveL pBottom,v100,fine,tool0;
+    SingArea \\Off;
+  ENDPROC
+ENDMODULE`
+
+    const result = parseRapidProgram(source)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.canExecute).toBe(true)
+    expect(result.program.map((instruction) => instruction.kind)).toEqual([
+      'movej',
+      'singarea',
+      'movej',
+      'movel',
+      'singarea',
+    ])
+  })
 })
