@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { Home } from '@lucide/vue'
-import type { JointAngles } from '@/robotics/types.ts'
-import type { JointRange } from '@/robotics/robot-profile.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
+import type { JointRange } from '@/robotics/model/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'
 import { JOINT_STEPS } from '@/application/joint-control.ts'
 
@@ -96,7 +96,7 @@ onBeforeUnmount(stopPress)
       <button
         type="button"
         class="secondary-action"
-        title="回到 ABB 六轴机械/同步零位（J5=0°，腕部奇异）"
+        title="回到 ABB 六轴机械/同步零位（J5=+30°，避开腕部奇异）"
         @click="emit('mechanical-zero')"
       >
         机械零位

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { Axis3d, Copy, Rotate3d, SlidersHorizontal } from '@lucide/vue'
-import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/model/types.ts'
 import { injectRobotController } from '@/application/use-robot-controller.ts'
-import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
+import { eulerZYXToMatrix } from '@/robotics/kinematics/transform-matrix.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 
 interface Props {

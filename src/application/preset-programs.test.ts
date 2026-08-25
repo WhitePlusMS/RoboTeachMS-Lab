@@ -4,8 +4,8 @@ import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/rapid-parse
 import { planMoveJ } from '@/rapid/movej-planner.ts'
 import { planMoveL } from '@/rapid/movel-planner.ts'
 import { planMoveC } from '@/rapid/movec-planner.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import type { StructuredMoveC, StructuredMoveJ, StructuredMoveL } from '@/rapid/rapid-types.ts'
 
 describe('RAPID 预设程序库', () => {

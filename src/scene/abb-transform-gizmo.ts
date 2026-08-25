@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Pose } from '@/robotics/types.ts'
+import type { Pose } from '@/robotics/model/types.ts'
 import {
   abbPoseToSceneTransform,
   sceneTransformToAbbPose,

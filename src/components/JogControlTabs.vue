@@ -3,12 +3,11 @@ import { computed, nextTick, ref } from 'vue'
 import CartesianControlPanel from './CartesianControlPanel.vue'
 import JointControlPanel from './JointControlPanel.vue'
 import type {
-  CartesianAxis,
-  CoordinateSystem,
   JointAngles,
   PoseDisplay,
-} from '@/robotics/types.ts'
-import type { JointRange } from '@/robotics/robot-profile.ts'
+} from '@/robotics/model/types.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/application/cartesian-types.ts'
+import type { JointRange } from '@/robotics/model/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'
 import type {
   CartesianDirection,

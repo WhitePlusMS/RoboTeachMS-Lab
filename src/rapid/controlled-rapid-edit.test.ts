@@ -10,7 +10,7 @@ import {
   parseRapidProgram,
   type RapidProgramDataTarget,
 } from './rapid-parser.ts'
-import type { Pose } from '@/robotics/types.ts'
+import type { Pose } from '@/robotics/model/types.ts'
 
 const BASE = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
 import {
   appendTrajectoryPoint,

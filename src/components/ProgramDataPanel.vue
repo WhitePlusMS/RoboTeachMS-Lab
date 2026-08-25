@@ -22,7 +22,7 @@ import type {
   ZoneData,
   LoadData,
 } from '@/rapid/rapid-types.ts'
-import type { Pose } from '@/robotics/types.ts'
+import type { Pose } from '@/robotics/model/types.ts'
 
 interface Props {
   /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */

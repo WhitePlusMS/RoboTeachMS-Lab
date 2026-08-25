@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { ref, type Ref } from 'vue'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
 import {
   createMotionRunner,
   type MotionResult,
   type MotionRunner,
-} from '@/robotics/motion-runner.ts'
+} from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import { isRapidMotionInstruction } from '@/rapid/rapid-parser.ts'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { useProgramController, type ProgramControllerMotion } from './program-control.ts'
@@ -118,13 +118,18 @@ ENDMODULE`)
       expect.objectContaining({
         instructionNumber: 1,
         instructionText: 'MoveL pImpossible,v100,fine,tool0;',
-        errorCode: 'unreachable',
+        errorCode: 'joint-step',
         errorMessage: expect.any(String),
       }),
     )
-    // pImpossible（1500mm）超出 IRB1200 臂展，属于全局不可达，无关节级诊断。
-    const details = call?.[1] as { diagnostic: unknown }
-    expect(details.diagnostic).toBeNull()
+    // pImpossible（1500mm）超出 IRB1200 臂展。法兰帧对齐真实 ABB 后，路径在接近
+    // 全伸展边界（J3/J5 关节速度发散）时先触发相邻关节步长护栏，早于全局不可达判定；
+    // 与真实控制器在臂展边界的报错行为一致，诊断带 waypoint 级上下文。
+    const details = call?.[1] as {
+      diagnostic: { waypointIndex?: number; axisIndex?: number } | null
+    }
+    expect(details.diagnostic).not.toBeNull()
+    expect(details.diagnostic?.waypointIndex).toBeGreaterThan(0)
     error.mockRestore()
   })
 })

@@ -1,4 +1,4 @@
-import { Matrix4x4 } from '@/robotics/matrix4x4.ts'
+import { Matrix4x4 } from '@/robotics/kinematics/transform-matrix.ts'
 import {
   mat3Mul,
   quaternionToRotationMatrix,

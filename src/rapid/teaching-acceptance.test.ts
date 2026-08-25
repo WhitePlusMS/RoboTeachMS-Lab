@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
-import type { JointAngles, Pose } from '@/robotics/types.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import type { JointAngles, Pose } from '@/robotics/model/types.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'

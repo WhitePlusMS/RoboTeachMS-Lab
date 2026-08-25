@@ -1,10 +1,7 @@
-import {
-  quaternionToRotationMatrix,
-  rotationMatrixToEulerZYX,
-} from '@/robotics/math/rotation3d.ts'
-import type { RobotModel } from '@/robotics/robot-model.ts'
-import type { JointAngles, Pose } from '@/robotics/types.ts'
-import type { CartesianPathFailure } from '@/robotics/cartesian-path-planner.ts'
+import { quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/types.ts'
+import type { CartesianPathFailure } from '@/robotics/cartesian/path-planner.ts'
 import {
   NO_EXTERNAL_AXIS,
   type RapidQuat,
@@ -101,6 +98,7 @@ export function cartesianPathFailureToMotionError(
     case 'ik-not-converged':
       return withDiagnostic({ kind: 'unreachable', message: '逆解未收敛，目标未执行。' })
   }
+  return withDiagnostic({ kind: 'unreachable', message: '目标位姿不可达，未执行。' })
 }
 
 function allFinite(...values: number[]): boolean {

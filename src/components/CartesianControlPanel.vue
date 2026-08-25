@@ -11,7 +11,7 @@ import {
   RotateCcw,
   RotateCw,
 } from '@lucide/vue'
-import type { CartesianAxis, CoordinateSystem } from '@/robotics/types.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/application/cartesian-types.ts'
 import type {
   CartesianDirection,
   CartesianStatus,

@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import SceneViewport from './SceneViewport.vue'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 
 vi.mock('../scene/abb-scene.ts', () => ({
   createAbbScene: () => {

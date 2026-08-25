@@ -5,8 +5,8 @@ import {
   randomJointAngles,
   setJointAngle,
 } from './joint-control.ts'
-import type { JointAngles } from '@/robotics/types.ts'
-import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/robot-config.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
+import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/parameters.ts'
 
 describe('关节控制状态', () => {
   it('手动输入和步进都会限制在关节范围内', () => {

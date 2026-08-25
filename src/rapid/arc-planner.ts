@@ -1,4 +1,4 @@
-import type { Pose } from '@/robotics/types.ts'
+import type { Pose } from '@/robotics/model/types.ts'
 import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
 
 /**

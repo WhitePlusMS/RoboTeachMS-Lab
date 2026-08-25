@@ -1,23 +1,21 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { degToRad, radToDeg } from '@/robotics/math/angle.ts'
 import { mat3Mul, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
-import { eulerZYXToMatrix } from '@/robotics/matrix4x4.ts'
+import { eulerZYXToMatrix } from '@/robotics/kinematics/transform-matrix.ts'
 import type {
   CartesianPathFailure,
   CartesianPathResult,
   WaypointFailureDiagnostic,
-} from '@/robotics/cartesian-path-planner.ts'
-import { planCartesianTarget } from '@/robotics/cartesian-motion-planner.ts'
-import { buildJointPathAudit } from '@/robotics/joint-path-audit.ts'
+} from '@/robotics/cartesian/path-planner.ts'
+import { planCartesianTarget } from '@/robotics/cartesian/index.ts'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
-import type { RobotProfile } from '@/robotics/robot-profile.ts'
+import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
 import type {
-  CartesianAxis,
-  CoordinateSystem,
   JointAngles,
   Pose,
   PoseDisplay,
-} from '@/robotics/types.ts'
+} from '@/robotics/model/types.ts'
+import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
 export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
@@ -55,12 +53,11 @@ function formatFailureDiagnostic(diagnostic: WaypointFailureDiagnostic | null): 
   }
   const axis = `J${diagnostic.axisIndex + 1}`
   const current = `当前 ${diagnostic.previousAngleDeg.toFixed(2)}°`
-  const attempted = diagnostic.attemptedAngleDeg === undefined
-    ? ''
-    : `，尝试 ${diagnostic.attemptedAngleDeg.toFixed(2)}°`
-  const delta = diagnostic.deltaDeg === undefined
-    ? ''
-    : `，变化 ${diagnostic.deltaDeg.toFixed(2)}°`
+  const attempted =
+    diagnostic.attemptedAngleDeg === undefined
+      ? ''
+      : `，尝试 ${diagnostic.attemptedAngleDeg.toFixed(2)}°`
+  const delta = diagnostic.deltaDeg === undefined ? '' : `，变化 ${diagnostic.deltaDeg.toFixed(2)}°`
   const limit = diagnostic.limitRangeDeg
     ? `，允许范围 ${diagnostic.limitRangeDeg[0]}°~${diagnostic.limitRangeDeg[1]}°`
     : ''
@@ -211,12 +208,12 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const jogSession = createCartesianJogSession()
   let planningVersion = 0
   let continuousPlanning = false
-  let queuedContinuousTarget: { target: PoseDisplay; context: CartesianPlanningContext } | null = null
+  let queuedContinuousTarget: { target: PoseDisplay; context: CartesianPlanningContext } | null =
+    null
   let continuousTimer: ReturnType<typeof setInterval> | null = null
   const planTarget =
     options.planTarget ??
-    ((target: Pose, initial: JointAngles) =>
-      planCartesianTarget(target, initial, options.profile))
+    ((target: Pose, initial: JointAngles) => planCartesianTarget(target, initial, options.profile))
 
   const statusMessage = computed(() => {
     const detail = formatFailureDiagnostic(failureDiagnostic.value)
@@ -228,13 +225,18 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     if (status.value === 'invalid') return '输入无效，未执行目标'
     if (status.value === 'singularity') {
-      return withDetail('自动腕部插补仍无法连续通过奇异（J5≈0°）；请修改目标姿态，或先用关节 Jog 脱离')
+      return withDetail(
+        '自动腕部插补仍无法连续通过奇异（J5≈0°）；请修改目标姿态，或先用关节 Jog 脱离',
+      )
     }
     if (status.value === 'reconfiguration') {
-      return withDetail('目标将导致机器人构型重新配置，请修改奇异点另一侧第一个目标的姿态，或先用关节 Jog 脱离')
+      return withDetail(
+        '目标将导致机器人构型重新配置，请修改奇异点另一侧第一个目标的姿态，或先用关节 Jog 脱离',
+      )
     }
     if (status.value === 'joint-limit') return withDetail('目标会触及关节限位，未执行目标')
-    if (status.value === 'joint-step') return withDetail('路径相邻关节步长超过连续运动限制，未执行目标')
+    if (status.value === 'joint-step')
+      return withDetail('路径相邻关节步长超过连续运动限制，未执行目标')
     if (status.value === 'not-converged') return withDetail('逆解未收敛，未执行目标')
     if (status.value === 'unreachable') return withDetail('路径不可达，未执行目标')
     return '就绪'
@@ -244,7 +246,6 @@ export function useCartesianControl(options: CartesianControlOptions) {
     result: CartesianPathResult | null,
     isContinuous: boolean,
     target: PoseDisplay,
-    initialJoints: JointAngles,
   ): boolean {
     failureDiagnostic.value = null
     if (result === null) {
@@ -253,13 +254,6 @@ export function useCartesianControl(options: CartesianControlOptions) {
       return false
     }
     if (result.ok) {
-      const audit = buildJointPathAudit(initialJoints, result.waypoints)
-      if (audit) {
-        console.info(
-          '[CARTESIAN-JOINT-AUDIT]',
-          JSON.stringify({ path: 'CartesianJog', target: target.positionMm, ...audit }),
-        )
-      }
       if (isContinuous) {
         const tail = result.waypoints[result.waypoints.length - 1]
         if (tail) {
@@ -292,10 +286,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     return false
   }
 
-  function solveTarget(
-    target: PoseDisplay,
-    context: CartesianPlanningContext,
-  ): boolean | null {
+  function solveTarget(target: PoseDisplay, context: CartesianPlanningContext): boolean | null {
     if (context.isContinuous && continuousPlanning) {
       queuedContinuousTarget = { target, context }
       return null
@@ -306,7 +297,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (context.isContinuous) continuousPlanning = true
     const planningJoints = context.isContinuous
       ? jogSession.getPlanningJoints(options.joints.value)
-      : [...options.joints.value] as JointAngles
+      : ([...options.joints.value] as JointAngles)
     const planned = planTarget(robotTarget, planningJoints, context)
     if (planned instanceof Promise) {
       status.value = 'planning'
@@ -320,12 +311,12 @@ export function useCartesianControl(options: CartesianControlOptions) {
           solveTarget(queuedTarget.target, queuedTarget.context)
           return
         }
-        commitPlanResult(result, context.isContinuous, target, planningJoints)
+        commitPlanResult(result, context.isContinuous, target)
       })
       return null
     }
     if (context.isContinuous) continuousPlanning = false
-    return commitPlanResult(planned, context.isContinuous, target, planningJoints)
+    return commitPlanResult(planned, context.isContinuous, target)
   }
 
   function beginContinuous(axis: CartesianAxis, direction: CartesianDirection): void {
@@ -358,16 +349,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (isContinuous && !jogSession.isActive()) {
       jogSession.begin(options.pose.value, options.joints.value)
     }
-    const basePose = isContinuous
-      ? jogSession.getAnchor(options.pose.value)
-      : options.pose.value
-    const target = applyCartesianDelta(
-      basePose,
-      axis,
-      direction,
-      step,
-      coordinateSystem.value,
-    )
+    const basePose = isContinuous ? jogSession.getAnchor(options.pose.value) : options.pose.value
+    const target = applyCartesianDelta(basePose, axis, direction, step, coordinateSystem.value)
     if (isContinuous) jogSession.request(target)
     solveTarget(target, { isContinuous })
   }

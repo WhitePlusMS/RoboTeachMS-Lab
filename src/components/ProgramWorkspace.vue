@@ -16,7 +16,7 @@ import type {
   RapidProgramData,
   RapidSourceRange,
 } from '@/rapid/rapid-parser.ts'
-import type { Pose } from '@/robotics/types.ts'
+import type { Pose } from '@/robotics/model/types.ts'
 import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
 import {
   injectProgramPanelController,

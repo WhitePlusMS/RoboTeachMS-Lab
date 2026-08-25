@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import type { JointAngles, Pose } from '@/robotics/types.ts'
-import { ABB_TEACHING_HOME_JOINTS } from '@/robot-models/abb-irb1200/robot-config.ts'
+import type { JointAngles, Pose } from '@/robotics/model/types.ts'
+import { ABB_TEACHING_HOME_JOINTS } from '@/robot-models/abb-irb1200/parameters.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
 import { abbScene } from '@/theme/scene.ts'
 import {

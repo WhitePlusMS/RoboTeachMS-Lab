@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
-import type { MotionResult } from '@/robotics/motion-runner.ts'
-import type { RobotProfile } from '@/robotics/robot-profile.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { MotionResult } from '@/robotics/motion/runner.ts'
+import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import { executeRapidMotion } from '@/rapid/motion-execution.ts'
 import type { RapidScalarValue, RapidScalarVariable } from '@/rapid/rapid-types.ts'
 import {

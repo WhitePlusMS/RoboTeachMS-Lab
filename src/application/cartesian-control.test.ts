@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '@/robotics/kinematics.ts'
+import { poseFromJoints } from '@/robotics/kinematics/legacy-dh-forward-kinematics.ts'
 import { radToDeg } from '@/robotics/math/angle.ts'
 import { applyCartesianDelta, useCartesianControl } from './cartesian-control.ts'
-import type { CartesianPathResult } from '@/robotics/cartesian-path-planner.ts'
-import type { JointAngles, PoseDisplay } from '@/robotics/types.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
-import type { RobotProfile, SixAxisJointRanges } from '@/robotics/robot-profile.ts'
+import type { CartesianPathResult } from '@/robotics/cartesian/path-planner.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/model/types.ts'
+import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import type { RobotProfile, SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
 import {
   KUKA_JOINT_RANGES,
   KUKA_LIKE,
   DEFAULT_JOINTS,
-} from '@/robot-models/kuka-like/robot-config.ts'
-import { DhRobotModel } from '@/robot-models/kuka-like/dh-robot-model.ts'
+} from '@/robot-models/kuka-like/parameters.ts'
+import { DhRobotModel } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
 
 /** 测试用 KUKA 局部 profile；沿用既有 KUKA 模型与常量，不迁移 KUKA 实现。 */
 const KUKA_PROFILE: RobotProfile = {
@@ -115,9 +115,9 @@ describe('笛卡尔坐标增量', () => {
     expect(control.statusMessage.value).toContain('变化 8.80°')
   })
 
-  it('机械零位 Y 点动自动使用 SingArea\\Wrist，并提交轨迹', () => {
+  it('机械零位 Y 点动不再使用 SingArea\\Wrist，并提交轨迹', () => {
     const model = new AbbDhRobotModel()
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
       if (!currentPose) return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
@@ -140,14 +140,13 @@ describe('笛卡尔坐标增量', () => {
     control.setPositionStep(1)
     control.move('y', 1)
 
-    expect(control.status.value).toBe('wrist-solved')
-    expect(control.statusMessage.value).toContain('TCP 路径保持线性')
+    expect(control.status.value).toBe('solved')
     expect(joints.value).not.toEqual(before)
   })
 
-  it('机械零位先 X+10 mm 后仍允许局部腕部插补脱离', () => {
+  it('机械零位先 X+10 mm 后仍可正常 Y 点动', () => {
     const model = new AbbDhRobotModel()
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
       if (!currentPose) return { positionMm: [0, 0, 0], orientationDeg: [0, 0, 0] }
@@ -168,18 +167,18 @@ describe('笛卡尔坐标增量', () => {
     control.setPositionStep(10)
 
     control.move('x', 1)
-    expect(model.isMechanicalZeroSingularityNeighborhood(joints.value)).toBe(true)
+    expect(model.isMechanicalZeroSingularityNeighborhood(joints.value)).toBe(false)
     const yBefore = poseRef.value.positionMm[1]
 
     control.move('y', 1)
 
-    expect(['solved', 'wrist-solved']).toContain(control.status.value)
+    expect(control.status.value).toBe('solved')
     expect(poseRef.value.positionMm[1]).toBeGreaterThan(yBefore + 9)
   })
 
-  it('机械零位字段直达与平移点动共用同一 wrist 回退入口', () => {
+  it('机械零位字段直达不再进入 wrist 回退入口', () => {
     const model = new AbbDhRobotModel()
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
       return {
@@ -196,7 +195,7 @@ describe('笛卡尔坐标增量', () => {
 
     control.setField('y', poseRef.value.positionMm[1] + 1)
 
-    expect(control.status.value).toBe('wrist-solved')
+    expect(control.status.value).toBe('solved')
   })
 
   it('非机械零位工作区的 J5=0 大步长不得显示机械零位重构提示', () => {

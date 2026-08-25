@@ -6,7 +6,7 @@ import {
 import { NO_EXTERNAL_AXIS, type RobTarget } from './rapid-types.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import { internalQuatToRapid } from './plan-shared.ts'
-import type { Pose } from '@/robotics/types.ts'
+import type { Pose } from '@/robotics/model/types.ts'
 
 /**
  * RAPID 受控源码编辑深模块：把一次语义化的 Program Data / 程序编辑器命令应用到源程序，

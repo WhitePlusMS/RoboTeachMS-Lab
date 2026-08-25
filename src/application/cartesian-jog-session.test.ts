@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
-import type { PoseDisplay } from '@/robotics/types.ts'
+import type { PoseDisplay } from '@/robotics/model/types.ts'
 
 const pose: PoseDisplay = {
   positionMm: [1, 2, 3],

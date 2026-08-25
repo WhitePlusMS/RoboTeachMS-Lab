@@ -1,13 +1,13 @@
-import type { MotionResult } from '@/robotics/motion-runner.ts'
-import type { RobotModel } from '@/robotics/robot-model.ts'
-import type { JointAngles, Pose } from '@/robotics/types.ts'
+import type { MotionResult } from '@/robotics/motion/runner.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/types.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import {
   cartesianPathFailureToMotionError,
   validateMotionInput,
   type MotionPlanError,
 } from './plan-shared.ts'
-import { solvePoseWaypoints } from '@/robotics/ik-waypoint-solver.ts'
+import { solvePoseWaypoints } from '@/robotics/inverse-kinematics/waypoint-solver.ts'
 import { arcLengthMm, sampleArcPoses } from './arc-planner.ts'
 import {
   flangeToWorldTcpPose,
@@ -98,6 +98,7 @@ export function planMoveC(
     // 由共享 waypoint 求解器逐点决定是否需要腕部姿态回退，不能把整条圆弧
     // 预先降级为 position-only，否则非奇异段也会丢失编程姿态。
     {},
+    { allowWristFallback: movec.singArea === 'wrist' },
   )
   if (!waypoints.ok || waypoints.waypoints.length === 0) {
     if (!waypoints.ok) {
@@ -116,16 +117,14 @@ export function planMoveC(
   }
 
   // 时长近似：圆弧弧长 / v_tcp，转毫秒并保证正的有限值。
-  const arcLen = arcLengthMm(
-    startTcp.position,
-    cirTcp.position,
-    targetTcp.position,
-  )
-  const distance = arcLen ?? Math.hypot(
-    targetTcp.position[0] - startTcp.position[0],
-    targetTcp.position[1] - startTcp.position[1],
-    targetTcp.position[2] - startTcp.position[2],
-  )
+  const arcLen = arcLengthMm(startTcp.position, cirTcp.position, targetTcp.position)
+  const distance =
+    arcLen ??
+    Math.hypot(
+      targetTcp.position[0] - startTcp.position[0],
+      targetTcp.position[1] - startTcp.position[1],
+      targetTcp.position[2] - startTcp.position[2],
+    )
   const durationMs = (distance / movec.speed.v_tcp) * 1000
   const safeDuration = Number.isFinite(durationMs) && durationMs > 0 ? Math.max(durationMs, 1) : 1
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '@/robotics/motion-runner.ts'
+import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/robot-config.ts'
+import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import { mat3Mul, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import { executeMoveL, planMoveL } from './movel-planner.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { internalQuatToRapid } from './plan-shared.ts'
@@ -308,8 +308,8 @@ describe('executeMoveL 控制与时长', () => {
     }
   })
 
-  it('机械零位 Y 点动默认由算法自动 wrist 回退并成功执行', async () => {
-    const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
+  it('机械零位 Y 点动不再触发 wrist 回退但仍成功执行', async () => {
+    const startJoints: JointAngles = [0, 0, 0, 0, 30, 0]
     const start = degreeFrameFromPose(startJoints)
     const target: RobTarget = {
       trans: [start.position[0], start.position[1] + 5, start.position[2]],
@@ -332,7 +332,7 @@ describe('executeMoveL 控制与时长', () => {
     expect(runTrajectoryCalls).toBe(1)
   })
 
-  it('MoveL 使用 SingArea\\Wrist 时允许腕部姿态误差并保持 TCP 位置路径', () => {
+  it('MoveL 仅在显式 SingArea\\Wrist 时允许腕部奇异回退', () => {
     const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
     const start = degreeFrameFromPose(startJoints)
     const target: RobTarget = {
@@ -342,25 +342,28 @@ describe('executeMoveL 控制与时长', () => {
       extax: [...NO_EXTERNAL_AXIS],
     }
 
-    const result = planMoveL(
+    const strictResult = planMoveL(makeMoveL(target), ABB_MODEL, startJoints, ABB_JOINT_RANGES)
+    expect(strictResult.ok).toBe(false)
+
+    const wristResult = planMoveL(
       makeMoveL(target, { singArea: 'wrist' }),
       ABB_MODEL,
       startJoints,
       ABB_JOINT_RANGES,
     )
 
-    expect(result.ok).toBe(true)
+    expect(wristResult.ok).toBe(true)
   })
 })
 
 describe('planMoveL 长距离路径自适应采样', () => {
   it('机械零位 MoveJ 到高点后长距离 Z MoveL 不因 J6 临界步长误报 unreachable', () => {
-    const orientation = [
-      0.000608391,
-      0.716910335,
-      -0.000625622,
-      0.697164837,
-    ] as [number, number, number, number]
+    const orientation = [0.000608391, 0.716910335, -0.000625622, 0.697164837] as [
+      number,
+      number,
+      number,
+      number,
+    ]
     const pTop: RobTarget = {
       trans: [533, -50, 1139.1],
       rot: orientation,

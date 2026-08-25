@@ -1,13 +1,13 @@
-import type { MotionResult } from '@/robotics/motion-runner.ts'
-import type { RobotModel } from '@/robotics/robot-model.ts'
-import type { SixAxisJointRanges } from '@/robotics/robot-profile.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+import type { MotionResult } from '@/robotics/motion/runner.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import {
   simulateDurationMs,
   validateMotionInput,
   type MotionPlanError,
 } from './plan-shared.ts'
-import { resolveJointSolution } from '@/robotics/ik-waypoint-solver.ts'
+import { resolveJointSolution } from '@/robotics/inverse-kinematics/joint-solution.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'
 import type { StructuredMoveJ } from './rapid-types.ts'
 

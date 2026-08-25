@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PoseDisplay } from '@/robotics/types.ts'
+import type { PoseDisplay } from '@/robotics/model/types.ts'
 
 defineProps<{
   toolPose: PoseDisplay

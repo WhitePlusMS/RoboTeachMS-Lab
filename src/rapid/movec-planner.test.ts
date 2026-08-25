@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '@/robotics/motion-runner.ts'
+import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/dh-robot-model.ts'
+import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import {
   ABB_JOINT_RANGES,
   ABB_TEACHING_HOME_JOINTS,
-} from '@/robot-models/abb-irb1200/robot-config.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+} from '@/robot-models/abb-irb1200/parameters.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import { executeMoveC, planMoveC } from './movec-planner.ts'
 import { sampleArcPoses } from './arc-planner.ts'
@@ -25,7 +25,10 @@ const ABB_MODEL = new AbbDhRobotModel()
 const AT_HOME: JointAngles = ABB_TEACHING_HOME_JOINTS
 
 /** 构造一个 robtarget（ABB 顺序四元数 [q1,q2,q3,q4] = [w,x,y,z]）。 */
-function target(trans: [number, number, number], rot: [number, number, number, number] = [1, 0, 0, 0]): RobTarget {
+function target(
+  trans: [number, number, number],
+  rot: [number, number, number, number] = [1, 0, 0, 0],
+): RobTarget {
   return { trans, rot, robconf: [0, 0, 0, 0], extax: [...NO_EXTERNAL_AXIS] }
 }
 
@@ -35,9 +38,13 @@ function target(trans: [number, number, number], rot: [number, number, number, n
  * 与 home 朝向相悖而制造过度反转的憾——那会让单一/多初值 IK 都在奇异带失败。
  */
 const homeFlange = ABB_MODEL.forwardKinematics(AT_HOME)
-const HOME_TCP = homeFlange ? flangeToWorldTcpPose(homeFlange, defaultTool0()).position : [451, 0, 807.1]
+const HOME_TCP = homeFlange
+  ? flangeToWorldTcpPose(homeFlange, defaultTool0()).position
+  : [451, 0, 807.1]
 const HOME_QUAT: [number, number, number, number] = homeFlange
-  ? internalQuatToRapid(rotationMatrixToQuaternion(flangeToWorldTcpPose(homeFlange, defaultTool0()).rotation))
+  ? internalQuatToRapid(
+      rotationMatrixToQuaternion(flangeToWorldTcpPose(homeFlange, defaultTool0()).rotation),
+    )
   : [1, 0, 0, 0]
 const ARC_CIR = target([HOME_TCP[0] - 20, HOME_TCP[1] + 30, HOME_TCP[2]], HOME_QUAT)
 const ARC_END = target([HOME_TCP[0] - 20, HOME_TCP[1] - 30, HOME_TCP[2]], HOME_QUAT)
@@ -69,7 +76,14 @@ function maxJointStep(waypoints: readonly JointAngles[]): number {
 describe('arc-planner 圆弧几何', () => {
   it('三点定圆采样：所有位姿共圆且经过起点/途经点/终点', () => {
     const start = [451, 0, 807]
-    const poses = sampleArcPoses(start, ARC_CIR.trans, ARC_END.trans, [1, 0, 0, 0], [1, 0, 0, 0], 40)
+    const poses = sampleArcPoses(
+      start,
+      ARC_CIR.trans,
+      ARC_END.trans,
+      [1, 0, 0, 0],
+      [1, 0, 0, 0],
+      40,
+    )
     expect(poses).not.toBeNull()
     if (!poses) return
     // 首尾位姿位置等于起点与终点（允许毫米级误差）。
@@ -82,14 +96,7 @@ describe('arc-planner 圆弧几何', () => {
   })
 
   it('三点共线返回 null（无法定圆）', () => {
-    const poses = sampleArcPoses(
-      [0, 0, 0],
-      [50, 0, 0],
-      [100, 0, 0],
-      [1, 0, 0, 0],
-      [1, 0, 0, 0],
-      10,
-    )
+    const poses = sampleArcPoses([0, 0, 0], [50, 0, 0], [100, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0], 10)
     expect(poses).toBeNull()
   })
 })
@@ -110,6 +117,35 @@ describe('planMoveC 校验与支持边界', () => {
     )
     const result = planMoveC(collinear, ABB_MODEL, AT_HOME, ABB_JOINT_RANGES)
     expect(result.ok).toBe(false)
+  })
+
+  it('MoveC 仅在显式 SingArea\\Wrist 时允许腕部奇异回退', () => {
+    const startJoints: JointAngles = [0, 0, 0, 0, 0, 0]
+    const startFlange = ABB_MODEL.forwardKinematics(startJoints)
+    expect(startFlange).not.toBeNull()
+    if (!startFlange) return
+
+    const startTcp = flangeToWorldTcpPose(startFlange, defaultTool0())
+    const rotation = internalQuatToRapid(rotationMatrixToQuaternion(startTcp.rotation))
+    const [x, y, z] = startTcp.position
+    const cirPoint = target([x + 2, y + 2, z], rotation)
+    const endPoint = target([x, y + 4, z], rotation)
+
+    const strictResult = planMoveC(
+      makeMoveC(cirPoint, endPoint),
+      ABB_MODEL,
+      startJoints,
+      ABB_JOINT_RANGES,
+    )
+    expect(strictResult.ok).toBe(false)
+
+    const wristResult = planMoveC(
+      { ...makeMoveC(cirPoint, endPoint), singArea: 'wrist' },
+      ABB_MODEL,
+      startJoints,
+      ABB_JOINT_RANGES,
+    )
+    expect(wristResult.ok).toBe(true)
   })
 
   it('时长近似按弧长：慢速 > 快速', () => {

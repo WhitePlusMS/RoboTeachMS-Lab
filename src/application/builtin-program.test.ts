@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { createBuiltinRapidSource } from './builtin-program.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/robot-profile.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
 import { planMoveJ } from '@/rapid/movej-planner.ts'
 import { planMoveL } from '@/rapid/movel-planner.ts'
 import { isDefaultTool0, isDefaultWobj0 } from '@/rapid/rapid-types.ts'
 import { robTargetToPose } from '@/rapid/plan-shared.ts'
 import { orientationError } from '@/robotics/math/rotation3d.ts'
-import { DEFAULT_IK_CONFIG } from '@/robotics/ik-solver.ts'
-import type { JointAngles } from '@/robotics/types.ts'
+import { DEFAULT_IK_CONFIG } from '@/robotics/inverse-kinematics/numerical-ik.ts'
+import type { JointAngles } from '@/robotics/model/types.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/rapid-parser.ts'
 
-/** 相邻 waypoint 构型跳变上限（度），与 cartesian-path-planner 的 MAX_JOINT_STEP_DEG 一致。 */
+/** 相邻 waypoint 构型跳变上限（度），由 Cartesian 候选图统一定义。 */
 const MAX_WAYPOINT_JOINT_STEP_DEG = 5
 /** 相邻关节步长校验允许的合理浮点 epsilon（度）。 */
 const JOINT_STEP_EPS_DEG = 1e-6
