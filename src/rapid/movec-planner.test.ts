@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
-import {
-  ABB_JOINT_RANGES,
-  ABB_TEACHING_HOME_JOINTS,
-} from '@/robot-models/abb-irb1200/parameters.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import type { JointAngles } from '@/robotics/model/types.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import { executeMoveC, planMoveC } from './movec-planner.ts'
@@ -22,7 +19,7 @@ import {
 } from './rapid-types.ts'
 
 const ABB_MODEL = new AbbRobotModelAdapter()
-const AT_HOME: JointAngles = ABB_TEACHING_HOME_JOINTS
+const AT_HOME: JointAngles = [15, -25, 45, 20, 20, 30]
 
 /** 构造一个 robtarget（ABB 顺序四元数 [q1,q2,q3,q4] = [w,x,y,z]）。 */
 function target(
@@ -46,8 +43,8 @@ const HOME_QUAT: [number, number, number, number] = homeFlange
       rotationMatrixToQuaternion(flangeToWorldTcpPose(homeFlange, defaultTool0()).rotation),
     )
   : [1, 0, 0, 0]
-const ARC_CIR = target([HOME_TCP[0] - 20, HOME_TCP[1] + 30, HOME_TCP[2]], HOME_QUAT)
-const ARC_END = target([HOME_TCP[0] - 20, HOME_TCP[1] - 30, HOME_TCP[2]], HOME_QUAT)
+const ARC_CIR = target([HOME_TCP[0] - 5, HOME_TCP[1] + 5, HOME_TCP[2]], HOME_QUAT)
+const ARC_END = target([HOME_TCP[0] - 5, HOME_TCP[1] - 5, HOME_TCP[2]], HOME_QUAT)
 
 function makeMoveC(cirPoint: RobTarget = ARC_CIR, end = ARC_END): StructuredMoveC {
   return {

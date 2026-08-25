@@ -39,6 +39,7 @@ export function planMoveC(
   model: RobotModel,
   currentJoints: JointAngles,
   jointRanges: readonly (readonly [number, number])[],
+  options?: { preserveConfiguration?: boolean },
 ): MoveCPlanResult {
   // 校验终点与圆点，以及各运动数据：圆点也是完整 robtarget，需单独过同一套校验，
   // 否则圆点中的 NaN/Infinity/零四元数会流入坐标求值、圆弧与 IK（表现为 unreachable 而非 invalid-data）。
@@ -97,7 +98,7 @@ export function planMoveC(
     (tcp) => worldTcpToFlangePose(tcp, movec.tool),
     // 由共享 waypoint 求解器逐点决定是否需要腕部姿态回退，不能把整条圆弧
     // 预先降级为 position-only，否则非奇异段也会丢失编程姿态。
-    {},
+    { preserveConfiguration: options?.preserveConfiguration },
     { allowWristFallback: movec.singArea === 'wrist' },
   )
   if (!waypoints.ok || waypoints.waypoints.length === 0) {

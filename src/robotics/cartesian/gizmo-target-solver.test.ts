@@ -55,7 +55,9 @@ describe('solveGizmoTarget', () => {
       })()
       const tR = mul(cur.rotation, axisMat(ax, 5))
       const target: Pose = { position: [...cur.position], euler: [0, 0, 0], rotation: tR }
-      const solved = solveGizmoTarget(target, j, model, ABB_JOINT_RANGES)
+      const solved = solveGizmoTarget(target, j, model, ABB_JOINT_RANGES, {
+        preserveConfiguration: false,
+      })
       if (!solved) {
         candidateFailures++
         continue
@@ -94,7 +96,12 @@ describe('solveGizmoTarget', () => {
       const tR = mul(cur.rotation, axisMat(ax, 5))
       const target: Pose = { position: [...cur.position], euler: [0, 0, 0], rotation: tR }
       if (!solveIK(target, j, model, {}, ABB_JOINT_RANGES)) baselineFailures++
-      if (!solveGizmoTarget(target, j, model, ABB_JOINT_RANGES)) candidateFailures++
+      if (
+        !solveGizmoTarget(target, j, model, ABB_JOINT_RANGES, {
+          preserveConfiguration: false,
+        })
+      )
+        candidateFailures++
     }
     expect(candidateFailures).toBeLessThanOrEqual(baselineFailures)
   })

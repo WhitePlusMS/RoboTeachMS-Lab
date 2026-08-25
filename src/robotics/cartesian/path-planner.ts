@@ -84,6 +84,7 @@ export function planCartesianPath(
     tcpStart?: Pose
     toFlange?: (pose: Pose) => Pose
     allowWristFallback?: boolean
+    preserveConfiguration?: boolean
   },
 ): CartesianPathResult {
   const startPose = opts?.tcpStart ?? model.forwardKinematics(initialJoints)
@@ -137,7 +138,7 @@ export function planCartesianPath(
       toFlange,
       // 始终先使用完整位姿 IK；`solvePoseWaypoints` 只在单个 waypoint
       // 接近腕部奇异或发生构型重新分配时，按算法自动局部回退。
-      MOVE_L_IK_CONFIG,
+      { ...MOVE_L_IK_CONFIG, preserveConfiguration: opts?.preserveConfiguration },
       { allowWristFallback: opts?.allowWristFallback },
     )
 

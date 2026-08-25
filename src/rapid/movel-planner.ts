@@ -42,6 +42,7 @@ export function planMoveL(
   model: RobotModel,
   currentJoints: JointAngles,
   jointRanges: readonly (readonly [number, number])[],
+  options?: { preserveConfiguration?: boolean },
 ): MoveLPlanResult {
   const dataConfigError = validateMotionInput(
     movel.target,
@@ -63,6 +64,7 @@ export function planMoveL(
     tcpStart: flangeToWorldTcpPose(currentFlange, movel.tool),
     toFlange: (tcp) => worldTcpToFlangePose(tcp, movel.tool),
     allowWristFallback: movel.singArea === 'wrist',
+    preserveConfiguration: options?.preserveConfiguration,
   })
   if (!waypoints.ok || waypoints.waypoints.length === 0) {
     if (!waypoints.ok) {

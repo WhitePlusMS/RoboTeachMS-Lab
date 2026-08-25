@@ -8,8 +8,7 @@ export type ABBConfiguration = [cf1: number, cf4: number, cf6: number, cfx: numb
 export function abbQuadrant(angleDeg: number): number {
   // 解析三角函数在理论 0° 附近可能产生 -1e-16°；它仍属于 cf=0，
   // 不能被浮点噪声误分到负象限。
-  const nearestBoundary = Math.round(angleDeg / 90) * 90
-  const stableAngle = Math.abs(angleDeg - nearestBoundary) < 1e-7 ? nearestBoundary : angleDeg
+  const stableAngle = Math.abs(angleDeg) < 1e-7 ? 0 : angleDeg
   const quadrant = Math.floor(stableAngle / 90)
   return Object.is(quadrant, -0) ? 0 : quadrant
 }

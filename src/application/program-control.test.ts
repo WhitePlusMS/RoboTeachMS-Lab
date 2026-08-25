@@ -121,22 +121,21 @@ ENDMODULE`)
       expect.objectContaining({
         instructionNumber: 1,
         instructionText: 'MoveL pImpossible,v100,fine,tool0;',
-        errorCode: 'joint-limit',
+        errorCode: 'unreachable',
         errorMessage: expect.any(String),
       }),
     )
-    // pImpossible（1500mm）超出 IRB1200 臂展。路径候选先触及关节软限位，
-    // 规划层必须返回准确的 joint-limit 和 waypoint 级诊断，不能退化成普通日志。
+    // pImpossible（1500mm）在严格构型保持下没有可执行的同构型候选，
+    // 规划层必须返回准确的 unreachable，而不能静默切换构型执行。
     expect(call?.[1]).toEqual(
       expect.objectContaining({
-        errorCode: 'joint-limit',
+        errorCode: 'unreachable',
       }),
     )
     const details = call?.[1] as {
       diagnostic: { waypointIndex?: number; axisIndex?: number } | null
     }
-    expect(details.diagnostic).not.toBeNull()
-    expect(details.diagnostic?.waypointIndex).toBeGreaterThan(0)
+    expect(details.diagnostic).toBeNull()
     error.mockRestore()
   })
 })

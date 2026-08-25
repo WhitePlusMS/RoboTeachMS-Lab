@@ -209,7 +209,10 @@ export function useCartesianControl(options: CartesianControlOptions) {
   let continuousTimer: ReturnType<typeof setInterval> | null = null
   const planTarget =
     options.planTarget ??
-    ((target: Pose, initial: JointAngles) => planCartesianTarget(target, initial, options.profile))
+    ((target: Pose, initial: JointAngles) =>
+      // 手动 Jog 是操作者明确发起的关节/笛卡尔再定位，允许跨越 ABB confdata 象限；
+      // RAPID MoveL/MoveC 仍走默认的严格构型保持路径。
+      planCartesianTarget(target, initial, options.profile, { preserveConfiguration: false }))
 
   const statusMessage = computed(() => {
     const detail = formatFailureDiagnostic(failureDiagnostic.value)

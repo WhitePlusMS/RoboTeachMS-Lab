@@ -310,8 +310,8 @@ describe('executeMoveL 控制与时长', () => {
     }
   })
 
-  it('机械零位 Y 点动不再触发 wrist 回退但仍成功执行', async () => {
-    const startJoints: JointAngles = [0, 0, 0, 0, 30, 0]
+  it('普通工作姿态 Y 点动不触发 wrist 回退且成功执行', async () => {
+    const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const start = degreeFrameFromPose(startJoints)
     const target: RobTarget = {
       trans: [start.position[0], start.position[1] + 5, start.position[2]],

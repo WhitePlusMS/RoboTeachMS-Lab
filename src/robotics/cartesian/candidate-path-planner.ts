@@ -5,7 +5,7 @@ import {
 } from '../inverse-kinematics/candidate-catalog.ts'
 import type { RobotModel } from '../model/robot-model.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { IKSolverConfig } from '../inverse-kinematics/types.ts'
+import type { IKSolverConfig, RobotConfiguration } from '../inverse-kinematics/types.ts'
 import type { WaypointFailureDiagnostic } from '../inverse-kinematics/waypoint-types.ts'
 
 export interface CandidateGraphOptions {
@@ -17,6 +17,8 @@ export interface CandidateGraphOptions {
    * 传 `null` 表示单目标轻量求解不做硬步长拒绝，只保留连续性代价。
    */
   maxJointStepDeg?: number | null
+  /** 默认保持起始关节的型号构型；显式轨迹重放可关闭。 */
+  preserveConfiguration?: boolean
 }
 
 export type CandidateGraphResult =
@@ -123,6 +125,7 @@ function buildLimitDiagnostic(
 function validCandidates(
   catalog: readonly IKCandidateRecord[],
   config: IKSolverConfig,
+  referenceConfiguration?: RobotConfiguration,
 ): IKCandidateRecord[] {
   return catalog.filter(
     (candidate) =>
@@ -130,7 +133,12 @@ function validCandidates(
       candidate.withinJointRanges &&
       !candidate.atJointLimit &&
       candidate.positionErrorMm <= config.posTolerance &&
-      candidate.orientationErrorRad <= config.oriTolerance,
+      candidate.orientationErrorRad <= config.oriTolerance &&
+      (referenceConfiguration === undefined ||
+        (candidate.configuration !== undefined &&
+          candidate.configuration.every(
+            (value, index) => value === referenceConfiguration[index],
+          ))),
   )
 }
 
@@ -153,6 +161,10 @@ export function planStrictCandidateGraph(
   const wristContinuityWeight = options.wristContinuityWeight ?? DEFAULT_WRIST_CONTINUITY_WEIGHT
   const maxJointStepDeg =
     options.maxJointStepDeg === undefined ? MAX_CARTESIAN_JOINT_STEP_DEG : options.maxJointStepDeg
+  const referenceConfiguration =
+    options.preserveConfiguration === false
+      ? undefined
+      : (model.deriveConfiguration?.(initialJoints) ?? undefined)
   const layers: JointAngles[][] = []
   let hasOutOfRangeCandidate = false
 
@@ -160,20 +172,35 @@ export function planStrictCandidateGraph(
     const pose = poses[poseIndex]
     const catalog = buildIKCandidateCatalog(toFlange(pose), initialJoints, model, jointRanges)
     hasOutOfRangeCandidate ||= catalog.some((candidate) => !candidate.withinJointRanges)
-    const candidates = validCandidates(catalog, config)
+    const candidates = validCandidates(catalog, config, referenceConfiguration)
       .map((candidate) => candidate.normalizedJoints)
       .filter((candidate): candidate is JointAngles => candidate !== null)
     if (candidates.length === 0) {
+      const hasSameGeometryOnAnotherConfiguration =
+        referenceConfiguration !== undefined &&
+        catalog.some(
+          (candidate) =>
+            candidate.normalizedJoints !== null &&
+            candidate.withinJointRanges &&
+            !candidate.atJointLimit &&
+            candidate.positionErrorMm <= config.posTolerance &&
+            candidate.orientationErrorRad <= config.oriTolerance,
+        )
       return {
         ok: false,
-        failure: hasOutOfRangeCandidate ? 'joint-limit' : 'unreachable',
+        failure:
+          hasSameGeometryOnAnotherConfiguration || !hasOutOfRangeCandidate
+            ? 'unreachable'
+            : 'joint-limit',
         diagnostic: hasOutOfRangeCandidate
-          ? buildLimitDiagnostic(
-              catalog,
-              poseIndex === 0 ? initialJoints : layers[poseIndex - 1][0],
-              jointRanges,
-              poseIndex + 1,
-            )
+          ? hasSameGeometryOnAnotherConfiguration
+            ? undefined
+            : buildLimitDiagnostic(
+                catalog,
+                poseIndex === 0 ? initialJoints : layers[poseIndex - 1][0],
+                jointRanges,
+                poseIndex + 1,
+              )
           : undefined,
       }
     }

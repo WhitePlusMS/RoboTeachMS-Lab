@@ -25,6 +25,7 @@ export function planCartesianTarget(
   targetPose: Pose,
   initialJoints: JointAngles,
   profile: RobotProfile,
+  options?: { preserveConfiguration?: boolean },
 ): CartesianPathResult {
-  return planCartesianPath(targetPose, initialJoints, profile.model, profile.jointRanges)
+  return planCartesianPath(targetPose, initialJoints, profile.model, profile.jointRanges, options)
 }

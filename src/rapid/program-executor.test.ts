@@ -536,9 +536,8 @@ describe('ProgramExecutor 标量变量 seam', () => {
 })
 
 describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
-  function makeModelAndRunner() {
+  function makeModelAndRunner(home: JointAngles = [0, 0, 0, 0, 30, 180]) {
     const model = new AbbRobotModelAdapter()
-    const home: JointAngles = [0, 0, 0, 0, 30, 180]
     const clock = new ManualMotionClock()
     let joints: JointAngles = [...home]
     const runner = createMotionRunner({
@@ -572,20 +571,24 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
   }
 
   it('真实 MoveJ → MoveL → MoveJ 按顺序完成并推进指针', async () => {
-    const { model, clock, joints, seam } = makeModelAndRunner()
-    const start: JointAngles = [0, 0, 0, 0, 30, 180]
-    const homePose = model.forwardKinematics(start)!
-    const homeRotation = internalQuatToRapid(rotationMatrixToQuaternion(homePose.rotation))
-    const at = (dx: number, dy: number, dz: number): RobTarget => ({
-      trans: [homePose.position[0] + dx, homePose.position[1] + dy, homePose.position[2] + dz],
-      rot: homeRotation,
-      robconf: [0, 0, 0, 0],
-      extax: [...NO_EXTERNAL_AXIS],
-    })
+    const start: JointAngles = [15, -20, 30, 10, 25, 30]
+    const { model, clock, joints, seam } = makeModelAndRunner(start)
+    const poseTarget = (joints: JointAngles): RobTarget => {
+      const pose = model.forwardKinematics(joints)!
+      return {
+        trans: [...pose.position],
+        rot: internalQuatToRapid(rotationMatrixToQuaternion(pose.rotation)),
+        robconf: [0, 0, 0, 0],
+        extax: [...NO_EXTERNAL_AXIS],
+      }
+    }
+    const moveJTarget = poseTarget([16, -20, 30, 10, 25, 30])
+    const moveLTarget = poseTarget([16, -19, 30, 10, 25, 30])
+    const finalMoveJTarget = poseTarget([17, -19, 30, 10, 25, 30])
     const program: StructuredMotionInstruction[] = [
-      makeMoveJ({ target: at(40, 0, -20) }),
-      makeMoveL({ target: at(40, 60, -20) }),
-      makeMoveJ({ target: at(40, 60, 30) }),
+      makeMoveJ({ target: moveJTarget }),
+      makeMoveL({ target: moveLTarget }),
+      makeMoveJ({ target: finalMoveJTarget }),
     ]
     const executor = createProgramExecutor(program, seam)
 

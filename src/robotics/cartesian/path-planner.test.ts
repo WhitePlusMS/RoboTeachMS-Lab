@@ -74,7 +74,9 @@ describe('Cartesian path planner', () => {
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
+      preserveConfiguration: false,
+    })
 
     expect(path).toMatchObject({ ok: false, failure: 'joint-step' })
     if (!path.ok) {
@@ -89,7 +91,9 @@ describe('Cartesian path planner', () => {
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
+      preserveConfiguration: false,
+    })
 
     expect(path).toMatchObject({ ok: false, failure: 'joint-step' })
     if (!path.ok) expect(path.diagnostic?.axisIndex).toBe(3)
@@ -101,9 +105,22 @@ describe('Cartesian path planner', () => {
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
 
-    const result = planCartesianTarget(targetPose, startJoints, ABB_IRB1200_PROFILE)
+    const result = planCartesianTarget(targetPose, startJoints, ABB_IRB1200_PROFILE, {
+      preserveConfiguration: false,
+    })
 
     expect(result).toMatchObject({ ok: false, failure: 'joint-step' })
+  })
+
+  it('严格 Cartesian 路径没有同构型候选时直接失败，不执行异构型候选', () => {
+    const model = new AbbRobotModelAdapter()
+    const startJoints: JointAngles = [0, -25, 45, 0, 20, 0]
+    const targetPose = clonePose(model.forwardKinematics(startJoints))
+    targetPose.position[1] -= 1
+
+    const result = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
+
+    expect(result).toMatchObject({ ok: false, failure: 'ik-not-converged' })
   })
 
   it('把 ABB 的 10 度姿态点动拆成连续的小角度 waypoint', () => {
@@ -143,7 +160,9 @@ describe('Cartesian path planner', () => {
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[1] += 1
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
+      preserveConfiguration: false,
+    })
 
     expect(path.ok, JSON.stringify(path)).toBe(true)
     if (!path.ok) return
@@ -159,7 +178,9 @@ describe('Cartesian path planner', () => {
     const targetPose = clonePose(startPose)
     targetPose.position[1] += 1
 
-    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
+    const path = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
+      preserveConfiguration: false,
+    })
 
     expect(path.ok, JSON.stringify(path)).toBe(true)
     if (!path.ok) return
@@ -225,7 +246,9 @@ describe('Cartesian path planner', () => {
       for (const direction of [-1, 1]) {
         const targetPose = clonePose(startPose)
         targetPose.position[axis] += direction
-        const result = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES)
+        const result = planCartesianPath(targetPose, startJoints, model, ABB_JOINT_RANGES, {
+          preserveConfiguration: false,
+        })
         expect(result.ok, `axis=${axis}, direction=${direction}`).toBe(true)
         if (result.ok)
           expect(result.appliedSingularityMode, `axis=${axis}, direction=${direction}`).toBeNull()
@@ -251,7 +274,9 @@ describe('Cartesian path planner', () => {
           euler: [...current.euler],
           rotation: current.rotation.map((row) => [...row]),
         }
-        const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE)
+        const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE, {
+          preserveConfiguration: false,
+        })
         expect(result.ok, `${label} step ${step}`).toBe(true)
         if (!result.ok) return current.position[1]
         if (result.appliedSingularityMode === 'wrist') {
@@ -289,7 +314,9 @@ describe('Cartesian path planner', () => {
             euler: [...current.euler],
             rotation: current.rotation.map((row) => [...row]),
           }
-          const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE)
+          const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE, {
+            preserveConfiguration: false,
+          })
           expect(result.ok, `axis=${axis}, direction=${yDirection}, step=${step + 1}`).toBe(true)
           if (!result.ok) return
           for (const waypoint of result.waypoints) {
@@ -325,7 +352,9 @@ describe('Cartesian path planner', () => {
           euler: [...current.euler],
           rotation: current.rotation.map((row) => [...row]),
         }
-        const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE)
+        const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE, {
+          preserveConfiguration: false,
+        })
         expect(result.ok, `axis=${axis}, step=${step + 1}`).toBe(true)
         if (!result.ok) return
         for (const waypoint of result.waypoints) {

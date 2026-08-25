@@ -47,6 +47,7 @@ export function solvePoseWaypoints(
   if (!wristFallbackPath && model.solveAllIK) {
     const graph = planStrictCandidateGraph(poses, initialJoints, model, jointRanges, toFlange, {
       solverConfig,
+      preserveConfiguration: solverConfig.preserveConfiguration,
     })
     if (graph.ok) {
       return {

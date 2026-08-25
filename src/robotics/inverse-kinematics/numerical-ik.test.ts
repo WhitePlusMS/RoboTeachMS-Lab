@@ -91,7 +91,14 @@ describe('ABB IRB 1200 解析逆解', () => {
 
     samples.forEach((source) => {
       const target = model.forwardKinematics(source) as Pose
-      const result = solveIK(target, source, model, {}, ABB_JOINT_RANGES)
+      // 该组测试验证解析几何分支的位姿闭环，不验证 RAPID 的构型保持策略。
+      const result = solveIK(
+        target,
+        source,
+        model,
+        { preserveConfiguration: false },
+        ABB_JOINT_RANGES,
+      )
 
       expect(result, `纯 ABB DH 求解失败：${source.join(',')}`).not.toBeNull()
       const solved = model.forwardKinematics(result as JointAngles) as Pose

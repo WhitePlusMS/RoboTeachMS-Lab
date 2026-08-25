@@ -16,7 +16,11 @@ export function solveGizmoTarget(
     jointRanges,
     (pose) => pose,
     // 单帧拖拽不使用 MoveL 的 5°硬拒绝；候选连续性代价和软限位仍保持统一。
-    { solverConfig, maxJointStepDeg: null },
+    {
+      solverConfig,
+      maxJointStepDeg: null,
+      preserveConfiguration: solverConfig.preserveConfiguration,
+    },
   )
   if (!graph.ok || graph.waypoints.length === 0) return null
   return graph.waypoints[0]

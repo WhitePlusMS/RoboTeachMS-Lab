@@ -59,12 +59,16 @@ describe('RAPID 预设程序库', () => {
           expect(plan.ok, `${preset.name} MoveJ 规划失败`).toBe(true)
           if (plan.ok) joints = [...plan.joints]
         } else if (inst.kind === 'movel') {
-          const plan = planMoveL(inst as StructuredMoveL, model, joints, jointRanges)
+          const plan = planMoveL(inst as StructuredMoveL, model, joints, jointRanges, {
+            preserveConfiguration: false,
+          })
           expect(plan.ok, `${preset.name} MoveL 规划失败`).toBe(true)
           if (plan.ok) joints = [...plan.waypoints[plan.waypoints.length - 1]]
         } else if (inst.kind === 'movec') {
           movecCount += 1
-          const plan = planMoveC(inst as StructuredMoveC, model, joints, jointRanges)
+          const plan = planMoveC(inst as StructuredMoveC, model, joints, jointRanges, {
+            preserveConfiguration: false,
+          })
           expect(plan.ok, `${preset.name} MoveC 规划失败`).toBe(true)
           if (plan.ok) joints = [...plan.waypoints[plan.waypoints.length - 1]]
         }

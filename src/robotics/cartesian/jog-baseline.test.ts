@@ -52,7 +52,9 @@ function moveCartesianStep(
   if (!current) throw new Error('Cartesian baseline current FK unexpectedly failed')
   const target = clonePose(current)
   target.position[axis] += delta
-  const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE)
+  const result = planCartesianTarget(target, joints, ABB_IRB1200_PROFILE, {
+    preserveConfiguration: false,
+  })
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(`Cartesian baseline step failed: ${result.failure}`)
 
