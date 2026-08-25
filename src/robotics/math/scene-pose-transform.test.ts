@@ -9,7 +9,7 @@ import {
 } from './scene-pose-transform.ts'
 import { rotationMatrixToEulerZYX, rotationMatrixToQuaternion } from './rotation3d.ts'
 import { eulerZYXToMatrix } from '@/robotics/kinematics/transform-matrix.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_BASE_TO_SCENE } from '@/scene/abb-scene-transform.ts'
 
 describe('scene-pose-transform 场景 frame ↔ ABB 基座 frame', () => {
@@ -84,7 +84,7 @@ describe('scene-pose-transform 场景 frame ↔ ABB 基座 frame', () => {
   })
 
   it('与 DH FK 闭环：ABB 法兰位姿 → 场景 → 回 ABB，恢复原 Pose', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints: [number, number, number, number, number, number] = [15, -20, 35, 0, 25, 0]
     const fk = model.forwardKinematics(joints)
     expect(fk).not.toBeNull()
@@ -111,7 +111,7 @@ describe('scene-pose-transform 场景 frame ↔ ABB 基座 frame', () => {
   })
 
   it('DH 当前法兰 Pose 转场景后再回 ABB，保持旋转拖拽起点一致', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints: [number, number, number, number, number, number] = [12, -18, 24, 8, 20, -15]
     const pose = model.forwardKinematics(joints)
     expect(pose).not.toBeNull()
@@ -152,7 +152,7 @@ describe('scene-pose-transform 场景 frame ↔ ABB 基座 frame', () => {
   })
 
   it('与 DH FK 闭环：ABB 法兰位姿 → 场景 → 回 ABB，位置与旋转完全一致', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints: [number, number, number, number, number, number] = [15, -20, 35, 0, 25, 0]
     const fk = model.forwardKinematics(joints)
     if (!fk) return

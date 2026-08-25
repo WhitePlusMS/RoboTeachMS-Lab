@@ -86,6 +86,7 @@ function resolveAnalyticJointSolution(
   jointRanges: readonly (readonly [number, number])[],
   solverConfig: Partial<IKSolverConfig>,
   continuityLimitDeg: number | undefined,
+  preserveConfiguration: boolean,
 ): JointSolutionResult | undefined {
   if (!model.solveAllIK || solverConfig.positionOnly || solverConfig.lockedJointTargetsDeg) {
     return undefined
@@ -106,8 +107,24 @@ function resolveAnalyticJointSolution(
     orientationTolerance: config.oriTolerance,
     maxJointStepDeg: continuityLimitDeg,
     rejectAtJointLimit: true,
+    referenceConfiguration: preserveConfiguration
+      ? (model.deriveConfiguration?.(referenceJoints) ?? undefined)
+      : undefined,
   })
   if (!bestCandidate?.normalizedJoints) {
+    const referenceConfiguration = preserveConfiguration
+      ? model.deriveConfiguration?.(referenceJoints)
+      : undefined
+    const hasSameConfiguration =
+      referenceConfiguration === null ||
+      referenceConfiguration === undefined ||
+      residualCandidates.some(
+        (candidate) =>
+          candidate.configuration !== undefined &&
+          candidate.configuration.length === referenceConfiguration.length &&
+          candidate.configuration.every((value, index) => value === referenceConfiguration[index]),
+      )
+    if (!hasSameConfiguration) return { failure: 'unreachable' }
     const normalizedCandidates = residualCandidates
       .map((candidate) => candidate.normalizedJoints)
       .filter((candidate): candidate is JointAngles => candidate !== null)
@@ -184,18 +201,22 @@ function selectWristEscapeCandidate(
   continuityLimitDeg?: number,
 ): IKCandidateRecord | null {
   const candidates = buildIKCandidateCatalog(targetPose, referenceJoints, model, jointRanges)
-  const valid = candidates.filter((candidate) => {
+  const isValid = (candidate: IKCandidateRecord, enforceDirection: boolean): boolean => {
     if (candidate.normalizedJoints === null) return false
     if (!candidate.withinJointRanges || candidate.atJointLimit) return false
     if (candidate.orientationErrorRad > WRIST_ORIENTATION_TOLERANCE_RAD) return false
     const j5 = candidate.normalizedJoints[4]
     // J5 恰为 0 时仍处于奇异面上，两侧皆可接受，由连续性距离决定。
-    if (j5 !== 0 && Math.sign(j5) !== escapeDirection) return false
+    if (enforceDirection && j5 !== 0 && Math.sign(j5) !== escapeDirection) return false
     if (continuityLimitDeg !== undefined && candidate.maxJointDeltaDeg > continuityLimitDeg) {
       return false
     }
     return true
-  })
+  }
+  let valid = candidates.filter((candidate) => isValid(candidate, true))
+  // 目标位姿经过 tool/wobj 转换后，几何上可能只有另一侧存在可行离开点；
+  // 显式 SingArea\Wrist 已授权腕部重构，此时选择全体合法候选比错误报告不可达更准确。
+  if (valid.length === 0) valid = candidates.filter((candidate) => isValid(candidate, false))
   let best: IKCandidateRecord | null = null
   let bestDistance = Number.POSITIVE_INFINITY
   for (const candidate of valid) {
@@ -420,6 +441,7 @@ export function resolveJointSolution(
     jointRanges,
     solverConfig,
     continuityLimitDeg,
+    solverConfig.preserveConfiguration !== false && !(wristModeActive && context.escapeDone),
   )
 
   // 非 wrist 模式直接返回严格解。
@@ -446,7 +468,7 @@ export function resolveJointSolution(
     model,
     jointRanges,
     context.escapeDirection,
-    continuityLimitDeg,
+    context.escapeDone ? continuityLimitDeg : undefined,
   )
 
   if (escapeCandidate === null) {
@@ -479,7 +501,8 @@ export function resolveJointSolution(
     if (
       refined === null ||
       isCandidateAtJointLimit(refined, jointRanges) ||
-      (continuityLimitDeg !== undefined &&
+      (context.escapeDone &&
+        continuityLimitDeg !== undefined &&
         Math.max(...refined.map((value, index) => Math.abs(value - referenceJoints[index]))) >
           continuityLimitDeg)
     ) {
@@ -525,6 +548,7 @@ function resolveJointSolutionStrict(
   jointRanges: readonly (readonly [number, number])[],
   solverConfig: Partial<IKSolverConfig> = {},
   continuityLimitDeg?: number,
+  preserveConfiguration = true,
 ): JointSolutionResult {
   const analytic = resolveAnalyticJointSolution(
     targetPose,
@@ -533,6 +557,7 @@ function resolveJointSolutionStrict(
     jointRanges,
     solverConfig,
     continuityLimitDeg,
+    preserveConfiguration,
   )
   if (analytic !== undefined) return analytic
   // 解析法不可用（无 solveAllIK、positionOnly 或锁定关节）时自然走数值 DLS。
@@ -585,17 +610,3 @@ function resolveJointSolutionStrict(
   }
   return { joints: best }
 }
-
-/**
- * 逐点把一串 TCP 位姿求解为关节 waypoint（MoveL 与 MoveC 共用）：
- * 每个 waypoint 经 `toFlange` 转成法兰位姿送 IK，以上一关节解为参考初值；
- * 并做构型跳变（相邻步长）护栏。失败时返回结构化原因，避免上层把腕部奇异、关节
- * 限位和普通数值不收敛混成同一条“不可达”消息。
- *
- * 逆解用共享的多初值策略（主初值 + 确定性构型翻转备用初值，选离参考最近的解），
- * 避免单一连续性初值在圆弧这类连续位姿上陷入狭窄收敛盆地而误判不可达。
- *
- * 腕部奇异处理已下沉到 `resolveJointSolution`；本函数只负责维护 waypoint 之间的
- * `WristSingularityContext`。严格路径优先使用全局候选图规划；机械零位腕部路径直接
- * 走局部求解，由 `resolveJointSolution` 算法决定是否启用 wrist 回退。
- */

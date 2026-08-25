@@ -1,4 +1,4 @@
-import { planCartesianPath } from '@/robotics/cartesian/path-planner.ts'
+import { planCartesianPath } from '@/robotics/cartesian/index.ts'
 import type { MotionResult } from '@/robotics/motion/runner.ts'
 import type { RobotModel } from '@/robotics/model/robot-model.ts'
 import type { JointAngles } from '@/robotics/model/types.ts'

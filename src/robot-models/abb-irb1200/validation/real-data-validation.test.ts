@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import { solveIK } from '@/robotics/inverse-kinematics/numerical-ik.ts'
 import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
@@ -55,7 +55,7 @@ const emptyCurveRecord: RpiCurveRecord = {
 const curveRecord = loadJson<RpiCurveRecord>(CURVE_PATH, emptyCurveRecord)
 const plannedRecord = loadJson<RpiCurveRecord>(CURVE_PLANNED_PATH, emptyCurveRecord)
 
-const model = new AbbDhRobotModel()
+const model = new AbbRobotModelAdapter()
 
 function radToDeg(rad: number): number {
   return (rad * 180) / Math.PI
@@ -72,6 +72,16 @@ function positionErrorMm(a: readonly number[], b: readonly number[]): number {
 // 真实数据属于本地研究资料，不进入 Git；在 clone/CI 缺少数据时跳过整组验证，
 // 避免模块收集阶段因同步读取不存在文件而直接崩溃。
 describe.skipIf(!hasRealData)('ABB IRB 1200 真实数据验证', () => {
+  beforeAll(() => {
+    expect(records.length).toBeGreaterThan(0)
+    expect(curveRecord.joints_deg.length).toBeGreaterThan(0)
+    expect(curveRecord.joints_deg.length).toBe(curveRecord.p_flange_mm.length)
+    expect(curveRecord.joints_deg.length).toBe(curveRecord.r_flange.length)
+    expect(plannedRecord.joints_deg.length).toBeGreaterThan(0)
+    expect(plannedRecord.joints_deg.length).toBe(plannedRecord.p_flange_mm.length)
+    expect(plannedRecord.joints_deg.length).toBe(plannedRecord.r_flange.length)
+  })
+
   it('项目 FK 与 RPI 真实数据法兰位姿一致', () => {
     let maxPosErr = 0
     let maxOriErr = 0
@@ -191,7 +201,15 @@ describe.skipIf(!hasRealData)('ABB IRB 1200 真实数据验证', () => {
         rotation: curveRecord.r_flange[index] as Pose['rotation'],
       }
       const reference = previousJoints ?? (jointsDeg as JointAngles)
-      const result = solveIK(targetPose, reference, model, {}, ABB_JOINT_RANGES)
+      // 外部 RPI 轨迹本身包含 cf1 象限切换；此测试验证几何跟踪连续性，
+      // 构型保持语义由默认严格路径和 candidate-catalog 单测单独验证。
+      const result = solveIK(
+        targetPose,
+        reference,
+        model,
+        { preserveConfiguration: false },
+        ABB_JOINT_RANGES,
+      )
 
       if (!result) {
         failures += 1
@@ -249,7 +267,15 @@ describe.skipIf(!hasRealData)('ABB IRB 1200 真实数据验证', () => {
         euler: [0, 0, 0],
         rotation: curveRecord.r_flange[index] as Pose['rotation'],
       }
-      const result = solveIK(targetPose, previousJoints, model, {}, ABB_JOINT_RANGES)
+      // 外部 RPI 轨迹本身包含 cf1 象限切换；此测试验证几何跟踪连续性，
+      // 构型保持语义由默认严格路径和 candidate-catalog 单测单独验证。
+      const result = solveIK(
+        targetPose,
+        previousJoints,
+        model,
+        { preserveConfiguration: false },
+        ABB_JOINT_RANGES,
+      )
       if (!result) {
         throw new Error(`IK failed at trajectory index ${index} during continuity test`)
       }

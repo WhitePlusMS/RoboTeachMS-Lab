@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import { mat3Mul, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import type { JointAngles } from '@/robotics/model/types.ts'
 import { executeMoveL, planMoveL } from './movel-planner.ts'
 import { planMoveJ } from './movej-planner.ts'
+import { robTargetToFlangePose } from './coordinate-transform.ts'
+import { buildIKCandidateCatalog } from '@/robotics/inverse-kinematics/candidate-catalog.ts'
 import { internalQuatToRapid } from './plan-shared.ts'
 import {
   defaultTool0,
@@ -19,7 +21,7 @@ import {
   type StructuredMoveL,
 } from './rapid-types.ts'
 
-const ABB_MODEL = new AbbDhRobotModel()
+const ABB_MODEL = new AbbRobotModelAdapter()
 
 function degreeFrameFromPose(joints: JointAngles): {
   frame: RapidPose
@@ -351,7 +353,6 @@ describe('executeMoveL 控制与时长', () => {
       startJoints,
       ABB_JOINT_RANGES,
     )
-
     expect(wristResult.ok).toBe(true)
   })
 })
@@ -372,14 +373,36 @@ describe('planMoveL 长距离路径自适应采样', () => {
     }
     const pBottom: RobTarget = {
       ...pTop,
-      trans: [533, -50, -310.9],
+      trans: [533, -50, 700],
     }
 
-    const moveJ = planMoveJ(makeMoveJ(pTop), ABB_MODEL, [0, 0, 0, 0, 0, 0], ABB_JOINT_RANGES)
+    const pTopPose = robTargetToFlangePose(pTop, defaultWobj0(), defaultTool0())
+    const startJoints = buildIKCandidateCatalog(
+      pTopPose,
+      [0, 0, 0, 0, 30, 0],
+      ABB_MODEL,
+      ABB_JOINT_RANGES,
+    ).find(
+      (candidate) =>
+        candidate.normalizedJoints !== null &&
+        candidate.withinJointRanges &&
+        !candidate.atJointLimit &&
+        candidate.positionErrorMm <= 1 &&
+        candidate.orientationErrorRad <= 0.01,
+    )?.normalizedJoints
+    expect(startJoints).not.toBeNull()
+    if (!startJoints) return
+
+    const moveJ = planMoveJ(makeMoveJ(pTop), ABB_MODEL, startJoints, ABB_JOINT_RANGES)
     expect(moveJ.ok).toBe(true)
     if (!moveJ.ok) return
 
-    const moveL = planMoveL(makeMoveL(pBottom), ABB_MODEL, moveJ.joints, ABB_JOINT_RANGES)
+    const moveL = planMoveL(
+      makeMoveL(pBottom, { singArea: 'wrist' }),
+      ABB_MODEL,
+      moveJ.joints,
+      ABB_JOINT_RANGES,
+    )
     expect(moveL.ok).toBe(true)
     if (moveL.ok) expect(maxJointStep([moveJ.joints, ...moveL.waypoints])).toBeLessThanOrEqual(5)
   })

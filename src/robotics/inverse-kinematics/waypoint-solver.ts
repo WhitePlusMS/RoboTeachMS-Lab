@@ -3,7 +3,8 @@ import {
   planStrictCandidateGraph,
 } from '../cartesian/candidate-path-planner.ts'
 import type { RobotModel } from '../model/robot-model.ts'
-import type { IKSolverConfig, JointAngles, Pose } from '../model/types.ts'
+import type { JointAngles, Pose } from '../model/joint-pose.ts'
+import type { IKSolverConfig } from './types.ts'
 import {
   buildJointStepDetail,
   getSinglePointWristEscapeDirection,
@@ -54,6 +55,11 @@ export function solvePoseWaypoints(
         appliedSingularityMode: null,
       }
     }
+    return {
+      ok: false,
+      failure: graph.failure === 'unreachable' ? 'ik-not-converged' : graph.failure,
+      diagnostic: graph.diagnostic,
+    }
   }
 
   let wristContext: WristSingularityContext | undefined
@@ -65,6 +71,7 @@ export function solvePoseWaypoints(
     }
   }
   for (let waypointIndex = 0; waypointIndex < poses.length; waypointIndex += 1) {
+    const wasWristEscaped = wristContext?.escapeDone ?? false
     const pose = poses[waypointIndex]
     const solved = resolveJointSolution(
       toFlange(pose),
@@ -95,7 +102,8 @@ export function solvePoseWaypoints(
     const maxJointStep = Math.max(
       ...solved.joints.map((value, index) => Math.abs(value - previousJoints[index])),
     )
-    if (maxJointStep > MAX_CARTESIAN_JOINT_STEP_DEG) {
+    const escapedOnThisWaypoint = !wasWristEscaped && solved.wristContext?.escapeDone === true
+    if (maxJointStep > MAX_CARTESIAN_JOINT_STEP_DEG && !escapedOnThisWaypoint) {
       const wristReconfiguration =
         wristFallbackPath && isWristReconfiguration(model, previousJoints, solved.joints)
       return withWaypointDiagnostic(

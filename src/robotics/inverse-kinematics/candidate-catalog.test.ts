@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import { buildIKCandidateCatalog, selectBestIKCandidate } from './candidate-catalog.ts'
 import type { IKCandidateRecord } from './candidate-catalog.ts'
-import type { ABBConfiguration, JointAngles, Pose } from '../model/types.ts'
+import type { JointAngles, Pose } from '../model/joint-pose.ts'
+import type { ABBConfiguration } from '@/robot-models/abb-irb1200/kinematics/configuration.ts'
 
 describe('IK candidate catalog', () => {
-  const model = new AbbDhRobotModel()
+  const model = new AbbRobotModelAdapter()
 
   it('保留完整解析分支并统一提供残差、奇异和限位元数据', () => {
     const source: JointAngles = [25, -20, 35, 15, -25, 30]

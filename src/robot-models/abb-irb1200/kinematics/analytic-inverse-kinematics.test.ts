@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { orientationError } from '@/robotics/math/rotation3d.ts'
-import { extractPose } from '@/robotics/kinematics/legacy-dh-forward-kinematics.ts'
+import { extractPose } from '@/robotics/kinematics/pose-conversion.ts'
 import { forwardAbbKinematicsDegrees } from './forward-kinematics.ts'
-import {
-  abbConfigurationFromBranch,
-  abbQuadrant,
-  solveAbbAnalyticIK,
-} from './analytic-inverse-kinematics.ts'
+import { abbConfigurationFromBranch, abbQuadrant } from './configuration.ts'
+import { solveAbbAnalyticIK } from './analytic-inverse-kinematics.ts'
 
 function poseFromJoints(joints: [number, number, number, number, number, number]) {
   const matrix = forwardAbbKinematicsDegrees(joints)

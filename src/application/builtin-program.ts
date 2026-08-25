@@ -7,9 +7,9 @@
  */
 export function createBuiltinRapidSource(): string {
   return `MODULE TeachingDemo
-    CONST robtarget pApproach := [[368.789,0,821.082],[0,0.866025,0,0.5],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-    CONST robtarget pWork := [[368.789,0,771.082],[0,0.866025,0,0.5],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-    CONST robtarget pRest := [[406.727,0,884.937],[0,0.819152,0,0.573576],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pApproach := [[368.789,0,821.082],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pWork := [[368.789,0,771.082],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pRest := [[406.727,0,884.937],[0.573576,0,0.819152,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
 
     PROC main()
         MoveJ pApproach,v200,fine,tool0;

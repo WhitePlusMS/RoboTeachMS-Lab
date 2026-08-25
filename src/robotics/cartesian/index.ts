@@ -2,6 +2,14 @@ import type { RobotProfile } from '../model/robot-profile.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
 import { planCartesianPath, type CartesianPathResult } from './path-planner.ts'
 
+export { planCartesianPath } from './path-planner.ts'
+export type { CartesianPathFailure, CartesianPathResult } from './path-planner.ts'
+export { solveGizmoTarget } from './gizmo-target-solver.ts'
+export { solvePoseWaypoints } from '../inverse-kinematics/waypoint-solver.ts'
+export { createCartesianPlannerWorkerAdapter } from './worker/adapter.ts'
+export type { CartesianPlannerWorkerAdapter } from './worker/adapter.ts'
+export type { WaypointFailureDiagnostic } from '../inverse-kinematics/waypoint-types.ts'
+
 /** 手动笛卡尔目标规划 seam；实现可以是同步测试 adapter 或 Worker adapter。 */
 export type CartesianTargetPlanner = (
   targetPose: Pose,

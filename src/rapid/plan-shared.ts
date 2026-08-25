@@ -1,7 +1,7 @@
 import { quaternionToRotationMatrix, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
 import type { RobotModel } from '@/robotics/model/robot-model.ts'
 import type { JointAngles, Pose } from '@/robotics/model/types.ts'
-import type { CartesianPathFailure } from '@/robotics/cartesian/path-planner.ts'
+import type { CartesianPathFailure } from '@/robotics/cartesian/index.ts'
 import {
   NO_EXTERNAL_AXIS,
   type RapidQuat,

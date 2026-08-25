@@ -6,15 +6,11 @@ import type {
   CartesianPathFailure,
   CartesianPathResult,
   WaypointFailureDiagnostic,
-} from '@/robotics/cartesian/path-planner.ts'
+} from '@/robotics/cartesian/index.ts'
 import { planCartesianTarget } from '@/robotics/cartesian/index.ts'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
 import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
-import type {
-  JointAngles,
-  Pose,
-  PoseDisplay,
-} from '@/robotics/model/types.ts'
+import type { JointAngles, Pose, PoseDisplay } from '@/robotics/model/types.ts'
 import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const

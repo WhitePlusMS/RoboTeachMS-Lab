@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import {
   ABB_JOINT_RANGES,
   ABB_TEACHING_HOME_JOINTS,
@@ -21,7 +21,7 @@ import {
   type StructuredMoveC,
 } from './rapid-types.ts'
 
-const ABB_MODEL = new AbbDhRobotModel()
+const ABB_MODEL = new AbbRobotModelAdapter()
 const AT_HOME: JointAngles = ABB_TEACHING_HOME_JOINTS
 
 /** 构造一个 robtarget（ABB 顺序四元数 [q1,q2,q3,q4] = [w,x,y,z]）。 */

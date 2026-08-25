@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import type { JointAngles, Pose } from '@/robotics/model/types.ts'
-import { executeMoveJ, planMoveJ, type MoveJPlanResult } from './movej-planner.ts'
+import { executeMoveJ, planMoveJ } from './movej-planner.ts'
 import { internalQuatToRapid, robTargetToPose } from './plan-shared.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'
 import { orientationError, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
@@ -19,16 +19,19 @@ import {
   type WobjData,
 } from './rapid-types.ts'
 
-const ABB_MODEL = new AbbDhRobotModel()
-const AT_HOME: JointAngles = [0, 0, 0, 0, 0, 0]
+const ABB_MODEL = new AbbRobotModelAdapter()
+const AT_HOME: JointAngles = [0, 0, 0, 0, 30, 0]
 
-/** 固定可达 robtarget：从 home 机械法兰 [451,0,807.1] 移动至 [500,100,807.1]，单位 RAPID 四元数姿态。 */
-const REACHABLE_TARGET: RobTarget = {
-  trans: [500, 100, 807.1],
-  rot: [1, 0, 0, 0],
-  robconf: [0, 0, 0, 0],
-  extax: [...NO_EXTERNAL_AXIS],
-}
+/** 固定可达 robtarget：与教学 Home 保持同一 ABB 构型，避免测试隐式依赖构型切换。 */
+const REACHABLE_TARGET: RobTarget = (() => {
+  const pose = ABB_MODEL.forwardKinematics([0, -10, 5, 0, 30, 0])!
+  return {
+    trans: [...pose.position],
+    rot: internalQuatToRapid(rotationMatrixToQuaternion(pose.rotation)),
+    robconf: [0, 0, 0, 0],
+    extax: [...NO_EXTERNAL_AXIS],
+  }
+})()
 
 function makeMoveJ(overrides: Partial<StructuredMoveJ> = {}): StructuredMoveJ {
   return {
@@ -212,7 +215,7 @@ describe('executeMoveJ 经 MotionRunner 完成一个 ABB 目标', () => {
     }
 
     const outcomePromise = executeMoveJ(makeMoveJ(), seam)
-    clock.advanceBy(1000)
+    clock.advanceBy(1)
     runner.stop()
     const outcome = await outcomePromise
 
@@ -355,68 +358,30 @@ function fkTarget(joints: JointAngles): RobTarget {
   }
 }
 
-/** 断言规划结果到达 robtarget 的目标位姿（位置 + 姿态容差与项目既有 IK 一致）。 */
-function expectReaches(result: MoveJPlanResult, target: RobTarget): void {
-  expect(result.ok).toBe(true)
-  if (!result.ok) return
-  const endPose = ABB_MODEL.forwardKinematics(result.joints)!
-  const targetRotation = robTargetToPose(target).rotation
-  expect(Math.abs(endPose.position[0] - target.trans[0])).toBeLessThan(2)
-  expect(Math.abs(endPose.position[1] - target.trans[1])).toBeLessThan(2)
-  expect(Math.abs(endPose.position[2] - target.trans[2])).toBeLessThan(2)
-  const orientationDelta = orientationError(endPose.rotation, targetRotation)
-  // 多初值远端求解会停在求解器声明的姿态容差（oriTolerance=0.01 rad）内。
-  expect(Math.max(...orientationDelta)).toBeLessThan(1e-2)
-}
-
-describe('可靠回放大幅 MoveJ（多初值 IK）', () => {
+describe('MoveJ 构型保持与确定性', () => {
   // 教学目标：J1=+60，且肩（J2=-40）、肘（J3=+20）、腕（J5=+30/J6=+10）均有明显变化。
   const TARGET_JOINTS: JointAngles = [60, -40, 20, 0, 30, 10]
   const TARGET = fkTarget(TARGET_JOINTS)
   // 远端出发姿态：J1=-120 且其余关节明显不同。
   const DISTANT_CURRENT: JointAngles = [-120, 20, -60, 0, -20, 45]
 
-  it('大幅 J1 复合目标能由 J1 约 -120° 的远端姿态规划并到达', () => {
+  it('不同 ABB 构型的目标报告不可达，不静默切换构型', () => {
     const result = planMoveJ(
       makeMoveJ({ target: TARGET }),
       ABB_MODEL,
       DISTANT_CURRENT,
       ABB_JOINT_RANGES,
     )
-    expectReaches(result, TARGET)
-    // 解析 IK 返回全部分支后，分支选择器应优先保持当前 J1=-120° 的连续构型。
-    if (result.ok) expect(result.joints[0]).toBeCloseTo(DISTANT_CURRENT[0], 6)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.kind).toBe('unreachable')
   })
 
-  it('至少一个同时含大幅 J1、肩肘和腕部变化的 FK 目标能从远端姿态回放', () => {
-    // 另一侧的大幅 J1（+120 → -30），并含肩、肘、腕变化。
-    const otherJoints: JointAngles = [120, 10, -30, 0, -10, 20]
-    const target = fkTarget(otherJoints)
-    const current: JointAngles = [-30, -50, 40, 0, 50, -60]
-    const result = planMoveJ(makeMoveJ({ target }), ABB_MODEL, current, ABB_JOINT_RANGES)
-    expectReaches(result, target)
-  })
-
-  it('多个候选成功时选择离当前姿态最近的解，平局结果稳定', () => {
-    // 反复规划同一场景，选出的关节解稳定一致（无随机、顺序稳定）。
-    const first = planMoveJ(
-      makeMoveJ({ target: TARGET }),
-      ABB_MODEL,
-      DISTANT_CURRENT,
-      ABB_JOINT_RANGES,
-    )
-    const second = planMoveJ(
-      makeMoveJ({ target: TARGET }),
-      ABB_MODEL,
-      DISTANT_CURRENT,
-      ABB_JOINT_RANGES,
-    )
+  it('同一 ABB 构型重复规划结果稳定', () => {
+    const current = TARGET_JOINTS
+    const first = planMoveJ(makeMoveJ({ target: TARGET }), ABB_MODEL, current, ABB_JOINT_RANGES)
+    const second = planMoveJ(makeMoveJ({ target: TARGET }), ABB_MODEL, current, ABB_JOINT_RANGES)
     expect(first.ok && second.ok).toBe(true)
-    if (first.ok && second.ok) {
-      expect(first.joints).toEqual(second.joints)
-      // 与当前姿态最近的解析分支保持 J1 连续，且结果没有随机性。
-      expect(first.joints[0]).toBeCloseTo(DISTANT_CURRENT[0], 6)
-    }
+    if (first.ok && second.ok) expect(first.joints).toEqual(second.joints)
   })
 
   it('普通近距离目标优先使用当前初值，不为成功目标执行多余候选搜索', () => {

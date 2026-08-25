@@ -7,7 +7,7 @@ import {
   validateMotionInput,
   type MotionPlanError,
 } from './plan-shared.ts'
-import { solvePoseWaypoints } from '@/robotics/inverse-kinematics/waypoint-solver.ts'
+import { solvePoseWaypoints } from '@/robotics/cartesian/index.ts'
 import { arcLengthMm, sampleArcPoses } from './arc-planner.ts'
 import {
   flangeToWorldTcpPose,

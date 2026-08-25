@@ -51,7 +51,11 @@ describe('RAPID 预设程序库', () => {
       for (const inst of result.program) {
         if (!isRapidMotionInstruction(inst)) continue
         if (inst.kind === 'movej') {
-          const plan = planMoveJ(inst as StructuredMoveJ, model, joints, jointRanges)
+          // 预设是旧版几何示例，点位未携带与当前模型一致的逐点 confdata；
+          // 这里显式验证几何可达性，生产 RAPID 执行仍走默认严格构型保持。
+          const plan = planMoveJ(inst as StructuredMoveJ, model, joints, jointRanges, {
+            preserveConfiguration: false,
+          })
           expect(plan.ok, `${preset.name} MoveJ 规划失败`).toBe(true)
           if (plan.ok) joints = [...plan.joints]
         } else if (inst.kind === 'movel') {

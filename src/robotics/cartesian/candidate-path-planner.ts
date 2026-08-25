@@ -6,6 +6,7 @@ import {
 import type { RobotModel } from '../model/robot-model.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
 import type { IKSolverConfig } from '../inverse-kinematics/types.ts'
+import type { WaypointFailureDiagnostic } from '../inverse-kinematics/waypoint-types.ts'
 
 export interface CandidateGraphOptions {
   solverConfig?: Partial<IKSolverConfig>
@@ -20,7 +21,11 @@ export interface CandidateGraphOptions {
 
 export type CandidateGraphResult =
   | { ok: true; waypoints: JointAngles[]; cost: number }
-  | { ok: false; failure: 'unreachable' | 'joint-limit' | 'joint-step' }
+  | {
+      ok: false
+      failure: 'unreachable' | 'joint-limit' | 'joint-step'
+      diagnostic?: WaypointFailureDiagnostic
+    }
 
 const DEFAULT_WRIST_CONTINUITY_WEIGHT = 4
 /** 所有 Cartesian waypoint 共用的相邻关节硬步长上限。 */
@@ -43,6 +48,76 @@ function exceedsJointStep(
 ): boolean {
   if (maxJointStepDeg === null) return false
   return next.some((value, index) => Math.abs(value - previous[index]) > maxJointStepDeg)
+}
+
+function buildStepDiagnostic(
+  previous: JointAngles,
+  attempted: JointAngles,
+  jointRanges: readonly (readonly [number, number])[],
+  waypointIndex: number,
+): WaypointFailureDiagnostic {
+  let axisIndex = 0
+  let deltaDeg = Math.abs(attempted[0] - previous[0])
+  for (let index = 1; index < attempted.length; index += 1) {
+    const candidateDelta = Math.abs(attempted[index] - previous[index])
+    if (candidateDelta > deltaDeg) {
+      axisIndex = index
+      deltaDeg = candidateDelta
+    }
+  }
+  return {
+    waypointIndex,
+    axisIndex,
+    previousAngleDeg: previous[axisIndex],
+    attemptedAngleDeg: attempted[axisIndex],
+    deltaDeg,
+    limitRangeDeg: jointRanges[axisIndex],
+  }
+}
+
+function buildLimitDiagnostic(
+  catalog: readonly IKCandidateRecord[],
+  previousJoints: JointAngles,
+  jointRanges: readonly (readonly [number, number])[],
+  waypointIndex: number,
+): WaypointFailureDiagnostic | undefined {
+  const candidate = catalog
+    .filter((entry) => entry.normalizedJoints !== null)
+    .sort((left, right) => {
+      if (left.atJointLimit !== right.atJointLimit) return left.atJointLimit ? -1 : 1
+      return left.maxJointDeltaDeg - right.maxJointDeltaDeg
+    })[0]
+  if (!candidate) return undefined
+
+  const attempted = candidate.normalizedJoints ?? candidate.joints
+  let axisIndex = 0
+  let severity = Number.NEGATIVE_INFINITY
+  for (let index = 0; index < attempted.length; index += 1) {
+    const range = jointRanges[index]
+    const value = attempted[index]
+    const currentSeverity = range
+      ? value < range[0]
+        ? range[0] - value
+        : value > range[1]
+          ? value - range[1]
+          : Math.min(value - range[0], range[1] - value) < 0.5
+            ? 0.5
+            : 0
+      : 0
+    if (currentSeverity > severity) {
+      severity = currentSeverity
+      axisIndex = index
+    }
+  }
+  const deltaDeg = Math.abs(attempted[axisIndex] - previousJoints[axisIndex])
+  return {
+    waypointIndex,
+    axisIndex,
+    previousAngleDeg: previousJoints[axisIndex],
+    attemptedAngleDeg: attempted[axisIndex],
+    deltaDeg,
+    limitRangeDeg: jointRanges[axisIndex],
+  }
 }
 
 function validCandidates(
@@ -81,14 +156,26 @@ export function planStrictCandidateGraph(
   const layers: JointAngles[][] = []
   let hasOutOfRangeCandidate = false
 
-  for (const pose of poses) {
+  for (let poseIndex = 0; poseIndex < poses.length; poseIndex += 1) {
+    const pose = poses[poseIndex]
     const catalog = buildIKCandidateCatalog(toFlange(pose), initialJoints, model, jointRanges)
     hasOutOfRangeCandidate ||= catalog.some((candidate) => !candidate.withinJointRanges)
     const candidates = validCandidates(catalog, config)
       .map((candidate) => candidate.normalizedJoints)
       .filter((candidate): candidate is JointAngles => candidate !== null)
     if (candidates.length === 0) {
-      return { ok: false, failure: hasOutOfRangeCandidate ? 'joint-limit' : 'unreachable' }
+      return {
+        ok: false,
+        failure: hasOutOfRangeCandidate ? 'joint-limit' : 'unreachable',
+        diagnostic: hasOutOfRangeCandidate
+          ? buildLimitDiagnostic(
+              catalog,
+              poseIndex === 0 ? initialJoints : layers[poseIndex - 1][0],
+              jointRanges,
+              poseIndex + 1,
+            )
+          : undefined,
+      }
     }
     layers.push(candidates)
   }
@@ -103,7 +190,19 @@ export function planStrictCandidateGraph(
     ),
   )
   previousIndices.push(layers[0].map(() => -1))
-  if (costs[0].every((cost) => !Number.isFinite(cost))) return { ok: false, failure: 'joint-step' }
+  if (costs[0].every((cost) => !Number.isFinite(cost))) {
+    const attempted = layers[0].reduce((best, candidate) =>
+      Math.max(...candidate.map((value, index) => Math.abs(value - initialJoints[index]))) <
+      Math.max(...best.map((value, index) => Math.abs(value - initialJoints[index])))
+        ? candidate
+        : best,
+    )
+    return {
+      ok: false,
+      failure: 'joint-step',
+      diagnostic: buildStepDiagnostic(initialJoints, attempted, jointRanges, 1),
+    }
+  }
 
   for (let layerIndex = 1; layerIndex < layers.length; layerIndex += 1) {
     const currentCosts: number[] = []
@@ -137,7 +236,13 @@ export function planStrictCandidateGraph(
     costs.push(currentCosts)
     previousIndices.push(currentPrevious)
     if (currentCosts.every((cost) => !Number.isFinite(cost))) {
-      return { ok: false, failure: 'joint-step' }
+      const candidate = layers[layerIndex][0]
+      const previous = layers[layerIndex - 1][currentPrevious[0] >= 0 ? currentPrevious[0] : 0]
+      return {
+        ok: false,
+        failure: 'joint-step',
+        diagnostic: buildStepDiagnostic(previous, candidate, jointRanges, layerIndex + 1),
+      }
     }
   }
 

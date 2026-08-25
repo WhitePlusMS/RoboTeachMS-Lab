@@ -1,10 +1,10 @@
 import { estimateNumericalJacobian } from '@/robotics/kinematics/numerical-jacobian.ts'
-import { extractPose } from '@/robotics/kinematics/legacy-dh-forward-kinematics.ts'
+import { extractPose } from '@/robotics/kinematics/pose-conversion.ts'
 import type { RobotModel } from '@/robotics/model/robot-model.ts'
 import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
-import type { ABBConfiguration } from '@/robotics/inverse-kinematics/types.ts'
 import { forwardAbbKinematicsDegrees } from './forward-kinematics.ts'
 import { abbConfigurationFromJoints, solveAbbAnalyticIK } from './analytic-inverse-kinematics.ts'
+import { abbConfigurationForRepresentation, type ABBConfiguration } from './configuration.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,
   ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG,
@@ -15,7 +15,7 @@ import {
  * ABB 候选等价 DH 链模型；当前用于FK/IK验证，不代表ABB官方标定机制。
  * FBX 只负责视觉呈现，不参与这条候选DH计算链。
  */
-export class AbbDhRobotModel implements RobotModel {
+export class AbbRobotModelAdapter implements RobotModel {
   isAvailable(): boolean {
     return true
   }
@@ -45,6 +45,13 @@ export class AbbDhRobotModel implements RobotModel {
 
   deriveConfiguration(jointsDeg: JointAngles): ABBConfiguration | null {
     return abbConfigurationFromJoints(jointsDeg)
+  }
+
+  configurationForRepresentation(
+    source: readonly number[],
+    jointsDeg: JointAngles,
+  ): ABBConfiguration {
+    return abbConfigurationForRepresentation(source, jointsDeg)
   }
 
   estimateJacobian(jointsDeg: JointAngles, stepDeg = 0.2): number[][] {

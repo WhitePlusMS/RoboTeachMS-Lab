@@ -205,7 +205,9 @@ describe('Ticket 02 — 自定义 Tool/WObj 旋转驱动法兰目标与 FK/IK（
     ).toBeGreaterThan(0.1)
 
     // 端到端 MoveJ：法兰 FK 落点 ≈ 换算后的法兰目标。
-    const plan = planMoveJ(makeMoveJ(baseT, rotTool, defaultWobj0()), MODEL, HOME, JOINT_RANGES)
+    const plan = planMoveJ(makeMoveJ(baseT, rotTool, defaultWobj0()), MODEL, HOME, JOINT_RANGES, {
+      preserveConfiguration: false,
+    })
     expect(plan.ok).toBe(true)
     if (!plan.ok) return
     const fk = MODEL.forwardKinematics(plan.joints)

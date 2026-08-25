@@ -1,10 +1,2 @@
-/** 机器人类型的单一出口；具体定义归属各自 deep module。 */
+/** 机器人几何值对象的单一出口；运动学、逆解和运动控制类型归各自领域维护。 */
 export type { JointAngles, Pose, PoseDisplay } from './joint-pose.ts'
-export type { DHParams, RobotConfig } from '../kinematics/dh-types.ts'
-export type {
-  ABBConfiguration,
-  IKCandidate,
-  IKLockedJointTargets,
-  IKSolverConfig,
-} from '../inverse-kinematics/types.ts'
-export type { MotionConfig } from '../motion/types.ts'

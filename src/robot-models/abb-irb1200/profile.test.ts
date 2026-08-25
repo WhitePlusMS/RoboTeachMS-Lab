@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
-import { AbbDhRobotModel } from './kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from './kinematics/abb-robot-model-adapter.ts'
 import { ABB_IRB1200_PROFILE } from './profile.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,
@@ -14,7 +14,7 @@ import {
 if (false) {
   const readonlyProfile: RobotProfile = ABB_IRB1200_PROFILE
   // @ts-expect-error - RobotProfile 字段只读，禁止替换共享模型。
-  readonlyProfile.model = new AbbDhRobotModel()
+  readonlyProfile.model = new AbbRobotModelAdapter()
   // @ts-expect-error - homeJoints 为只读六轴 tuple，禁止元素改写。
   readonlyProfile.homeJoints[0] = 10
 }
@@ -24,7 +24,7 @@ describe('ABB IRB 1200 profile seam', () => {
     const profile: RobotProfile = ABB_IRB1200_PROFILE
     expect(profile.id).toBe('abb-irb1200-5-0.9')
     expect(profile.displayName).toBe(ABB_IRB1200_5_90_STANDARD_DH.name)
-    expect(profile.model).toBeInstanceOf(AbbDhRobotModel)
+    expect(profile.model).toBeInstanceOf(AbbRobotModelAdapter)
     expect(profile.jointRanges).toBe(ABB_JOINT_RANGES)
     expect(profile.homeJoints).toBe(ABB_TEACHING_HOME_JOINTS)
     expect(profile.mechanicalZeroJoints).toBe(ABB_MECHANICAL_ZERO_JOINTS)

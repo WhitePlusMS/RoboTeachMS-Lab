@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '@/robotics/kinematics/legacy-dh-forward-kinematics.ts'
+import { poseFromJoints } from '@/robot-models/kuka-like/kinematics/legacy-forward-kinematics.ts'
 import { radToDeg } from '@/robotics/math/angle.ts'
 import { applyCartesianDelta, useCartesianControl } from './cartesian-control.ts'
 import type { CartesianPathResult } from '@/robotics/cartesian/path-planner.ts'
 import type { JointAngles, PoseDisplay } from '@/robotics/model/types.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
 import type { RobotProfile, SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
 import {
@@ -13,13 +13,13 @@ import {
   KUKA_LIKE,
   DEFAULT_JOINTS,
 } from '@/robot-models/kuka-like/parameters.ts'
-import { DhRobotModel } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
+import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
 
 /** 测试用 KUKA 局部 profile；沿用既有 KUKA 模型与常量，不迁移 KUKA 实现。 */
 const KUKA_PROFILE: RobotProfile = {
   id: 'test-kuka',
   displayName: KUKA_LIKE.name,
-  model: new DhRobotModel(),
+  model: new KukaRobotModelAdapter(),
   jointRanges: KUKA_JOINT_RANGES as SixAxisJointRanges,
   homeJoints: DEFAULT_JOINTS,
   mechanicalZeroJoints: DEFAULT_JOINTS,
@@ -116,7 +116,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('机械零位 Y 点动不再使用 SingArea\\Wrist，并提交轨迹', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
@@ -145,7 +145,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('机械零位先 X+10 mm 后仍可正常 Y 点动', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
@@ -177,7 +177,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('机械零位字段直达不再进入 wrist 回退入口', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
@@ -199,7 +199,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('非机械零位工作区的 J5=0 大步长不得显示机械零位重构提示', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([15, -20, 30, 0, 0, -300])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
@@ -224,7 +224,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('非奇异位置连续点动每次推进目标且不显示腕部插补', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
@@ -258,7 +258,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('连续同步规划在动画尚未回写关节时仍从最新目标锚点递进', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)
@@ -289,7 +289,7 @@ describe('笛卡尔坐标增量', () => {
   it('异步连续规划只提交最新结果，过期轨迹不会覆盖新目标', async () => {
     const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
     const poseRef = computed<PoseDisplay>(() => {
-      const currentPose = new AbbDhRobotModel().forwardKinematics(joints.value)
+      const currentPose = new AbbRobotModelAdapter().forwardKinematics(joints.value)
       return {
         positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
@@ -325,7 +325,7 @@ describe('笛卡尔坐标增量', () => {
   })
 
   it('向 ABB 动画层提交分段笛卡尔轨迹，而不是单个终点关节角', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([15, -20, 30, 10, 25, -15])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = model.forwardKinematics(joints.value)

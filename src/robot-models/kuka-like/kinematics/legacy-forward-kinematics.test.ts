@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { extractPose, forwardKinematicsDegrees } from './legacy-dh-forward-kinematics.ts'
-import type { JointAngles } from '../model/types.ts'
+import { extractPose } from '@/robotics/kinematics/pose-conversion.ts'
+import { forwardKinematicsDegrees } from './legacy-forward-kinematics.ts'
+import type { JointAngles } from '@/robotics/model/joint-pose.ts'
 import { DEFAULT_JOINTS, KUKA_LIKE } from '@/robot-models/kuka-like/parameters.ts'
 
-describe('KUKA 正运动学', () => {
+describe('KUKA 历史 DH 正运动学', () => {
   it('零位 FK 返回有限的末端位置和姿态', () => {
     const pose = extractPose(forwardKinematicsDegrees(DEFAULT_JOINTS, KUKA_LIKE))
 

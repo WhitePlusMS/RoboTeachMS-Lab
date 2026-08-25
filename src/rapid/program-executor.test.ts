@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createMotionRunner } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
+import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import type { JointAngles } from '@/robotics/model/types.ts'
 import { executeMoveJ } from './movej-planner.ts'
 import { executeMoveL } from './movel-planner.ts'
+import { internalQuatToRapid } from './plan-shared.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,
@@ -26,9 +28,12 @@ import {
   type StructuredMotionInstruction,
 } from './rapid-types.ts'
 
+const TARGET_MODEL = new AbbRobotModelAdapter()
+const TARGET_POSE = TARGET_MODEL.forwardKinematics([0, -10, 5, 0, 30, 180])
+if (!TARGET_POSE) throw new Error('program executor target FK unavailable')
 const REACHABLE: RobTarget = {
-  trans: [500, 100, 807.1],
-  rot: [1, 0, 0, 0],
+  trans: [...TARGET_POSE.position],
+  rot: internalQuatToRapid(rotationMatrixToQuaternion(TARGET_POSE.rotation)),
   robconf: [0, 0, 0, 0],
   extax: [...NO_EXTERNAL_AXIS],
 }
@@ -532,8 +537,8 @@ describe('ProgramExecutor 标量变量 seam', () => {
 
 describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
   function makeModelAndRunner() {
-    const model = new AbbDhRobotModel()
-    const home: JointAngles = [0, 0, 0, 0, 0, 0]
+    const model = new AbbRobotModelAdapter()
+    const home: JointAngles = [0, 0, 0, 0, 30, 180]
     const clock = new ManualMotionClock()
     let joints: JointAngles = [...home]
     const runner = createMotionRunner({
@@ -568,10 +573,12 @@ describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
 
   it('真实 MoveJ → MoveL → MoveJ 按顺序完成并推进指针', async () => {
     const { model, clock, joints, seam } = makeModelAndRunner()
-    const homePose = model.forwardKinematics([0, 0, 0, 0, 0, 0])!
+    const start: JointAngles = [0, 0, 0, 0, 30, 180]
+    const homePose = model.forwardKinematics(start)!
+    const homeRotation = internalQuatToRapid(rotationMatrixToQuaternion(homePose.rotation))
     const at = (dx: number, dy: number, dz: number): RobTarget => ({
       trans: [homePose.position[0] + dx, homePose.position[1] + dy, homePose.position[2] + dz],
-      rot: [1, 0, 0, 0],
+      rot: homeRotation,
       robconf: [0, 0, 0, 0],
       extax: [...NO_EXTERNAL_AXIS],
     })

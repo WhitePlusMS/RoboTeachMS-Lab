@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
 import type { JointAngles } from '@/robotics/model/types.ts'
+import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import { planMoveJ } from './movej-planner.ts'
 import { planMoveL } from './movel-planner.ts'
+import { internalQuatToRapid } from './plan-shared.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
 import {
   defaultTool0,
@@ -25,9 +27,11 @@ const JOINT_RANGES = ABB_IRB1200_PROFILE.jointRanges
 const HOME: JointAngles = [...ABB_IRB1200_PROFILE.homeJoints] as JointAngles
 
 // 可达的 robtarget：从 HOME 水平 +X 平移 80mm（MoveJ/MoveL 均平滑可达）。
+const HOME_POSE = MODEL.forwardKinematics(HOME)
+if (!HOME_POSE) throw new Error('speed-zone test home FK unavailable')
 const TARGET: RobTarget = {
-  trans: [531, 0, 807.1],
-  rot: [1, 0, 0, 0],
+  trans: [HOME_POSE.position[0] + 80, HOME_POSE.position[1], HOME_POSE.position[2]],
+  rot: internalQuatToRapid(rotationMatrixToQuaternion(HOME_POSE.rotation)),
   robconf: [0, 0, 0, 0],
   extax: [9e9, 9e9, 9e9, 9e9, 9e9, 9e9],
 }

@@ -1,6 +1,6 @@
 import type { RobotModel } from '../model/robot-model.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { ABBConfiguration, IKCandidate } from './types.ts'
+import type { IKCandidate, RobotConfiguration } from './types.ts'
 
 const RANGE_EPSILON_DEG = 1e-7
 /** 候选接近关节限位的统一软边界，单位为度。 */
@@ -8,8 +8,8 @@ export const JOINT_LIMIT_EPS_DEG = 0.5
 
 /** 解析候选经过统一归一化后的完整记录；目录不负责选择最终构型。 */
 export interface IKCandidateRecord extends IKCandidate {
-  /** 解析分支的 ABB 构型参数 [cf1, cf4, cf6, cfx]；供构型一致性筛选直接使用。 */
-  configuration?: ABBConfiguration
+  /** 解析分支的型号构型参数；供构型一致性筛选直接使用。 */
+  configuration?: RobotConfiguration
   /** 将 ±360° 等价表示恢复到关节范围且尽量贴近参考姿态后的关节值。 */
   normalizedJoints: JointAngles | null
   /** 所有轴都能在给定限位内表示时为 true。 */
@@ -28,11 +28,11 @@ export interface IKCandidateSelectionOptions {
   maxJointStepDeg?: number
   rejectAtJointLimit?: boolean
   /**
-   * 当前姿态的 ABB 构型 [cf1, cf4, cf6, cfx]。提供时优先选择与该构型完全一致
+   * 当前姿态的型号构型。提供时优先选择与该构型完全一致
    * 的候选（真实控制器语义：未声明 SingArea 时运动不改变构型）；没有任何
    * 合法同构型候选时返回 null，由上层报告构型不可达。
    */
-  referenceConfiguration?: ABBConfiguration
+  referenceConfiguration?: RobotConfiguration
 }
 
 /**
@@ -76,19 +76,6 @@ function enumerateRangeRepresentations(
     representations = next
   }
   return representations
-}
-
-/**
- * 等价多圈表示只改变 cf1/cf4/cf6 象限，cfx 仍由解析分支的拓扑位提供。
- * 不能沿用解析候选在 ±180° 回绕后的构型标签，否则 J6=300° 会错误保留 cf6=-1。
- */
-function configurationForRepresentation(
-  configuration: ABBConfiguration,
-  joints: JointAngles,
-): ABBConfiguration {
-  const quadrant = (angleDeg: number): number =>
-    Math.floor((Math.abs(angleDeg) < 1e-9 ? 0 : angleDeg) / 90)
-  return [quadrant(joints[0]), quadrant(joints[3]), quadrant(joints[5]), configuration[3]]
 }
 
 /** 判定候选是否触及任一模型关节限位，供路径规划器统一使用。 */
@@ -143,7 +130,8 @@ export function buildIKCandidateCatalog(
         return {
           ...candidate,
           configuration: candidate.configuration
-            ? configurationForRepresentation(candidate.configuration, representation)
+            ? (model.configurationForRepresentation?.(candidate.configuration, representation) ??
+              candidate.configuration)
             : undefined,
           normalizedJoints: representation,
           withinJointRanges: true,
@@ -173,7 +161,7 @@ export function selectBestIKCandidate(
       (options.maxJointStepDeg === undefined ||
         candidate.maxJointDeltaDeg <= options.maxJointStepDeg),
   )
-  // ABB 构型语义：提供当前 [cf1, cf4, cf6, cfx] 时，只允许同构型候选；
+  // 型号构型语义：提供当前构型时，只允许同构型候选；
   // 异构型候选必须由上层显式授权，不能在这里静默切换后执行。
   const referenceConfiguration = options.referenceConfiguration
   const pool = referenceConfiguration

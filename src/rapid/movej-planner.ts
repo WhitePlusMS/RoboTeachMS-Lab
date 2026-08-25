@@ -2,12 +2,8 @@ import type { MotionResult } from '@/robotics/motion/runner.ts'
 import type { RobotModel } from '@/robotics/model/robot-model.ts'
 import type { SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
 import type { JointAngles } from '@/robotics/model/types.ts'
-import {
-  simulateDurationMs,
-  validateMotionInput,
-  type MotionPlanError,
-} from './plan-shared.ts'
-import { resolveJointSolution } from '@/robotics/inverse-kinematics/joint-solution.ts'
+import { simulateDurationMs, validateMotionInput, type MotionPlanError } from './plan-shared.ts'
+import { resolveJointSolution, type IKSolverConfig } from '@/robotics/inverse-kinematics/index.ts'
 import { robTargetToFlangePose } from './coordinate-transform.ts'
 import type { StructuredMoveJ } from './rapid-types.ts'
 
@@ -25,7 +21,6 @@ export interface MoveJExecutionSeam {
 export type MoveJOutcome =
   { ok: true; result: MotionResult } | { ok: false; error: MotionPlanError }
 
-
 /**
  * 校验并规划单条结构化 MoveJ：复用现有 IK 与 ABB RobotModel 生成关节目标。
  * 纯函数，不操作 RAF 或关节；规划错误不会启动任何请求帧，也不会改变机器人关节。
@@ -41,6 +36,7 @@ export function planMoveJ(
   model: RobotModel,
   currentJoints: JointAngles,
   jointRanges: SixAxisJointRanges,
+  solverConfig: Partial<IKSolverConfig> = {},
 ): MoveJPlanResult {
   const dataConfigError = validateMotionInput(
     movej.target,
@@ -53,7 +49,7 @@ export function planMoveJ(
 
   // 目标法兰位姿：robtarget(Obj) → uframe·oframe → 逆(tool.tframe) → 法兰；IK 以法蓝为目标。
   const targetPose = robTargetToFlangePose(movej.target, movej.wobj, movej.tool)
-  const solution = resolveJointSolution(targetPose, currentJoints, model, jointRanges)
+  const solution = resolveJointSolution(targetPose, currentJoints, model, jointRanges, solverConfig)
   if ('failure' in solution) {
     const error: MotionPlanError =
       solution.failure === 'joint-limit'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
 import type { JointAngles, Pose } from '../model/types.ts'
@@ -26,7 +26,7 @@ function rotationDistanceDegrees(left: number[][], right: number[][]): number {
 
 describe('Cartesian path planner', () => {
   it('机械零位已离开腕部奇异面，邻域判定不再触发', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
 
     // 机械零位 J5=+30°，不在 J5=0° 的腕部奇异面上。
     expect(model.isMechanicalZeroSingularityNeighborhood([0, 0, 0, 0, 30, 0])).toBe(false)
@@ -37,7 +37,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('让 ABB 的 5 mm 世界坐标点动保持直线并准确到达终点', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
@@ -68,7 +68,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('非机械零位的 J5=0 大步长不得误报机械零位腕部重构', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     // J5=0° 且 J6 位于另一构型时，X 点动会迫使 IK 在相邻采样点间跨构型。
     const startJoints: JointAngles = [15, -20, 30, 0, 0, -300]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
@@ -84,7 +84,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('非机械零位邻域即使 J5=0 也禁止自动 wrist 回退', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [15, -20, 30, 0, 0, -300]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
@@ -96,7 +96,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('非机械零位的平移入口不会把 J5=0 多圈腕姿态切成自动 Wrist', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [15, -20, 30, 0, 0, -300]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[0] += 5
@@ -107,7 +107,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('把 ABB 的 10 度姿态点动拆成连续的小角度 waypoint', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
@@ -138,7 +138,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('机械零位的 Y 点动不再触发 wrist 回退但仍保持 TCP 位置', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [0, 0, 0, 0, 30, 0]
     const targetPose = clonePose(model.forwardKinematics(startJoints))
     targetPose.position[1] += 1
@@ -153,7 +153,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('机械零位已离开腕部奇异，平移保持严格姿态', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [0, 0, 0, 0, 30, 0]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
@@ -175,7 +175,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('非奇异路径由算法保持严格姿态且不触发 wrist 回退', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
@@ -191,7 +191,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('非奇异的平移加姿态路径不应被算法全局退化为 position-only', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [15, -20, 30, 10, 25, -15]
     const startPose = model.forwardKinematics(startJoints)
     const targetPose = clonePose(startPose)
@@ -217,7 +217,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('非奇异教学 Home 的 XYZ 六方向均可规划 1 mm 点动', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     const startJoints: JointAngles = [0, -25, 45, 0, 20, 0]
     const startPose = model.forwardKinematics(startJoints)
 
@@ -234,7 +234,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('机械零位 Y 每次 10 mm 可连续走到 +500 再回到 -500，且不再触发 wrist 插补', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     let joints: JointAngles = [0, 0, 0, 0, 30, 0]
     const startY = model.forwardKinematics(joints).position[1]
     const wristRequests: string[] = []
@@ -273,7 +273,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('机械零位先 Y±50 再沿 +Z 步进时不发生 J4/J6 180°构型跳变', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
 
     const run = (yDirection: -1 | 1): void => {
       let joints: JointAngles = [0, 0, 0, 0, 30, 0]
@@ -311,7 +311,7 @@ describe('Cartesian path planner', () => {
   })
 
   it('Y=-50 后从 Z≈700 上行到 Z≈1100 优先保持 J4/J6 腕部侧', () => {
-    const model = new AbbDhRobotModel()
+    const model = new AbbRobotModelAdapter()
     let joints: JointAngles = [0, 0, 0, 0, 30, 0]
     let maxStep = 0
 

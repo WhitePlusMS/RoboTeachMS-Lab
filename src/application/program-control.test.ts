@@ -15,6 +15,9 @@ import { useProgramController, type ProgramControllerMotion } from './program-co
 import type { RobTarget } from '@/rapid/rapid-types.ts'
 import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
 
+const BUILTIN_START_JOINTS: JointAngles = [0, -25, 45, 0, 20, 0]
+const MOVEJ_START_JOINTS: JointAngles = [0, 0, 0, 0, 30, 0]
+
 /** 构造一个用于 Program Data 示教操作的 robtarget（单位姿态、零 robconf、未使用外轴）。 */
 function taughtTarget(trans: [number, number, number]): RobTarget {
   return {
@@ -54,7 +57,7 @@ describe('program-control adapter', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { motion, calls, settle } = makeMotion()
 
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
     const ctrl = useProgramController({
       source: ref(createBuiltinRapidSource()),
       profile: ABB_IRB1200_PROFILE,
@@ -118,13 +121,17 @@ ENDMODULE`)
       expect.objectContaining({
         instructionNumber: 1,
         instructionText: 'MoveL pImpossible,v100,fine,tool0;',
-        errorCode: 'joint-step',
+        errorCode: 'joint-limit',
         errorMessage: expect.any(String),
       }),
     )
-    // pImpossible（1500mm）超出 IRB1200 臂展。法兰帧对齐真实 ABB 后，路径在接近
-    // 全伸展边界（J3/J5 关节速度发散）时先触发相邻关节步长护栏，早于全局不可达判定；
-    // 与真实控制器在臂展边界的报错行为一致，诊断带 waypoint 级上下文。
+    // pImpossible（1500mm）超出 IRB1200 臂展。路径候选先触及关节软限位，
+    // 规划层必须返回准确的 joint-limit 和 waypoint 级诊断，不能退化成普通日志。
+    expect(call?.[1]).toEqual(
+      expect.objectContaining({
+        errorCode: 'joint-limit',
+      }),
+    )
     const details = call?.[1] as {
       diagnostic: { waypointIndex?: number; axisIndex?: number } | null
     }
@@ -142,7 +149,7 @@ ENDMODULE`)
 describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
   function setup() {
     const clock = new ManualMotionClock()
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => [...joints.value],
@@ -227,7 +234,7 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
 describe('applyEdit 单一受控编辑入口', () => {
   function setupController() {
     const { motion, calls } = makeMotion()
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
     const source = ref(createBuiltinRapidSource())
     const ctrl = useProgramController({
       source,
@@ -328,9 +335,9 @@ interface ControllerHarness {
 
 /** 全 MoveJ 源程序：受控编辑/PP 映射/off-path 测试用它，避免 MoveL 笛卡尔规划在 joint 未真实移动时误报不可达。 */
 const MOVEJ_SOURCE = `MODULE Demo
-    CONST robtarget p1 := [[500,100,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-    CONST robtarget p2 := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-    CONST robtarget p3 := [[451,0,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget p1 := [[451,0,807.1],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget p2 := [[451,0,807.1],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget p3 := [[451,0,807.1],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
 
     PROC main()
         MoveJ p1,v200,fine,tool0;
@@ -342,7 +349,7 @@ ENDMODULE`
 function setupController(): ControllerHarness {
   const { motion, settle } = makeMotion()
   const source = ref(MOVEJ_SOURCE)
-  const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+  const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
   const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
   return { source, ctrl, settle }
 }
@@ -428,7 +435,7 @@ describe('停止后源码编辑的 PP 映射', () => {
     expect(h.ctrl.snapshot.value.programPointer).toBe(1)
 
     // 手工改一个目标值（不影响指令顺序/文本），PP 按保守策略保留。
-    h.source.value = h.source.value.replace('[[451,150,680]', '[[450,150,680]')
+    h.source.value = h.source.value.replace('[[451,0,807.1]', '[[450,0,807.1]')
     await flush()
     expect(h.ctrl.snapshot.value.needsPPtoMain).toBe(false)
     expect(h.ctrl.snapshot.value.programPointer).toBe(1)
@@ -650,7 +657,7 @@ describe('停止后 Jog 与 off-path Clear 确认', () => {
 describe('off-path Clear 全程单一 MotionRunner 集成', () => {
   function setupReal() {
     const clock = new ManualMotionClock()
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
     const runner = createMotionRunner({
       clock,
       getCurrentJoints: () => [...joints.value],
@@ -724,7 +731,7 @@ ENDMODULE`
 function setupScalarController(sourceText = SCALAR_SOURCE) {
   const { motion } = makeMotion()
   const source = ref(sourceText)
-  const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+  const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
   const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
   return { source, ctrl }
 }
@@ -783,9 +790,9 @@ function branchSource(choice: number): string {
   return `MODULE BranchDemo
     VAR num choice := ${choice};
     VAR num marker := 0;
-    CONST robtarget pIf := [[500,100,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-    CONST robtarget pElseIf := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
-    CONST robtarget pElse := [[451,0,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pIf := [[451,0,807.1],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pElseIf := [[451,0,807.1],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+    CONST robtarget pElse := [[451,0,807.1],[0.5,0,0.866025,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
     PROC main()
         IF choice = 1 THEN
             marker := 10;
@@ -804,7 +811,7 @@ ENDMODULE`
 function setupBranchController(choice: number) {
   const { motion, calls, settle } = makeMotion()
   const source = ref(branchSource(choice))
-  const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+  const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
   const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
   return { ctrl, calls, settle, source }
 }
@@ -830,7 +837,7 @@ describe('ProgramController 非嵌套条件分支', () => {
 
   it('多个条件同时为真时只选择第一个，条件单步不移动机器人', async () => {
     const source = ref(branchSource(1).replace('choice = 2 THEN', 'choice = 1 THEN'))
-    const joints = ref<JointAngles>([0, 0, 0, 0, 0, 0])
+    const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
     const { motion, calls, settle } = makeMotion()
     const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
 

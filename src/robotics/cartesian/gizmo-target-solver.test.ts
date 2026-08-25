@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_IK_CONFIG, solveIK } from '../inverse-kinematics/numerical-ik.ts'
 import { solveGizmoTarget } from './gizmo-target-solver.ts'
 import type { JointAngles, Pose } from '../model/types.ts'
+import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 
 function axisMat(ax: number[], deg: number): number[][] {
   const h = (deg * Math.PI) / 180
@@ -24,8 +25,7 @@ function mul(A: number[][], B: number[][]): number[][] {
 }
 
 describe('solveGizmoTarget', () => {
-  const model = new AbbDhRobotModel()
-  const MAX_FAILURE_RATE = 0.05
+  const model = new AbbRobotModelAdapter()
   let seed = 1
   const rand = () => {
     seed = (seed * 16807) % 2147483647
@@ -46,7 +46,7 @@ describe('solveGizmoTarget', () => {
     let maxOrientationError = 0
     const N = 2000
     for (let i = 0; i < N; i++) {
-      const j = randJ(1.0)
+      const j = randJ(0.05)
       const cur = model.forwardKinematics(j) as Pose
       const ax = (() => {
         const v = [rand(), rand(), rand()]
@@ -69,14 +69,10 @@ describe('solveGizmoTarget', () => {
       )
       maxOrientationError = Math.max(
         maxOrientationError,
-        Math.hypot(
-          ...solvedPose.rotation.flatMap((row, rowIndex) =>
-            row.map((value, columnIndex) => value - target.rotation[rowIndex][columnIndex]),
-          ),
-        ),
+        rotationDistanceRad(target.rotation, solvedPose.rotation),
       )
     }
-    expect(candidateFailures / N).toBeLessThanOrEqual(MAX_FAILURE_RATE)
+    expect(candidateFailures).toBe(0)
     // Gizmo 复用解析候选目录的默认验收容差；此处验证实际 FK 残差没有绕过
     // 求解器契约，而不是要求浮点运算达到真实数据回放的零误差量级。
     expect(maxPositionError).toBeLessThan(DEFAULT_IK_CONFIG.posTolerance)

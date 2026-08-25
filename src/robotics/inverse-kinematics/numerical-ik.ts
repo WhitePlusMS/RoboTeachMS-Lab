@@ -48,6 +48,7 @@ function solveAnalyticCandidate(
   model: RobotModel,
   solverConfig: IKSolverConfig,
   jointRanges: readonly (readonly [number, number])[] | undefined,
+  preserveConfiguration = true,
 ): JointAngles | null | undefined {
   if (!model.solveAllIK || solverConfig.positionOnly || solverConfig.lockedJointTargetsDeg) {
     return undefined
@@ -56,6 +57,9 @@ function solveAnalyticCandidate(
   const best = selectBestIKCandidate(candidates, {
     positionTolerance: solverConfig.posTolerance,
     orientationTolerance: solverConfig.oriTolerance,
+    referenceConfiguration: preserveConfiguration
+      ? (model.deriveConfiguration?.(initialJointsDeg) ?? undefined)
+      : undefined,
   })
   return best?.normalizedJoints ?? null
 }
@@ -102,7 +106,14 @@ export function solveIK(
   if (!model.isAvailable()) return null
 
   const cfg = { ...DEFAULT_IK_CONFIG, ...solverConfig }
-  const analytic = solveAnalyticCandidate(targetPose, initialJointsDeg, model, cfg, jointRanges)
+  const analytic = solveAnalyticCandidate(
+    targetPose,
+    initialJointsDeg,
+    model,
+    cfg,
+    jointRanges,
+    cfg.preserveConfiguration !== false,
+  )
   if (analytic !== undefined) {
     // 解析法可用时直接返回其结论；失败时不自行切换到数值法，避免 ABB 等
     // 可解析模型在奇异/限位附近被 DLS 拉到错误构型分支。

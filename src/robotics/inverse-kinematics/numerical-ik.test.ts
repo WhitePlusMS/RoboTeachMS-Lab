@@ -4,15 +4,15 @@ import { eulerZYXToMatrix } from '../kinematics/transform-matrix.ts'
 import { orientationError } from '../math/rotation3d.ts'
 import type { JointAngles, Pose } from '../model/types.ts'
 import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/parameters.ts'
-import { DhRobotModel } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
+import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,
   ABB_JOINT_RANGES,
 } from '@/robot-models/abb-irb1200/parameters.ts'
-import { AbbDhRobotModel } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
 
 describe('KUKA 数值逆解', () => {
-  const model = new DhRobotModel()
+  const model = new KukaRobotModelAdapter()
 
   it('目标等于当前正解时返回当前关节', () => {
     const target = model.forwardKinematics(DEFAULT_JOINTS) as Pose
@@ -52,12 +52,12 @@ describe('KUKA 数值逆解', () => {
 })
 
 describe('ABB IRB 1200 解析逆解', () => {
-  const model = new AbbDhRobotModel()
+  const model = new AbbRobotModelAdapter()
 
   it('解析法完成 FK→IK→FK 闭环', () => {
     const source: JointAngles = [25, -20, 35, 15, -25, 30]
     const target = model.forwardKinematics(source) as Pose
-    const result = solveIK(target, ABB_MECHANICAL_ZERO_JOINTS, model, {}, ABB_JOINT_RANGES)
+    const result = solveIK(target, source, model, {}, ABB_JOINT_RANGES)
 
     expect(result).not.toBeNull()
     const solved = model.forwardKinematics(result as JointAngles) as Pose
@@ -91,7 +91,7 @@ describe('ABB IRB 1200 解析逆解', () => {
 
     samples.forEach((source) => {
       const target = model.forwardKinematics(source) as Pose
-      const result = solveIK(target, ABB_MECHANICAL_ZERO_JOINTS, model, {}, ABB_JOINT_RANGES)
+      const result = solveIK(target, source, model, {}, ABB_JOINT_RANGES)
 
       expect(result, `纯 ABB DH 求解失败：${source.join(',')}`).not.toBeNull()
       const solved = model.forwardKinematics(result as JointAngles) as Pose
@@ -111,7 +111,7 @@ describe('ABB IRB 1200 解析逆解', () => {
 })
 
 describe('ABB IRB 1200 数值兜底', () => {
-  const model = new AbbDhRobotModel()
+  const model = new AbbRobotModelAdapter()
 
   it('ABB 位置-only 回退仍使用相同模型和关节限位', () => {
     const target = model.forwardKinematics([0, -25, 45, 0, 20, 0]) as Pose

@@ -1,8 +1,9 @@
 import { rotationDistanceRad, mat3Mul } from '@/robotics/math/rotation3d.ts'
 import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
-import type { ABBConfiguration, IKCandidate } from '@/robotics/inverse-kinematics/types.ts'
+import type { IKCandidate } from '@/robotics/inverse-kinematics/types.ts'
 import { ABB_FLANGE_CORRECTION, forwardAbbKinematicsFramesDegrees } from './forward-kinematics.ts'
 import { ABB_IRB1200_5_90_STANDARD_DH, ABB_WRIST_SINGULARITY_THRESHOLD_DEG } from '../parameters.ts'
+import { abbConfigurationFromBranch, abbQuadrant, type ABBConfiguration } from './configuration.ts'
 
 /** ABB IRB1200 候选 DH 链的几何解析逆解。
  *
@@ -76,33 +77,6 @@ function uniqueAngles(values: readonly number[]): number[] {
 
 function getRotation(pose: Pose): Rotation3 {
   return pose.rotation as Rotation3
-}
-
-/** ABB 构型象限：0=[0,90)，-1=[-90,0)，1=[90,180)，-2=[-180,-90)，依此类推。 */
-export function abbQuadrant(angleDeg: number): number {
-  // 解析三角函数在理论 0° 附近可能产生 -1e-16°；它仍属于 cf=0，
-  // 不能被浮点噪声误分到负象限。
-  const stableAngle = Math.abs(angleDeg) < 1e-9 ? 0 : angleDeg
-  return Math.floor(stableAngle / 90)
-}
-
-/**
- * 由分支元数据生成 ABB robtarget 构型 [cf1, cf4, cf6, cfx]。
- * cfx 采用 Ilian Bonev 描述的 3 位二进制十进制值（000=0 到 111=7）：
- * bit 2 = arm front(0)/back(1)，bit 1 = elbow up(0)/down(1)，bit 0 = wrist no-flip(0)/flip(1)。
- */
-export function abbConfigurationFromBranch(
-  jointsDeg: JointAngles,
-  armBit: 0 | 1,
-  elbowBit: 0 | 1,
-  wristBit: 0 | 1,
-): ABBConfiguration {
-  return [
-    abbQuadrant(jointsDeg[0]),
-    abbQuadrant(jointsDeg[3]),
-    abbQuadrant(jointsDeg[5]),
-    (armBit << 2) | (elbowBit << 1) | wristBit,
-  ]
 }
 
 interface PlanarBranch {
@@ -230,6 +204,7 @@ function solveWristBranches(
  * 纯旋转修正，不影响腕心位置计算。
  */
 function toUncorrectedTargetPose(targetPose: Pose): Pose {
+  // R_corrected = R_raw · C，且 C=Rz(180°) 满足 C⁻¹=C，所以原始 DH 帧为 R_corrected·C。
   const rotationUncorrected = mat3Mul(getRotation(targetPose), ABB_FLANGE_CORRECTION.getRotation())
   return {
     ...targetPose,

@@ -10,7 +10,7 @@ import SceneViewport from '@/components/SceneViewport.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
 import type { JointAngles, Pose } from '@/robotics/model/types.ts'
-import { solveGizmoTarget as solveGizmoIK } from '@/robotics/cartesian/gizmo-target-solver.ts'
+import { solveGizmoTarget as solveGizmoIK } from '@/robotics/cartesian/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
 import {
   adjustJointAngle,
@@ -27,7 +27,7 @@ import { useStatusToasts } from '@/application/status-toasts.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
 import { planCartesianTarget } from '@/robotics/cartesian/index.ts'
-import { createCartesianPlannerWorkerAdapter } from '@/robotics/cartesian/worker/adapter.ts'
+import { createCartesianPlannerWorkerAdapter } from '@/robotics/cartesian/index.ts'
 import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
 import { provideProgramPanelController } from '@/application/use-program-panel-controller.ts'
@@ -65,11 +65,10 @@ const {
   startCartesianTrajectory,
   appendCartesianTrajectory,
   stopAnimation,
-} =
-  useMotion({
-    getCurrentJoints: () => joints.value,
-    setJoints: setJointsImmediate,
-  })
+} = useMotion({
+  getCurrentJoints: () => joints.value,
+  setJoints: setJointsImmediate,
+})
 
 // Worker 请求携带笛卡尔会话提交的显式关节锚点；当前关节只用于完成后的漂移观测。
 const cartesianPlanner =
