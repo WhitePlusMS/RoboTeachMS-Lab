@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { extractPose } from '@/robotics/kinematics/pose-conversion.ts'
 import { forwardKinematicsDegrees } from './legacy-forward-kinematics.ts'
 import type { JointAngles } from '@/robotics/model/joint-pose.ts'
-import { DEFAULT_JOINTS, KUKA_LIKE } from '@/robot-models/kuka-like/parameters.ts'
+import { DEFAULT_JOINTS, KUKA_LIKE } from '@/robot-models/kuka-like/index.ts'
 
 describe('KUKA 历史 DH 正运动学', () => {
   it('零位 FK 返回有限的末端位置和姿态', () => {

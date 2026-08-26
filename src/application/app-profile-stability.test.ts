@@ -3,9 +3,9 @@ import { defineComponent, h } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import type { AbbSceneStatus } from '@/scene/abb-scene.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
 
 /**
  * 占位场景组件：不启动真实 WebGL、不加载 FBX，只转发页面可能收到的场景状态。

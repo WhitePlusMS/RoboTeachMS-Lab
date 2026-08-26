@@ -7,7 +7,7 @@ import {
   isRapidMotionInstruction,
   type RapidExecutableInstruction,
   type RapidSourceRange,
-} from '@/rapid/rapid-parser.ts'
+} from '@/rapid/language/index.ts'
 
 interface Props {
   snapshot: ProgramControllerSnapshot

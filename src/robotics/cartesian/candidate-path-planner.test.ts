@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
-import { MAX_CARTESIAN_JOINT_STEP_DEG, planStrictCandidateGraph } from './candidate-path-planner.ts'
-import type { JointAngles, Pose } from '../model/types.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
+import { planStrictCandidateGraph } from './candidate-path-planner.ts'
+import { MAX_CARTESIAN_JOINT_STEP_DEG } from './step-policy.ts'
+import type { JointAngles, Pose } from '../model/index.ts'
 
 function clonePose(pose: Pose): Pose {
   return {

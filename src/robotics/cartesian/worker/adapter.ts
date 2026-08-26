@@ -1,183 +1,71 @@
-import type { RobotProfile } from '../../model/robot-profile.ts'
-import type { CartesianPathResult } from '../path-planner.ts'
-import type { JointAngles, Pose } from '../../model/types.ts'
+import type { MotionPlanningRequest, MotionPlanningResult } from '@/robot-motion-core/index.ts'
 
 interface PlannerRequest {
-  requestId: number
-  targetPose: Pose
-  initialJoints: JointAngles
+  readonly requestId: number
+  readonly request: MotionPlanningRequest
 }
+interface PlannerResponse { readonly requestId: number; readonly result: MotionPlanningResult }
 
-interface PlannerResponse {
-  requestId: number
-  result: CartesianPathResult
-}
-
-interface PlanningTiming {
-  requestId: number
-  queueMs: number
-  computeMs: number
-  totalMs: number
-  driftDeg: number
-  hasQueuedRequest: boolean
-}
-
-export interface CartesianPlannerWorkerAdapter {
-  plan: (targetPose: Pose, initialJoints: JointAngles) => Promise<CartesianPathResult | null>
+export interface MotionPlannerWorkerAdapter {
+  plan: (request: MotionPlanningRequest) => Promise<MotionPlanningResult | null>
   cancel: () => void
   dispose: () => void
 }
 
-function planningNow(): number {
-  return typeof performance === 'undefined' ? Date.now() : performance.now()
-}
+function now(): number { return typeof performance === 'undefined' ? Date.now() : performance.now() }
 
-function roundMilliseconds(value: number): number {
-  return Math.round(value * 10) / 10
-}
-
-function maxJointDrift(expected: JointAngles, actual: JointAngles): number {
-  return Math.max(...actual.map((value, index) => Math.abs(value - expected[index])))
-}
-
-function logPlanningTiming(timing: PlanningTiming): void {
-  console.info('[CARTESIAN-PLANNING]', {
-    ...timing,
-    queueMs: roundMilliseconds(timing.queueMs),
-    computeMs: roundMilliseconds(timing.computeMs),
-    totalMs: roundMilliseconds(timing.totalMs),
-    driftDeg: roundMilliseconds(timing.driftDeg),
-  })
-}
-
-/**
- * 一个点动会话只创建一个 Worker；活动请求完成后复用实例，队列只保留最新目标。
- * 规划期间的关节漂移只记录，不把旧结果重算成 retry，也不接受过期结果覆盖执行尾部。
- */
-export function createCartesianPlannerWorkerAdapter(
-  profile: RobotProfile,
-  getCurrentJoints: () => JointAngles,
-): CartesianPlannerWorkerAdapter {
-  if (profile.id !== 'abb-irb1200-5-0.9') {
-    throw new Error(`Worker 暂不支持机器人型号 ${profile.id}`)
-  }
-
+/** 常驻 Core Worker；这里只管理异步生命周期，不改变请求、策略或结果。 */
+export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
   let worker: Worker | null = null
-  let requestId = 0
-  let active: {
-    requestId: number
-    targetPose: Pose
-    initialJoints: JointAngles
-    requestedAt: number
-    startedAt: number
-    resolve: (result: CartesianPathResult | null) => void
-  } | null = null
-  let queued: {
-    requestId: number
-    targetPose: Pose
-    initialJoints: JointAngles
-    requestedAt: number
-    resolve: (result: CartesianPathResult | null) => void
-  } | null = null
+  let nextId = 0
+  let active: { id: number; startedAt: number; resolve: (result: MotionPlanningResult | null) => void } | null = null
+  let queued: { id: number; request: MotionPlanningRequest; resolve: (result: MotionPlanningResult | null) => void } | null = null
 
-  function terminateWorker(): void {
-    worker?.terminate()
-    worker = null
+  const terminate = (): void => { worker?.terminate(); worker = null }
+  const cancel = (): void => { nextId += 1; active?.resolve(null); queued?.resolve(null); active = null; queued = null }
+  const dispose = (): void => { cancel(); terminate() }
+
+  function start(request: { id: number; request: MotionPlanningRequest; resolve: (result: MotionPlanningResult | null) => void }): void {
+    const current = ensureWorker()
+    active = { id: request.id, startedAt: now(), resolve: request.resolve }
+    current.postMessage({
+      requestId: request.id,
+      request: request.request,
+    } satisfies PlannerRequest)
   }
-
-  function cancelPending(): void {
-    requestId += 1
-    active?.resolve(null)
-    queued?.resolve(null)
-    active = null
-    queued = null
-  }
-
-  function dispose(): void {
-    cancelPending()
-    terminateWorker()
-  }
-
   function ensureWorker(): Worker {
     if (worker) return worker
-    const created = new Worker(new URL('./worker.ts', import.meta.url), {
-      type: 'module',
-    })
+    const created = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
     created.onmessage = (event: MessageEvent<PlannerResponse>) => {
-      if (!active || event.data.requestId !== active.requestId) return
+      if (!active || event.data.requestId !== active.id) return
       const current = active
       active = null
-      const finishedAt = planningNow()
-      logPlanningTiming({
-        requestId: current.requestId,
-        queueMs: current.startedAt - current.requestedAt,
-        computeMs: finishedAt - current.startedAt,
-        totalMs: finishedAt - current.requestedAt,
-        driftDeg: maxJointDrift(current.initialJoints, [...getCurrentJoints()] as JointAngles),
-        hasQueuedRequest: queued !== null,
-      })
+      console.info('[MOTION-CORE-WORKER]', { requestId: current.id, computeMs: now() - current.startedAt, ok: event.data.result.ok })
       current.resolve(event.data.result)
-      if (queued) {
-        const nextRequest = queued
-        queued = null
-        startWorker(nextRequest)
-      }
+      if (queued) { const next = queued; queued = null; start(next) }
     }
     created.onerror = () => {
       const current = active
       active = null
-      terminateWorker()
+      terminate()
       current?.resolve(null)
-      if (queued) {
-        const nextRequest = queued
-        queued = null
-        startWorker(nextRequest)
-      }
+      if (queued) { const next = queued; queued = null; start(next) }
     }
     worker = created
     return created
   }
-
-  function startWorker(request: {
-    requestId: number
-    targetPose: Pose
-    initialJoints: JointAngles
-    requestedAt: number
-    resolve: (result: CartesianPathResult | null) => void
-  }): void {
-    const currentWorker = ensureWorker()
-    active = {
-      ...request,
-      startedAt: planningNow(),
-    }
-    const message: PlannerRequest = {
-      requestId: request.requestId,
-      targetPose: request.targetPose,
-      // 规划锚点由会话显式提交；实时关节只用于完成后的漂移观测。
-      initialJoints: request.initialJoints,
-    }
-    currentWorker.postMessage(message)
-  }
-
-  function plan(targetPose: Pose, initialJoints: JointAngles): Promise<CartesianPathResult | null> {
-    const currentRequestId = ++requestId
-    const requestedAt = planningNow()
+  function plan(request: MotionPlanningRequest): Promise<MotionPlanningResult | null> {
+    const id = ++nextId
     return new Promise((resolve) => {
-      const request = {
-        requestId: currentRequestId,
-        targetPose,
-        initialJoints: [...initialJoints] as JointAngles,
-        requestedAt,
-        resolve,
-      }
+      const next = { id, request, resolve }
       if (active) {
+        active.resolve(null)
+        active = null
         queued?.resolve(null)
-        queued = request
-      } else {
-        startWorker(request)
-      }
+        queued = null
+        start(next)
+      } else start(next)
     })
   }
-
-  return { plan, cancel: cancelPending, dispose }
+  return { plan, cancel, dispose }
 }

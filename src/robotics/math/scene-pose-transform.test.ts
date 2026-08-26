@@ -9,7 +9,7 @@ import {
 } from './scene-pose-transform.ts'
 import { rotationMatrixToEulerZYX, rotationMatrixToQuaternion } from './rotation3d.ts'
 import { eulerZYXToMatrix } from '@/robotics/kinematics/transform-matrix.ts'
-import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_BASE_TO_SCENE } from '@/scene/abb-scene-transform.ts'
 
 describe('scene-pose-transform 场景 frame ↔ ABB 基座 frame', () => {

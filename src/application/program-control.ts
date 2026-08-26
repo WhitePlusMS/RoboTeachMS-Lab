@@ -1,29 +1,28 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import type { MotionResult } from '@/robotics/motion/runner.ts'
 import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
-import { executeRapidMotion } from '@/rapid/motion-execution.ts'
-import type { RapidScalarValue, RapidScalarVariable } from '@/rapid/rapid-types.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
+import { executeRapidMotion } from '@/rapid/execution/index.ts'
+import type { RapidScalarValue, RapidScalarVariable } from '@/rapid/data/index.ts'
 import {
   parseRapidProgram,
   type RapidAssignmentInstruction,
   type RapidDiagnostic,
   type RapidExecutableInstruction,
   type RapidForInstruction,
-  type RapidMotionInstruction,
   type RapidParseResult,
   type RapidScalarExpression,
-  type RapidSingAreaInstruction,
   type RapidSourceRange,
   type RapidWhileInstruction,
-} from '@/rapid/rapid-parser.ts'
-import type { SingAreaMode } from '@/rapid/rapid-types.ts'
+} from '@/rapid/language/index.ts'
+import type { SingAreaMode } from '@/rapid/data/index.ts'
+import type { MotionPlanningResultOk } from '@/robot-motion-core/index.ts'
 import {
   applyRapidEdit,
   type RapidEditCommand,
   type RapidEditResult,
   type RapidEditSuccess,
-} from '@/rapid/controlled-rapid-edit.ts'
+} from '@/rapid/editing/index.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,
@@ -33,7 +32,7 @@ import {
   type ProgramExecutor,
   type ProgramSnapshot,
   type ProgramState,
-} from '@/rapid/program-executor.ts'
+} from '@/rapid/execution/index.ts'
 
 /** 程序控制器可用的 MotionRunner 能力子集（由现有 useMotion 提供）；不含程序级暂停/继续。 */
 export interface ProgramControllerMotion {
@@ -41,6 +40,7 @@ export interface ProgramControllerMotion {
   startCartesianTrajectory: (
     waypoints: readonly JointAngles[],
     duration?: number,
+    corePlan?: MotionPlanningResultOk,
   ) => Promise<MotionResult>
   stopAnimation: () => void
 }
@@ -303,6 +303,7 @@ function rapidLogicSignature(parsed: RapidParseResult): string {
   const statements = parsed.program.map((instruction) => {
     if (instruction.kind === 'assign') return `assign|${instruction.sourceText}`
     if (instruction.kind === 'singarea') return `singarea|${instruction.mode}`
+    if (instruction.kind === 'confj' || instruction.kind === 'confl') return `${instruction.kind}|${instruction.mode}`
     if (instruction.kind === 'if')
       return `if|${instruction.conditionKind}|${instruction.sourceText}`
     if (instruction.kind === 'while') return `while|${instruction.sourceText}`
@@ -345,10 +346,10 @@ function executeAssignment(
 
 /** 运动 planner 不认识控制流元数据；在现有 seam 返回后补回分支末条的跳转目标。 */
 function attachBranchNextPointer(
-  instruction: RapidMotionInstruction | RapidSingAreaInstruction | RapidAssignmentInstruction,
+  instruction: RapidExecutableInstruction,
   outcome: InstructionOutcome,
 ): InstructionOutcome {
-  if (!outcome.ok || outcome.result !== 'completed' || instruction.nextPointer === undefined) {
+  if (!outcome.ok || outcome.result !== 'completed' || !('nextPointer' in instruction) || instruction.nextPointer === undefined) {
     return outcome
   }
   return { ...outcome, nextPointer: instruction.nextPointer }
@@ -361,6 +362,8 @@ function attachBranchNextPointer(
  */
 export function useProgramController(options: ProgramControllerOptions): ProgramController {
   let singAreaMode: SingAreaMode = 'off'
+  let confJMode: 'on' | 'off' = 'on'
+  let confLMode: 'on' | 'off' = 'on'
 
   async function execute(
     instruction: RapidExecutableInstruction,
@@ -396,18 +399,24 @@ export function useProgramController(options: ProgramControllerOptions): Program
       singAreaMode = instruction.mode
       return attachBranchNextPointer(instruction, { ok: true, result: 'completed' })
     }
+    if (instruction.kind === 'confj' || instruction.kind === 'confl') {
+      if (instruction.kind === 'confj') confJMode = instruction.mode
+      else confLMode = instruction.mode
+      return attachBranchNextPointer(instruction, { ok: true, result: 'completed' })
+    }
     if (instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec') {
-      const outcome = await executeRapidMotion(instruction, singAreaMode, {
+      const outcome = await executeRapidMotion({ ...instruction, ...(instruction.kind === 'movej' ? { confJ: confJMode } : { confL: confLMode }) }, singAreaMode, {
         model: options.profile.model,
         currentJoints: () => [...options.joints.value],
         jointRanges: options.profile.jointRanges,
         runEased: (target, durationMs) => options.motion.startEasedAnimation(target, durationMs),
-        runTrajectory: (waypoints, durationMs) =>
-          options.motion.startCartesianTrajectory(waypoints, durationMs),
+        runTrajectory: (waypoints, durationMs, corePlan) =>
+          options.motion.startCartesianTrajectory(waypoints, durationMs, corePlan),
       })
       return attachBranchNextPointer(instruction, outcome)
     }
-    return executeAssignment(instruction, context)
+    if (instruction.kind === 'assign') return executeAssignment(instruction, context)
+    return { ok: false, error: { kind: 'runtime-error', message: `不支持的 RAPID 指令 ${instruction.kind}` } }
   }
 
   // 教学防死循环：run/step 复用同一 seam，步数在全程序运行期内全局累计。
@@ -764,6 +773,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
       runtimeVariablesForParsed(parsed.value, runtimeValues),
     )
     singAreaMode = 'off'
+    confJMode = 'on'
+    confLMode = 'on'
     executor.ppToMain()
     logicContextDirty = false
     sync()
@@ -918,7 +929,9 @@ export function useProgramController(options: ProgramControllerOptions): Program
         mapTo,
         runtimeVariablesForParsed(next, base.variables),
       )
-      singAreaMode = 'off'
+    singAreaMode = 'off'
+    confJMode = 'on'
+    confLMode = 'on'
     }
     sync()
   }

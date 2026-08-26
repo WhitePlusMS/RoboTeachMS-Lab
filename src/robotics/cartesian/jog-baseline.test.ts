@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationDistanceRad } from '../math/rotation3d.ts'
 import { createMotionRunner, type MotionClock } from '../motion/runner.ts'
 import { planCartesianTarget } from './index.ts'
-import type { JointAngles, Pose } from '../model/types.ts'
+import type { JointAngles, Pose } from '../model/index.ts'
 
 class ManualMotionClock implements MotionClock {
   private currentTime = 0

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { JointAngles, Pose } from '@/robotics/model/types.ts'
+import type { JointAngles, Pose } from '@/robotics/model/index.ts'
 import {
   createAbbScene,
   type AbbRobTargetMarker,

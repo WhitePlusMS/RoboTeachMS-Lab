@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '@/robot-models/kuka-like/kinematics/legacy-forward-kinematics.ts'
+import { poseFromJoints } from '@/robot-models/kuka-like/index.ts'
 import { radToDeg } from '@/robotics/math/angle.ts'
 import { applyCartesianDelta, useCartesianControl } from './cartesian-control.ts'
 import type { CartesianPathResult } from '@/robotics/cartesian/path-planner.ts'
-import type { JointAngles, PoseDisplay } from '@/robotics/model/types.ts'
-import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import type { RobotProfile, SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
 import {
   KUKA_JOINT_RANGES,
   KUKA_LIKE,
   DEFAULT_JOINTS,
-} from '@/robot-models/kuka-like/parameters.ts'
-import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
+} from '@/robot-models/kuka-like/index.ts'
+import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/index.ts'
 
 /** 测试用 KUKA 局部 profile；沿用既有 KUKA 模型与常量，不迁移 KUKA 实现。 */
 const KUKA_PROFILE: RobotProfile = {
@@ -286,7 +286,7 @@ describe('笛卡尔坐标增量', () => {
     expect(submittedX[2] - submittedX[1]).toBeCloseTo(1, 8)
   })
 
-  it('异步连续规划只提交最新结果，过期轨迹不会覆盖新目标', async () => {
+  it('异步连续规划先提交当前成功结果，再处理最新排队目标', async () => {
     const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
     const poseRef = computed<PoseDisplay>(() => {
       const currentPose = new AbbRobotModelAdapter().forwardKinematics(joints.value)
@@ -319,7 +319,7 @@ describe('笛卡尔坐标增量', () => {
     resolvers[1]({ ok: true, waypoints: [[2, 2, 2, 2, 2, 2]], appliedSingularityMode: null })
     await Promise.resolve()
 
-    expect(trajectories).toEqual([[[2, 2, 2, 2, 2, 2]]])
+    expect(trajectories).toEqual([[[1, 1, 1, 1, 1, 1]], [[2, 2, 2, 2, 2, 2]]])
     expect(submitted).toHaveLength(0)
     expect(control.status.value).toBe('solved')
   })

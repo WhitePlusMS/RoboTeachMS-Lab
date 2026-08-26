@@ -6,8 +6,8 @@ import type { EditorView } from '@codemirror/view'
 import type {
   RapidExecutableInstruction,
   RapidConditionalInstruction,
-} from '@/rapid/rapid-parser.ts'
-import { defaultTool0, defaultWobj0, defaultZoneFine } from '@/rapid/rapid-types.ts'
+} from '@/rapid/language/index.ts'
+import { defaultTool0, defaultWobj0, defaultZoneFine } from '@/rapid/data/index.ts'
 
 const SOURCE = `MODULE Demo
     CONST robtarget p1 := [[500,100,807.1],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];

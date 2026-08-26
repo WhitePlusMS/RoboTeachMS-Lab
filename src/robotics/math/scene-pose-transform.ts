@@ -1,4 +1,4 @@
-import type { Pose } from '@/robotics/model/types.ts'
+import type { Pose } from '@/robotics/model/index.ts'
 import { rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
 import {
   quaternionToRotationMatrix,

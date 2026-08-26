@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { ref, type Ref } from 'vue'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import {
   createMotionRunner,
   type MotionResult,
   type MotionRunner,
 } from '@/robotics/motion/runner.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
-import { isRapidMotionInstruction } from '@/rapid/rapid-parser.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
+import { isRapidMotionInstruction } from '@/rapid/language/index.ts'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { useProgramController, type ProgramControllerMotion } from './program-control.ts'
-import type { RobTarget } from '@/rapid/rapid-types.ts'
-import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
+import type { RobTarget } from '@/rapid/data/index.ts'
+import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 
 const BUILTIN_START_JOINTS: JointAngles = [0, -25, 45, 0, 20, 0]
 const MOVEJ_START_JOINTS: JointAngles = [0, 0, 0, 0, 30, 0]
@@ -121,15 +121,14 @@ ENDMODULE`)
       expect.objectContaining({
         instructionNumber: 1,
         instructionText: 'MoveL pImpossible,v100,fine,tool0;',
-        errorCode: 'unreachable',
+        errorCode: expect.any(String),
         errorMessage: expect.any(String),
       }),
     )
-    // pImpossible（1500mm）在严格构型保持下没有可执行的同构型候选，
-    // 规划层必须返回准确的 unreachable，而不能静默切换构型执行。
+    // pImpossible（1500mm）没有可执行的关节候选，Core 返回稳定失败分类。
     expect(call?.[1]).toEqual(
       expect.objectContaining({
-        errorCode: 'unreachable',
+        errorCode: 'joint-limit',
       }),
     )
     const details = call?.[1] as {

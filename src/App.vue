@@ -9,15 +9,24 @@ import RunLogPanel from '@/components/RunLogPanel.vue'
 import SceneViewport from '@/components/SceneViewport.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
-import type { JointAngles, Pose } from '@/robotics/model/types.ts'
-import { solveGizmoTarget as solveGizmoIK } from '@/robotics/cartesian/index.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import type { JointAngles, Pose } from '@/robotics/model/index.ts'
+import {
+  createCartesianTargetRequest,
+  fromPose,
+  planMotion,
+  type MotionPlanningResult,
+  type MotionPlanningResultOk,
+} from '@/robot-motion-core/index.ts'
+import type { MotionResult } from '@/robotics/motion/runner.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import {
   adjustJointAngle,
   randomJointAngles,
   useJointControl,
 } from '@/application/joint-control.ts'
 import { useMotion } from '@/application/motion-control.ts'
+import { createMotionCoordinator } from '@/application/motion-coordinator.ts'
+import { presentMotionError, type HostMotionErrorPresentation } from '@/application/motion-errors.ts'
 import { useProgramController } from '@/application/program-control.ts'
 import { findRapidPreset } from '@/application/preset-programs.ts'
 import { createBuiltinRapidSource } from '@/application/builtin-program.ts'
@@ -26,10 +35,10 @@ import { provideToasts, useToasts } from '@/application/toast.ts'
 import { useStatusToasts } from '@/application/status-toasts.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
-import { planCartesianTarget } from '@/robotics/cartesian/index.ts'
-import { createCartesianPlannerWorkerAdapter } from '@/robotics/cartesian/index.ts'
-import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
-import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
+import type { CartesianPathResult } from '@/robotics/cartesian/index.ts'
+import { createMotionPlannerWorkerAdapter } from '@/robotics/cartesian/worker/adapter.ts'
+import { isRobtargetProgramData } from '@/rapid/language/index.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 import { provideProgramPanelController } from '@/application/use-program-panel-controller.ts'
 import { provideRobotController } from '@/application/use-robot-controller.ts'
 
@@ -54,7 +63,6 @@ const {
   jointStep,
   jointRanges,
   pose,
-  setJoint: setJointImmediate,
   setJoints: setJointsImmediate,
   setStep,
 } = useJointControl({ profile })
@@ -65,29 +73,54 @@ const {
   startCartesianTrajectory,
   appendCartesianTrajectory,
   stopAnimation,
+  pauseMotion,
+  resumeMotion,
+  getMotionStatus,
 } = useMotion({
   getCurrentJoints: () => joints.value,
   setJoints: setJointsImmediate,
 })
 
+const motionCoordinator = createMotionCoordinator({
+  plan: (request) => planMotion(request),
+  runImmediate: setJointsImmediate,
+  runEased: startEasedAnimation,
+  runSpeedLimited: startSpeedLimitedAnimation,
+  runTrajectory: startCartesianTrajectory,
+  appendTrajectory: appendCartesianTrajectory,
+  stopRunner: stopAnimation,
+  pauseRunner: pauseMotion,
+  resumeRunner: resumeMotion,
+  getRunnerStatus: getMotionStatus,
+  log: (event) => console.info('[MOTION-COORDINATOR]', event),
+})
+onBeforeUnmount(() => motionCoordinator.dispose())
+
 // Worker 请求携带笛卡尔会话提交的显式关节锚点；当前关节只用于完成后的漂移观测。
 const cartesianPlanner =
   typeof Worker === 'undefined'
     ? null
-    : createCartesianPlannerWorkerAdapter(profile, () => [...joints.value] as JointAngles)
+    : createMotionPlannerWorkerAdapter()
 onBeforeUnmount(() => cartesianPlanner?.dispose())
 function cancelCartesianPlanning(): void {
   cartesianPlanner?.cancel()
 }
 
-/** 数值输入是直接提交，按钮与目标姿态更新走原项目的动画过渡。 */
+/** 数值输入同样通过 Core 与 Coordinator 提交，使用 1ms 缓动保持近似即时的面板语义。 */
 function setJoint(index: number, value: number): void {
   endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
-  stopAnimation()
+  motionCoordinator.stop('superseded')
   const before = joints.value[index]
-  setJointImmediate(index, value)
+  const target = [...joints.value] as JointAngles
+  target[index] = value
+  const planned = planJointTarget(target)
+  if (!planned.ok) {
+    runLog.warn('运动', `J${index + 1} 目标被 Core 拒绝：${planned.error.code}`)
+    return
+  }
+  void motionCoordinator.commitPlan(planned, 'manual-joint', 'immediate')
   runLog.info('运动', `J${index + 1} ${before.toFixed(1)}° → ${value.toFixed(1)}°`)
 }
 
@@ -118,9 +151,16 @@ function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): vo
     jointStep.value,
     profile.jointRanges,
   )
-  if (isContinuous) startSpeedLimitedAnimation(next)
+  const planned = planJointTarget(next)
+  if (!planned.ok) {
+    runLog.warn('运动', `J${index + 1} 点动被 Core 拒绝：${planned.error.code}`)
+    return
+  }
+  if (isContinuous) {
+    void motionCoordinator.submit({ source: 'manual-joint', request: jointRequest(next), mode: 'speed-limited' })
+  }
   else {
-    startEasedAnimation(next)
+    void motionCoordinator.submit({ source: 'manual-joint', request: jointRequest(next), mode: 'eased' })
     // 只有离散单步才记日志；按住连续 Jog 的 80ms 高频 tick 不做逐条记录以免刷屏。
     runLog.info(
       '运动',
@@ -131,11 +171,26 @@ function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): vo
   }
 }
 
+function planJointTarget(target: JointAngles): MotionPlanningResult {
+  return planMotion(jointRequest(target))
+}
+
+function jointRequest(target: JointAngles) {
+  return {
+    schemaVersion: 1,
+    robot: { modelId: profile.id, modelRevision: 'dh-standard-v1' },
+    state: { jointsDeg: [...joints.value] as JointAngles },
+    intent: { kind: 'joint-target', targetJointsDeg: [...target] as JointAngles },
+  } as const
+}
+
 function reset(): void {
   endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
-  startEasedAnimation([...profile.homeJoints])
+  const planned = planJointTarget([...profile.homeJoints] as JointAngles)
+  if (!planned.ok) return
+  void motionCoordinator.commitPlan(planned, 'manual-joint', 'eased')
   runLog.info('运动', '机器人回到教学 Home')
 }
 
@@ -143,7 +198,9 @@ function resetMechanicalZero(): void {
   endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
-  startEasedAnimation([...profile.mechanicalZeroJoints])
+  const planned = planJointTarget([...profile.mechanicalZeroJoints] as JointAngles)
+  if (!planned.ok) return
+  void motionCoordinator.commitPlan(planned, 'manual-joint', 'eased')
   runLog.info('运动', '机器人回到 ABB 机械零位')
 }
 
@@ -151,18 +208,35 @@ function randomize(): void {
   endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
-  startEasedAnimation(randomJointAngles(profile.jointRanges))
+  const planned = planJointTarget(randomJointAngles(profile.jointRanges))
+  if (!planned.ok) return
+  void motionCoordinator.commitPlan(planned, 'manual-joint', 'eased')
   runLog.info('运动', '随机生成姿态')
 }
 
 function animateCartesianTrajectory(
-  trajectory: readonly JointAngles[],
+  _trajectory: readonly JointAngles[],
   isContinuous = false,
   generation?: number,
+  corePlan?: MotionPlanningResultOk,
 ): void {
   programControl.stopActiveProgram()
-  if (isContinuous) appendCartesianTrajectory(trajectory, 140, generation)
-  else startCartesianTrajectory(trajectory)
+  if (!corePlan) {
+    runLog.error('运动', 'Cartesian 规划缺少 Core 计划，已拒绝提交')
+    return
+  }
+  void motionCoordinator.commitPlan(corePlan, 'manual-cartesian', isContinuous ? 'stream' : 'trajectory', isContinuous ? 140 : undefined, generation)
+}
+
+function runProgramEased(target: JointAngles, duration?: number): Promise<MotionResult> {
+  return motionCoordinator.submit({ source: 'rapid', request: { schemaVersion: 1, robot: { modelId: profile.id, modelRevision: 'dh-standard-v1' }, state: { jointsDeg: [...joints.value] as JointAngles }, intent: { kind: 'joint-target', targetJointsDeg: [...target] as JointAngles } }, mode: 'eased', durationMs: duration }).then((outcome) => outcome.ok ? outcome.result : 'stopped')
+}
+
+function runProgramTrajectory(waypoints: readonly JointAngles[], duration?: number, corePlan?: MotionPlanningResultOk): Promise<MotionResult> {
+  const target = waypoints.at(-1)
+  if (!target) return Promise.resolve('stopped')
+  if (corePlan) return motionCoordinator.commitPlan(corePlan, 'rapid', 'trajectory', duration).then((outcome) => outcome.ok ? outcome.result : 'stopped')
+  return motionCoordinator.submit({ source: 'rapid', request: { schemaVersion: 1, robot: { modelId: profile.id, modelRevision: 'dh-standard-v1' }, state: { jointsDeg: [...joints.value] as JointAngles }, intent: { kind: 'joint-target', targetJointsDeg: [...target] as JointAngles } }, mode: 'trajectory', durationMs: duration }).then((outcome) => outcome.ok ? outcome.result : 'stopped')
 }
 
 /** RAPID 源码在 localStorage 的键名；用于跨刷新/重开浏览器保留用户编辑。 */
@@ -196,9 +270,9 @@ const programControl = useProgramController({
   profile,
   joints,
   motion: {
-    startEasedAnimation,
-    startCartesianTrajectory,
-    stopAnimation,
+    startEasedAnimation: runProgramEased,
+    startCartesianTrajectory: runProgramTrajectory,
+    stopAnimation: () => motionCoordinator.stop('user'),
   },
 })
 const programSnapshot = programControl.snapshot
@@ -256,22 +330,44 @@ const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
 
 /**
  * 末端法兰拖拽操作轴：在 3D 场景把机械臂末端（法兰/TCP）拖拽到空间任意可到达位姿。
- * 拖拽产生目标 ABB Pose → DH IK 逆解 → 写入关节。状态由 App 唯一持有并驱动 SceneViewport。
- * 拖拽开始（onGizmoDragStart）已停活动程序与动画，这里只负责求解与写入，避免每 tick 重复 stop。
+ * 拖拽产生目标 ABB Pose → Core 运动计划 → Coordinator 统一提交。状态由 App 唯一持有并驱动 SceneViewport。
+ * 拖拽开始（onGizmoDragStart）已通过 Coordinator 停止活动运动，这里只负责求解与提交，避免每 tick 重复 stop。
  */
 const transformGizmoEnabled = ref(false)
 const transformGizmoMode = ref<'translate' | 'rotate'>('translate')
 /** 本次拖拽会话（drag-start→drag-end）内是否出现过不可达目标；用于结束一次性提示。 */
 const gizmoDragUnreachable = ref(false)
+const gizmoDragError = ref<HostMotionErrorPresentation | null>(null)
 
 function solveGizmoTarget(pose: Pose): boolean {
-  const solved = solveGizmoIK(pose, joints.value, profile.model, profile.jointRanges)
-  if (!solved) {
+  const result = planMotion(createCartesianTargetRequest(fromPose(pose), [...joints.value] as JointAngles))
+  if (!result.ok) {
     gizmoDragUnreachable.value = true
+    gizmoDragError.value = presentMotionError(result.error)
     return false
   }
-  setJointsImmediate(solved)
+  void motionCoordinator.commitPlan(result, 'gizmo', 'trajectory')
   return true
+}
+
+function planCartesianWithCore(targetPose: Pose, initialJoints: JointAngles): CartesianPathResult {
+  const result = planMotion(createCartesianTargetRequest(fromPose(targetPose), [...initialJoints] as JointAngles))
+  if (!result.ok) {
+    const failure = result.error.code === 'joint-limit'
+      ? 'joint-limit'
+      : result.error.code === 'path-discontinuity'
+        ? 'joint-step'
+        : result.error.code === 'wrist-singularity'
+          ? 'wrist-singularity'
+          : 'ik-not-converged'
+    return { ok: false, failure, coreError: result.error }
+  }
+      return {
+        ok: true,
+        waypoints: result.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles),
+        appliedSingularityMode: result.validation.relaxedConstraints ? 'wrist' : null,
+        corePlan: result,
+      }
 }
 
 /** 操作轴的显示锚点使用同一套 DH FK 真值，不能读取 FBX 近似骨骼原点。 */
@@ -281,17 +377,24 @@ function getGizmoPose(): Pose | null {
 
 function handleGizmoDragStart(): void {
   gizmoDragUnreachable.value = false
+  gizmoDragError.value = null
   endCartesianContinuous()
   cancelCartesianPlanning()
   programControl.stopActiveProgram()
-  stopAnimation()
+  motionCoordinator.stop('superseded')
 }
 
 function handleGizmoDragEnd(): void {
   if (gizmoDragUnreachable.value) {
-    runLog.info('运动', '末端位置不可达，操作轴已回弹至最近可到达位置')
-    toasts.push('warn', '末端位置不可达', '目标超出工作空间，已保留最近可到达位姿')
+    const presentation = gizmoDragError.value ?? {
+      title: '目标不可达',
+      message: '运动 Core 未找到满足约束的规划。',
+      recovery: '调整目标位置、姿态或构型后重试。',
+    }
+    runLog.info('运动', `${presentation.title}：${presentation.message} ${presentation.recovery}`)
+    toasts.push('warn', presentation.title, `${presentation.message} ${presentation.recovery}`)
     gizmoDragUnreachable.value = false
+    gizmoDragError.value = null
   }
 }
 
@@ -312,8 +415,26 @@ const {
   pose,
   profile,
   planTarget: (targetPose, initialJoints) =>
-    cartesianPlanner?.plan(targetPose, initialJoints) ??
-    planCartesianTarget(targetPose, initialJoints, profile),
+    cartesianPlanner?.plan(createCartesianTargetRequest(fromPose(targetPose), [...initialJoints] as JointAngles)).then((result) => {
+      if (result === null) return null
+      if (!result.ok) {
+        const failure = result.error.code === 'joint-limit'
+          ? 'joint-limit'
+          : result.error.code === 'path-discontinuity'
+            ? 'joint-step'
+            : result.error.code === 'wrist-singularity'
+              ? 'wrist-singularity'
+              : 'ik-not-converged'
+        return { ok: false, failure, coreError: result.error } as CartesianPathResult
+      }
+      return {
+        ok: true,
+        waypoints: result.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles),
+        appliedSingularityMode: result.validation.relaxedConstraints ? 'wrist' : null,
+        corePlan: result,
+      } as CartesianPathResult
+    }) ??
+    planCartesianWithCore(targetPose, initialJoints),
   cancelPlanning: cartesianPlanner?.cancel,
   moveToTrajectory: animateCartesianTrajectory,
 })
@@ -417,6 +538,7 @@ provideProgramPanelController({
   editable: programEditable,
   insertionPoints: computed(() => programControl.parsed.value.motionInsertionPoints),
   pose: toolPose,
+  joints,
   runtimeValues: computed(() => programSnapshot.value.variables),
   selectedTargetName,
   applyEdit: handleApplyEdit,

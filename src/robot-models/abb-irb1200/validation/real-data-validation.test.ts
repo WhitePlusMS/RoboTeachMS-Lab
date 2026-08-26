@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
 import { solveIK } from '@/robotics/inverse-kinematics/numerical-ik.ts'
 import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
-import type { JointAngles, Pose } from '@/robotics/model/types.ts'
+import type { JointAngles, Pose } from '@/robotics/model/index.ts'
 
 interface RpiPoseRecord {
   q_rad: number[]

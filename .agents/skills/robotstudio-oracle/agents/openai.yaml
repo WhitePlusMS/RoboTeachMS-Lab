@@ -1,0 +1,4 @@
+interface:
+  display_name: "RobotStudio Oracle"
+  short_description: "自动操作 ABB RobotStudio 虚拟控制器并对比运动行为"
+  default_prompt: "Use $robotstudio-oracle to run a pinned RobotStudio experiment and compare it with the simulator."

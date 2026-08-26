@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { makeTaughtTargetFromPose } from '@/rapid/controlled-rapid-edit.ts'
+import { makeTaughtTargetFromPose } from '@/rapid/editing/index.ts'
 import type {
   RapidExecutableInstruction,
   RapidProgramDataTarget,
-} from '@/rapid/rapid-parser.ts'
-import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
+} from '@/rapid/language/index.ts'
+import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { ProgramPanelController } from '@/application/use-program-panel-controller.ts'
 
 /**
@@ -76,7 +76,7 @@ function chooseNewTarget(): void {
     type: 'edit-motion-operand',
     index: current.index,
     operand: 'target',
-    value: { source: 'new', target: makeTaughtTargetFromPose(pose) },
+    value: { source: 'new', target: makeTaughtTargetFromPose(pose, props.controller.joints.value) },
   })
   panelError.value = result.ok ? null : result.error.message
   if (result.ok) openOperand.value = null

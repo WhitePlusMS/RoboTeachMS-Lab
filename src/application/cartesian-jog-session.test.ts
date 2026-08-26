@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
-import type { PoseDisplay } from '@/robotics/model/types.ts'
+import type { PoseDisplay } from '@/robotics/model/index.ts'
 
 const pose: PoseDisplay = {
   positionMm: [1, 2, 3],
@@ -18,6 +18,14 @@ describe('Cartesian Jog session', () => {
     session.commit({ positionMm: [3, 2, 3], orientationDeg: [4, 5, 6] }, [1, 1, 1, 1, 1, 1])
     expect(session.getAnchor(pose).positionMm[0]).toBe(3)
     expect(session.getPlanningJoints([9, 9, 9, 9, 9, 9])).toEqual([1, 1, 1, 1, 1, 1])
+  })
+
+  it('同一长按 generation 在每批成功提交后保持不变', () => {
+    const session = createCartesianJogSession()
+    session.begin(pose, [0, 0, 0, 0, 0, 0])
+    const generation = session.getGeneration()
+    session.commit(pose, [1, 1, 1, 1, 1, 1])
+    expect(session.getGeneration()).toBe(generation)
   })
 
   it('结束会话后不保留旧锚点', () => {

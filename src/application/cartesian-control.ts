@@ -10,7 +10,9 @@ import type {
 import { planCartesianTarget } from '@/robotics/cartesian/index.ts'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
 import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
-import type { JointAngles, Pose, PoseDisplay } from '@/robotics/model/types.ts'
+import type { JointAngles, Pose, PoseDisplay } from '@/robotics/model/index.ts'
+import type { MotionPlanningResultOk } from '@/robot-motion-core/index.ts'
+import { presentMotionError } from './motion-errors.ts'
 import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
@@ -171,6 +173,7 @@ export interface CartesianControlOptions {
     trajectory: readonly JointAngles[],
     isContinuous?: boolean,
     generation?: number,
+    corePlan?: MotionPlanningResultOk,
   ) => void
   /** 可替换规划 adapter；缺省为同步实现，生产 App 注入 Worker adapter。 */
   planTarget?: (
@@ -201,6 +204,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const orientationStep = ref<OrientationStep>(1)
   const status = ref<CartesianStatus>('ready')
   const failureDiagnostic = ref<WaypointFailureDiagnostic | null>(null)
+  const failurePresentation = ref<ReturnType<typeof presentMotionError> | null>(null)
   const jogSession = createCartesianJogSession()
   let planningVersion = 0
   let continuousPlanning = false
@@ -237,7 +241,10 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (status.value === 'joint-step')
       return withDetail('路径相邻关节步长超过连续运动限制，未执行目标')
     if (status.value === 'not-converged') return withDetail('逆解未收敛，未执行目标')
-    if (status.value === 'unreachable') return withDetail('路径不可达，未执行目标')
+    if (status.value === 'unreachable') {
+      const presentation = failurePresentation.value
+      return withDetail(presentation ? `${presentation.message}${presentation.recovery}` : '路径不可达，未执行目标')
+    }
     return '就绪'
   })
 
@@ -247,6 +254,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
     target: PoseDisplay,
   ): boolean {
     failureDiagnostic.value = null
+    failurePresentation.value = null
     if (result === null) {
       if (isContinuous) jogSession.rollback()
       status.value = 'unreachable'
@@ -275,11 +283,13 @@ export function useCartesianControl(options: CartesianControlOptions) {
         result.waypoints,
         isContinuous,
         isContinuous ? jogSession.getGeneration() : undefined,
+        result.corePlan,
       )
       status.value = result.appliedSingularityMode === 'wrist' ? 'wrist-solved' : 'solved'
       return true
     }
     failureDiagnostic.value = result.diagnostic ?? null
+    failurePresentation.value = result.coreError ? presentMotionError(result.coreError) : null
     if (isContinuous) jogSession.rollback()
     status.value = mapPathFailureToStatus(result.failure)
     return false
@@ -307,6 +317,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
         if (queuedContinuousTarget && currentVersion === planningVersion) {
           const queuedTarget = queuedContinuousTarget
           queuedContinuousTarget = null
+          commitPlanResult(result, context.isContinuous, target)
           solveTarget(queuedTarget.target, queuedTarget.context)
           return
         }

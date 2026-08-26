@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { planCartesianTarget } from './index.ts'
-import type { JointAngles, Pose } from '../model/types.ts'
+import type { JointAngles, Pose } from '../model/index.ts'
 
 const ZERO_JOINTS: JointAngles = [0, 0, 0, 0, 30, 0]
 

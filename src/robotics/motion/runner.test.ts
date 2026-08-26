@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MotionClock, MotionResult } from './runner.ts'
 import { createMotionRunner } from './runner.ts'
-import type { JointAngles } from '../model/types.ts'
+import type { JointAngles } from '../model/index.ts'
 
 class ManualMotionClock implements MotionClock {
   private currentTime = 0

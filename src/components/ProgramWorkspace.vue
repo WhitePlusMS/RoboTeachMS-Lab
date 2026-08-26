@@ -7,17 +7,17 @@ import MotionArgumentPanel from './MotionArgumentPanel.vue'
 import RapidPresetSelector from './RapidPresetSelector.vue'
 import type { RapidPresetProgram } from '@/application/preset-programs.ts'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
-import type { RapidProgramDataTarget } from '@/rapid/rapid-parser.ts'
-import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
-import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
+import type { RapidProgramDataTarget } from '@/rapid/language/index.ts'
+import { isRobtargetProgramData } from '@/rapid/language/index.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 import type {
   RapidExecutableInstruction,
   RapidMotionInsertionPoint,
   RapidProgramData,
   RapidSourceRange,
-} from '@/rapid/rapid-parser.ts'
-import type { Pose } from '@/robotics/model/types.ts'
-import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
+} from '@/rapid/language/index.ts'
+import type { JointAngles, Pose } from '@/robotics/model/index.ts'
+import type { RapidScalarVariable } from '@/rapid/data/index.ts'
 import {
   injectProgramPanelController,
   type ProgramPanelController,
@@ -42,6 +42,7 @@ interface Props {
   canExecute?: boolean
   insertionPoints?: readonly RapidMotionInsertionPoint[]
   pose?: Pose | null
+  joints?: JointAngles
   applyEdit?: (command: RapidEditCommand) => RapidEditResult
   /** ProgramExecutor 的标量当前值快照。 */
   runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
@@ -120,6 +121,7 @@ const controller: ProgramPanelController = injected ?? {
   editable: computed(() => props.canExecute ?? true),
   insertionPoints: computed(() => props.insertionPoints ?? []),
   pose: computed(() => props.pose ?? null),
+  joints: computed(() => props.joints ?? [0, 0, 0, 0, 0, 0] as JointAngles),
   runtimeValues: computed(() => props.runtimeValues ?? new Map()),
   selectedTargetName: computed(() =>
     isValidTargetName(fallbackSelectedTargetName.value, props.data ?? [])
@@ -271,6 +273,7 @@ const argumentInstruction = computed<{
           :can-execute="controller.canExecute.value"
           :program="controller.program.value"
           :pose="controller.pose.value"
+          :joints="controller.joints.value"
           :apply-edit="controller.applyEdit"
           :runtime-values="controller.runtimeValues.value"
           :selected-target-name="controller.selectedTargetName.value"

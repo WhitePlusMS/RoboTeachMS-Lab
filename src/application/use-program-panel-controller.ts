@@ -1,13 +1,14 @@
 import { inject, provide, type InjectionKey } from 'vue'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
-import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 import type {
   RapidExecutableInstruction,
   RapidMotionInsertionPoint,
   RapidProgramData,
-} from '@/rapid/rapid-parser.ts'
-import type { Pose } from '@/robotics/model/types.ts'
-import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
+} from '@/rapid/language/index.ts'
+import type { Pose } from '@/robotics/model/index.ts'
+import type { RapidScalarVariable } from '@/rapid/data/index.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
 
 /**
  * 只读 ref：面板只读展示控制器提供的状态切片，因此只要求可读的 .value。
@@ -36,6 +37,7 @@ export interface ProgramPanelController {
   editable: ReadonlyRef<boolean>
   insertionPoints: ReadonlyRef<readonly RapidMotionInsertionPoint[]>
   pose: ReadonlyRef<Pose | null>
+  joints: ReadonlyRef<JointAngles>
   runtimeValues: ReadonlyRef<ReadonlyMap<string, RapidScalarVariable>>
   /** App 唯一持有的点位选中名称；null 表示未选中。 */
   selectedTargetName: ReadonlyRef<string | null>

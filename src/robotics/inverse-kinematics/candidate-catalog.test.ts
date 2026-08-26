@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
 import { buildIKCandidateCatalog, selectBestIKCandidate } from './candidate-catalog.ts'
 import type { IKCandidateRecord } from './candidate-catalog.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { ABBConfiguration } from '@/robot-models/abb-irb1200/kinematics/configuration.ts'
+import type { ABBConfiguration } from '@/robot-models/abb-irb1200/index.ts'
 
 describe('IK candidate catalog', () => {
   const model = new AbbRobotModelAdapter()

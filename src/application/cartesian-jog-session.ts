@@ -1,4 +1,4 @@
-import type { JointAngles, PoseDisplay } from '@/robotics/model/types.ts'
+import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
 
 function clonePose(pose: PoseDisplay): PoseDisplay {
   return {
@@ -53,7 +53,6 @@ export function createCartesianJogSession(): CartesianJogSession {
     committed = clonePose(pose)
     requested = clonePose(pose)
     committedJoints = [...joints] as JointAngles
-    generation += 1
   }
 
   function rollback(): void {

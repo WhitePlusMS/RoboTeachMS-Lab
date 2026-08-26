@@ -6,10 +6,10 @@ import {
   parseRapidProgram,
   type RapidExecutableInstruction,
   type RapidProgramData,
-} from '@/rapid/rapid-parser.ts'
-import type { Pose } from '@/robotics/model/types.ts'
-import type { RapidScalarVariable } from '@/rapid/rapid-types.ts'
-import type { RapidEditCommand, RapidEditResult } from '@/rapid/controlled-rapid-edit.ts'
+} from '@/rapid/language/index.ts'
+import type { Pose } from '@/robotics/model/index.ts'
+import type { RapidScalarVariable } from '@/rapid/data/index.ts'
+import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 const SOURCE = `
 MODULE Demo

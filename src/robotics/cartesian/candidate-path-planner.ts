@@ -6,7 +6,8 @@ import {
 import type { RobotModel } from '../model/robot-model.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
 import type { IKSolverConfig, RobotConfiguration } from '../inverse-kinematics/types.ts'
-import type { WaypointFailureDiagnostic } from '../inverse-kinematics/waypoint-types.ts'
+import type { WaypointFailureDiagnostic } from './solution/waypoint-types.ts'
+import { MAX_CARTESIAN_JOINT_STEP_DEG } from './step-policy.ts'
 
 export interface CandidateGraphOptions {
   solverConfig?: Partial<IKSolverConfig>
@@ -30,11 +31,6 @@ export type CandidateGraphResult =
     }
 
 const DEFAULT_WRIST_CONTINUITY_WEIGHT = 4
-/** 所有 Cartesian waypoint 共用的相邻关节硬步长上限。 */
-export const MAX_CARTESIAN_JOINT_STEP_DEG = 5
-/** 自适应加密允许处理的最大单步偏差；超过此值按构型跳变报告失败。 */
-export const MAX_ADAPTIVE_JOINT_STEP_DEG = MAX_CARTESIAN_JOINT_STEP_DEG * 2
-
 function edgeCost(previous: JointAngles, next: JointAngles, wristContinuityWeight: number): number {
   return next.reduce((sum, value, index) => {
     const delta = value - previous[index]

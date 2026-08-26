@@ -22,8 +22,8 @@ import {
   isRapidMotionInstruction,
   type RapidExecutableInstruction,
   type RapidSourceRange,
-} from '@/rapid/rapid-parser.ts'
-import { rapid } from '@/rapid/rapid-highlight.ts'
+} from '@/rapid/language/index.ts'
+import { rapid } from '@/rapid/editor/rapid-highlight.ts'
 
 interface Props {
   source: string

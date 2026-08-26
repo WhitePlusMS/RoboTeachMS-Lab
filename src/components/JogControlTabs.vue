@@ -5,7 +5,7 @@ import JointControlPanel from './JointControlPanel.vue'
 import type {
   JointAngles,
   PoseDisplay,
-} from '@/robotics/model/types.ts'
+} from '@/robotics/model/index.ts'
 import type { CartesianAxis, CoordinateSystem } from '@/application/cartesian-types.ts'
 import type { JointRange } from '@/robotics/model/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'

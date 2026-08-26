@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
-import { DEFAULT_JOINTS } from '@/robot-models/kuka-like/parameters.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
+import { DEFAULT_JOINTS } from '@/robot-models/kuka-like/index.ts'
 import { KukaSceneRobotModel } from './kuka-scene-model.ts'
 import {
   createBaseScene,

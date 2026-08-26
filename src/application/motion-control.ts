@@ -5,7 +5,7 @@ import {
   type MotionResult,
   type MotionStatus,
 } from '@/robotics/motion/runner.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
 import type { MotionConfig } from '@/robotics/motion/types.ts'
 
 export interface MotionControlOptions {

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { RapidEditCommand } from '@/rapid/controlled-rapid-edit.ts'
-import { makeTaughtTargetFromPose } from '@/rapid/controlled-rapid-edit.ts'
+import type { RapidEditCommand } from '@/rapid/editing/index.ts'
+import { makeTaughtTargetFromPose } from '@/rapid/editing/index.ts'
 import type {
   RapidExecutableInstruction,
   RapidMotionInsertionPoint,
-} from '@/rapid/rapid-parser.ts'
-import { isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
+} from '@/rapid/language/index.ts'
+import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { ProgramPanelController } from '@/application/use-program-panel-controller.ts'
 
 /**
@@ -119,7 +119,7 @@ function modifyPosition(): void {
     props.controller.applyEdit({
       type: 'modify-position',
       name: target.name,
-      target: makeTaughtTargetFromPose(pose),
+      target: makeTaughtTargetFromPose(pose, props.controller.joints.value),
     }),
   )
 }

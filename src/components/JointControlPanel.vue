@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { Home } from '@lucide/vue'
-import type { JointAngles } from '@/robotics/model/types.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
 import type { JointRange } from '@/robotics/model/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'
 import { JOINT_STEPS } from '@/application/joint-control.ts'

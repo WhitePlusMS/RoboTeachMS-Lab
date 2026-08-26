@@ -249,8 +249,8 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
   })
 })
 
-import type { RapidMotionInstruction } from '@/rapid/rapid-parser.ts'
-import { defaultTool0, defaultWobj0, defaultZoneFine } from '@/rapid/rapid-types.ts'
+import type { RapidMotionInstruction } from '@/rapid/language/index.ts'
+import { defaultTool0, defaultWobj0, defaultZoneFine } from '@/rapid/data/index.ts'
 
 function programWith(lines: number[], operands: string[]): RapidMotionInstruction[] {
   return lines.map((line, index) => ({

@@ -2,7 +2,7 @@ import { inject, provide, type InjectionKey } from 'vue'
 import type {
   JointAngles,
   PoseDisplay,
-} from '@/robotics/model/types.ts'
+} from '@/robotics/model/index.ts'
 import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
 import type { JointRange } from '@/robotics/model/robot-profile.ts'
 import type { JointDirection, JointStep } from '@/application/joint-control.ts'

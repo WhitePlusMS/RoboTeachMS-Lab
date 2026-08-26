@@ -6,13 +6,13 @@ import {
 import type { RobotModel } from '../model/robot-model.ts'
 import type { JointAngles, Pose } from '../model/joint-pose.ts'
 import type { IKSolverConfig } from '../inverse-kinematics/types.ts'
-import { solvePoseWaypoints } from '../inverse-kinematics/waypoint-solver.ts'
+import { solvePoseWaypoints } from './solution/waypoint-solver.ts'
 import type {
   WaypointFailureDiagnostic,
   WaypointFailureReason,
   WaypointSolveResult,
-} from '../inverse-kinematics/waypoint-types.ts'
-import { MAX_ADAPTIVE_JOINT_STEP_DEG } from './candidate-path-planner.ts'
+} from './solution/waypoint-types.ts'
+import { MAX_ADAPTIVE_JOINT_STEP_DEG } from './step-policy.ts'
 
 export type CartesianPathFailure = WaypointFailureReason
 export type CartesianPathResult = WaypointSolveResult

@@ -5,14 +5,14 @@ import {
   makeTaughtTargetFromPose,
   type RapidEditCommand,
   type RapidEditResult,
-} from '@/rapid/controlled-rapid-edit.ts'
+} from '@/rapid/editing/index.ts'
 import type {
   RapidDataKind,
   RapidExecutableInstruction,
   RapidProgramData,
   RapidSourceRange,
-} from '@/rapid/rapid-parser.ts'
-import { isRapidMotionInstruction, isRobtargetProgramData } from '@/rapid/rapid-parser.ts'
+} from '@/rapid/language/index.ts'
+import { isRapidMotionInstruction, isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type {
   RapidScalarVariable,
   RobTarget,
@@ -21,8 +21,8 @@ import type {
   SpeedData,
   ZoneData,
   LoadData,
-} from '@/rapid/rapid-types.ts'
-import type { Pose } from '@/robotics/model/types.ts'
+} from '@/rapid/data/index.ts'
+import type { JointAngles, Pose } from '@/robotics/model/index.ts'
 
 interface Props {
   /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */
@@ -35,6 +35,7 @@ interface Props {
   program: readonly RapidExecutableInstruction[]
   /** 当前活动 tool0 TCP（ABB 基座坐标），用于示教新目标值。 */
   pose: Pose | null
+  joints?: JointAngles
   /** 来自 ProgramExecutor 快照的标量当前值；缺少条目时回退到声明初值。 */
   runtimeValues?: ReadonlyMap<string, RapidScalarVariable>
   /** 唯一受控编辑入口；返回结果以展示结构化拒绝原因。 */
@@ -158,7 +159,7 @@ watch(activeKind, (kind, prevKind) => {
 /** 把当前 ABB 基座 tool0 TCP 转为 RAPID robtarget；教学语义统一入口。 */
 const taughtRobTarget = computed<RobTarget | null>(() => {
   if (!props.pose) return null
-  return makeTaughtTargetFromPose(props.pose)
+  return makeTaughtTargetFromPose(props.pose, props.joints)
 })
 
 watch(

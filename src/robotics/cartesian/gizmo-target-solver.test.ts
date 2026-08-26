@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_IK_CONFIG, solveIK } from '../inverse-kinematics/numerical-ik.ts'
 import { solveGizmoTarget } from './gizmo-target-solver.ts'
-import type { JointAngles, Pose } from '../model/types.ts'
+import type { JointAngles, Pose } from '../model/index.ts'
 import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/parameters.ts'
-import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/kinematics/abb-robot-model-adapter.ts'
+import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
+import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 
 function axisMat(ax: number[], deg: number): number[][] {
   const h = (deg * Math.PI) / 180

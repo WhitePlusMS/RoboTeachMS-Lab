@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createBuiltinRapidSource } from './builtin-program.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
-import { planMoveJ } from '@/rapid/movej-planner.ts'
-import { planMoveL } from '@/rapid/movel-planner.ts'
-import { isDefaultTool0, isDefaultWobj0 } from '@/rapid/rapid-types.ts'
-import { robTargetToPose } from '@/rapid/plan-shared.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
+import { planMoveJ } from '@/rapid/planning/index.ts'
+import { planMoveL } from '@/rapid/planning/index.ts'
+import { isDefaultTool0, isDefaultWobj0 } from '@/rapid/data/index.ts'
+import { robTargetToPose } from '@/rapid/data/pose-transform.ts'
 import { orientationError } from '@/robotics/math/rotation3d.ts'
 import { DEFAULT_IK_CONFIG } from '@/robotics/inverse-kinematics/numerical-ik.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
-import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/rapid-parser.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/language/index.ts'
 
 /** 相邻 waypoint 构型跳变上限（度），由 Cartesian 候选图统一定义。 */
 const MAX_WAYPOINT_JOINT_STEP_DEG = 5

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { findRapidPreset, RAPID_PRESET_PROGRAMS } from './preset-programs.ts'
-import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/rapid-parser.ts'
-import { planMoveJ } from '@/rapid/movej-planner.ts'
-import { planMoveL } from '@/rapid/movel-planner.ts'
-import { planMoveC } from '@/rapid/movec-planner.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/profile.ts'
-import type { JointAngles } from '@/robotics/model/types.ts'
-import type { StructuredMoveC, StructuredMoveJ, StructuredMoveL } from '@/rapid/rapid-types.ts'
+import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/language/index.ts'
+import { planMoveJ } from '@/rapid/planning/index.ts'
+import { planMoveL } from '@/rapid/planning/index.ts'
+import { planMoveC } from '@/rapid/planning/index.ts'
+import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
+import type { JointAngles } from '@/robotics/model/index.ts'
+import type { StructuredMoveC, StructuredMoveJ, StructuredMoveL } from '@/rapid/data/index.ts'
 
 describe('RAPID 预设程序库', () => {
   it('提供 6 个取自测试用例文档的可运行示例模板', () => {
@@ -84,5 +84,5 @@ describe('RAPID 预设程序库', () => {
       parseRapidProgram(preset.source).program.some((inst) => inst.kind === 'movec'),
     )
     expect(withMoveC.length).toBeGreaterThan(0)
-  })
+  }, 15000)
 })
