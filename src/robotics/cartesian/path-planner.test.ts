@@ -3,9 +3,16 @@ import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
 import type { JointAngles, Pose } from '../model/index.ts'
-import { planCartesianPath } from './path-planner.ts'
-import { planCartesianTarget } from './index.ts'
+import type { RobotProfile } from '../model/robot-profile.ts'
+import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
 import { mat3Mul, mat3Transpose, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
+
+const planCartesianTarget = (
+  target: Pose,
+  joints: JointAngles,
+  profile: RobotProfile,
+  options?: Parameters<typeof planCartesianPath>[4],
+) => planCartesianPath(target, joints, profile.model, profile.jointRanges, options)
 
 function clonePose(pose: Pose): Pose {
   return {

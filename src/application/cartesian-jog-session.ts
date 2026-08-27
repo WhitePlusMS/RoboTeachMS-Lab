@@ -11,71 +11,51 @@ function clonePose(pose: PoseDisplay): PoseDisplay {
 export interface CartesianJogSession {
   begin: (pose: PoseDisplay, joints?: JointAngles) => void
   isActive: () => boolean
-  getGeneration: () => number
   getAnchor: (fallback: PoseDisplay) => PoseDisplay
   getPlanningJoints: (fallback: JointAngles) => JointAngles
-  request: (pose: PoseDisplay) => void
   commit: (pose: PoseDisplay, joints: JointAngles) => void
-  rollback: () => void
   end: () => void
 }
 
 export function createCartesianJogSession(): CartesianJogSession {
   let active = false
   let committed: PoseDisplay | null = null
-  let requested: PoseDisplay | null = null
   let committedJoints: JointAngles | null = null
-  let generation = 0
 
   function begin(pose: PoseDisplay, joints?: JointAngles): void {
     committed = clonePose(pose)
-    requested = clonePose(pose)
-    committedJoints = joints ? [...joints] as JointAngles : null
-    generation += 1
+    committedJoints = joints ? ([...joints] as JointAngles) : null
     active = true
   }
 
   function getAnchor(fallback: PoseDisplay): PoseDisplay {
-    return clonePose(requested ?? committed ?? fallback)
+    // 规划中的 requested 只是输入快照，不能作为下一次目标的锚点；
+    // 只有已成功提交的 committed 才能推进连续点动，避免未完成请求累积成未来队列。
+    return clonePose(committed ?? fallback)
   }
 
   function getPlanningJoints(fallback: JointAngles): JointAngles {
-    return committedJoints ? [...committedJoints] as JointAngles : [...fallback] as JointAngles
-  }
-
-  function request(pose: PoseDisplay): void {
-    if (!active) begin(pose)
-    requested = clonePose(pose)
+    return committedJoints ? ([...committedJoints] as JointAngles) : ([...fallback] as JointAngles)
   }
 
   function commit(pose: PoseDisplay, joints: JointAngles): void {
     if (!active) return
     committed = clonePose(pose)
-    requested = clonePose(pose)
     committedJoints = [...joints] as JointAngles
-  }
-
-  function rollback(): void {
-    requested = committed ? clonePose(committed) : null
   }
 
   function end(): void {
     active = false
     committed = null
-    requested = null
     committedJoints = null
-    generation += 1
   }
 
   return {
     begin,
     isActive: () => active,
-    getGeneration: () => generation,
     getAnchor,
     getPlanningJoints,
-    request,
     commit,
-    rollback,
     end,
   }
 }

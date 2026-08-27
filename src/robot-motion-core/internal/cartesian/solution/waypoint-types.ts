@@ -1,5 +1,4 @@
-import type { JointAngles, Pose } from '../../model/joint-pose.ts'
-import type { MotionError, MotionPlanningResultOk } from '../../../robot-motion-core/index.ts'
+import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
 
 /** 已应用的腕部奇异处理模式。 */
 export type AppliedSingularityMode = 'wrist'
@@ -37,20 +36,20 @@ export type WaypointSolveResult =
       ok: true
       waypoints: JointAngles[]
       appliedSingularityMode: AppliedSingularityMode | null
-      /** Core-backed callers retain the original pure plan for Coordinator submission. */
-      corePlan?: MotionPlanningResultOk
     }
   | {
       ok: false
       failure: WaypointFailureReason
       diagnostic?: WaypointFailureDiagnostic
-      /** Core 入口产生的机器错误；宿主据此生成场景化文案，不重复猜测失败原因。 */
-      coreError?: MotionError
     }
 
 export interface WaypointSolveOptions {
   /** 仅由 RAPID `SingArea\\Wrist` 或其他明确退化 intent 显式授权。 */
   allowWristFallback?: boolean
+  /** RAPID robconf 目标；用于 IK 候选阶段的构型筛选。 */
+  requiredConfiguration?: readonly number[]
+  /** 相邻 waypoint 的硬步长上限；null 表示由调用方显式放宽。 */
+  maxJointStepDeg?: number | null
 }
 
 export type JointSolutionFailureReason = 'joint-limit' | 'unreachable' | 'joint-step'

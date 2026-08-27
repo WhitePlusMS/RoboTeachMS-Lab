@@ -2,18 +2,13 @@ import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { degToRad, radToDeg } from '@/robotics/math/angle.ts'
 import { mat3Mul, rotationMatrixToEulerZYX } from '@/robotics/math/rotation3d.ts'
 import { eulerZYXToMatrix } from '@/robotics/kinematics/transform-matrix.ts'
-import type {
-  CartesianPathFailure,
-  CartesianPathResult,
-  WaypointFailureDiagnostic,
-} from '@/robotics/cartesian/index.ts'
-import { planCartesianTarget } from '@/robotics/cartesian/index.ts'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
 import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
 import type { JointAngles, Pose, PoseDisplay } from '@/robotics/model/index.ts'
-import type { MotionPlanningResultOk } from '@/robot-motion-core/index.ts'
+import type { MotionError, MotionPlanningRequest, MotionPlanningResult } from '@/robot-motion-core/index.ts'
 import { presentMotionError } from './motion-errors.ts'
 import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
+import type { MotionCommandOutcome, MotionSubmissionMode } from './motion-coordinator.ts'
 
 export const POSITION_STEPS = [0.1, 1, 10, 50] as const
 export const ORIENTATION_STEPS = [0.1, 1, 5, 10] as const
@@ -32,6 +27,34 @@ export type CartesianStatus =
   | 'joint-limit'
   | 'joint-step'
   | 'not-converged'
+
+/** 应用层只保留用于状态呈现的路径结果，不暴露 Core 内部求解器类型。 */
+export type CartesianPathFailure =
+  | 'wrist-singularity'
+  | 'wrist-reconfiguration'
+  | 'joint-limit'
+  | 'joint-step'
+  | 'ik-not-converged'
+export interface WaypointFailureDiagnostic {
+  waypointIndex: number
+  axisIndex: number
+  previousAngleDeg: number
+  attemptedAngleDeg?: number
+  deltaDeg?: number
+  limitRangeDeg?: readonly [number, number]
+}
+export type CartesianPathResult =
+  | {
+      ok: true
+      waypoints: JointAngles[]
+      appliedSingularityMode: 'wrist' | null
+    }
+  | {
+      ok: false
+      failure: CartesianPathFailure
+      diagnostic?: WaypointFailureDiagnostic
+      coreError?: MotionError
+    }
 
 function mapPathFailureToStatus(failure: CartesianPathFailure): CartesianStatus {
   if (failure === 'wrist-singularity') return 'singularity'
@@ -169,23 +192,57 @@ export interface CartesianControlOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
   profile: RobotProfile
-  moveToTrajectory: (
-    trajectory: readonly JointAngles[],
-    isContinuous?: boolean,
-    generation?: number,
-    corePlan?: MotionPlanningResultOk,
-  ) => void
-  /** 可替换规划 adapter；缺省为同步实现，生产 App 注入 Worker adapter。 */
-  planTarget?: (
-    targetPose: Pose,
-    initialJoints: JointAngles,
-    context: CartesianPlanningContext,
-  ) => CartesianPathResult | Promise<CartesianPathResult | null>
-  cancelPlanning?: () => void
+  /** 只提交 Core request；规划、Runner 生命周期和 stale 结算由 Coordinator 负责。 */
+  submitMotion: (
+    request: MotionPlanningRequest,
+    mode: MotionSubmissionMode,
+    durationMs?: number,
+    continuous?: boolean,
+  ) => MotionCommandOutcome | Promise<MotionCommandOutcome>
+  /** 将 Pose 转换为 Core request 的纯入口 adapter。 */
+  buildRequest: (targetPose: Pose, initialJoints: JointAngles) => MotionPlanningRequest
+  /** 连续点动会话的生命周期由宿主映射到 Coordinator begin/end 命令。 */
+  beginContinuous?: () => void
+  endContinuous?: () => void
+  /** 旧测试/独立宿主没有显式会话 seam 时的停止回退。 */
+  stopMotion?: () => void
 }
 
 export interface CartesianPlanningContext {
   isContinuous: boolean
+}
+
+function coreResultToPathResult(result: MotionPlanningResult): CartesianPathResult {
+  if (result.ok) {
+    return {
+      ok: true,
+      waypoints: result.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles),
+      appliedSingularityMode: result.validation.relaxedConstraints ? 'wrist' : null,
+    }
+  }
+  const failure =
+    result.error.code === 'joint-limit'
+      ? 'joint-limit'
+      : result.error.code === 'path-discontinuity'
+        ? 'joint-step'
+        : result.error.code === 'wrist-singularity'
+          ? 'wrist-singularity'
+          : 'ik-not-converged'
+  const details = result.error.details
+  const diagnostic =
+    typeof details.waypointIndex === 'number' &&
+    typeof details.axisIndex === 'number' &&
+    typeof details.previousAngleDeg === 'number'
+      ? {
+          waypointIndex: details.waypointIndex,
+          axisIndex: details.axisIndex,
+          previousAngleDeg: details.previousAngleDeg,
+          attemptedAngleDeg:
+            typeof details.attemptedAngleDeg === 'number' ? details.attemptedAngleDeg : undefined,
+          deltaDeg: typeof details.deltaDeg === 'number' ? details.deltaDeg : undefined,
+        }
+      : undefined
+  return { ok: false, failure, diagnostic, coreError: result.error }
 }
 
 function toRobotPose(pose: PoseDisplay): Pose {
@@ -206,17 +263,7 @@ export function useCartesianControl(options: CartesianControlOptions) {
   const failureDiagnostic = ref<WaypointFailureDiagnostic | null>(null)
   const failurePresentation = ref<ReturnType<typeof presentMotionError> | null>(null)
   const jogSession = createCartesianJogSession()
-  let planningVersion = 0
-  let continuousPlanning = false
-  let queuedContinuousTarget: { target: PoseDisplay; context: CartesianPlanningContext } | null =
-    null
   let continuousTimer: ReturnType<typeof setInterval> | null = null
-  const planTarget =
-    options.planTarget ??
-    ((target: Pose, initial: JointAngles) =>
-      // 手动 Jog 是操作者明确发起的关节/笛卡尔再定位，允许跨越 ABB confdata 象限；
-      // RAPID MoveL/MoveC 仍走默认的严格构型保持路径。
-      planCartesianTarget(target, initial, options.profile, { preserveConfiguration: false }))
 
   const statusMessage = computed(() => {
     const detail = formatFailureDiagnostic(failureDiagnostic.value)
@@ -243,23 +290,16 @@ export function useCartesianControl(options: CartesianControlOptions) {
     if (status.value === 'not-converged') return withDetail('逆解未收敛，未执行目标')
     if (status.value === 'unreachable') {
       const presentation = failurePresentation.value
-      return withDetail(presentation ? `${presentation.message}${presentation.recovery}` : '路径不可达，未执行目标')
+      return withDetail(
+        presentation ? `${presentation.message}${presentation.recovery}` : '路径不可达，未执行目标',
+      )
     }
     return '就绪'
   })
 
-  function commitPlanResult(
-    result: CartesianPathResult | null,
-    isContinuous: boolean,
-    target: PoseDisplay,
-  ): boolean {
+  function applyCartesianResult(result: CartesianPathResult, isContinuous: boolean, target: PoseDisplay): boolean {
     failureDiagnostic.value = null
     failurePresentation.value = null
-    if (result === null) {
-      if (isContinuous) jogSession.rollback()
-      status.value = 'unreachable'
-      return false
-    }
     if (result.ok) {
       if (isContinuous) {
         const tail = result.waypoints[result.waypoints.length - 1]
@@ -279,59 +319,59 @@ export function useCartesianControl(options: CartesianControlOptions) {
           jogSession.commit(committedPose, tail)
         }
       }
-      options.moveToTrajectory(
-        result.waypoints,
-        isContinuous,
-        isContinuous ? jogSession.getGeneration() : undefined,
-        result.corePlan,
-      )
       status.value = result.appliedSingularityMode === 'wrist' ? 'wrist-solved' : 'solved'
       return true
     }
     failureDiagnostic.value = result.diagnostic ?? null
     failurePresentation.value = result.coreError ? presentMotionError(result.coreError) : null
-    if (isContinuous) jogSession.rollback()
     status.value = mapPathFailureToStatus(result.failure)
     return false
   }
 
   function solveTarget(target: PoseDisplay, context: CartesianPlanningContext): boolean | null {
-    if (context.isContinuous && continuousPlanning) {
-      queuedContinuousTarget = { target, context }
-      return null
-    }
     const robotTarget = toRobotPose(target)
-    const currentVersion = ++planningVersion
-    const currentGeneration = context.isContinuous ? jogSession.getGeneration() : null
-    if (context.isContinuous) continuousPlanning = true
     const planningJoints = context.isContinuous
       ? jogSession.getPlanningJoints(options.joints.value)
       : ([...options.joints.value] as JointAngles)
-    const planned = planTarget(robotTarget, planningJoints, context)
-    if (planned instanceof Promise) {
-      status.value = 'planning'
-      void planned.then((result) => {
-        if (context.isContinuous) continuousPlanning = false
-        if (currentVersion !== planningVersion) return
-        if (context.isContinuous && currentGeneration !== jogSession.getGeneration()) return
-        if (queuedContinuousTarget && currentVersion === planningVersion) {
-          const queuedTarget = queuedContinuousTarget
-          queuedContinuousTarget = null
-          commitPlanResult(result, context.isContinuous, target)
-          solveTarget(queuedTarget.target, queuedTarget.context)
-          return
+    const request = options.buildRequest(robotTarget, planningJoints)
+    const playback: MotionSubmissionMode = context.isContinuous ? 'stream' : 'trajectory'
+    const submitted = options.submitMotion(
+      request,
+      playback,
+      context.isContinuous ? 140 : undefined,
+      context.isContinuous,
+    )
+    const applyOutcome = (outcome: MotionCommandOutcome): boolean => {
+      // Coordinator 已经完成 stale/cancelled 结算；迟到结果不应覆盖当前状态或锚点。
+      if (!outcome.ok) {
+        if (outcome.reason === 'stale' || outcome.reason === 'cancelled') return false
+        if (!outcome.result) {
+          status.value = 'unreachable'
+          return false
         }
-        commitPlanResult(result, context.isContinuous, target)
+        return applyCartesianResult(coreResultToPathResult(outcome.result), context.isContinuous, target)
+      }
+      if (!outcome.plan) {
+        status.value = 'unreachable'
+        return false
+      }
+      return applyCartesianResult(coreResultToPathResult(outcome.plan), context.isContinuous, target)
+    }
+    if (submitted instanceof Promise) {
+      status.value = 'planning'
+      void submitted.then((outcome) => {
+        if (context.isContinuous && !jogSession.isActive()) return
+        applyOutcome(outcome)
       })
       return null
     }
-    if (context.isContinuous) continuousPlanning = false
-    return commitPlanResult(planned, context.isContinuous, target)
+    return applyOutcome(submitted)
   }
 
   function beginContinuous(axis: CartesianAxis, direction: CartesianDirection): void {
     if (!jogSession.isActive()) jogSession.begin(options.pose.value, options.joints.value)
     if (continuousTimer !== null) return
+    options.beginContinuous?.()
 
     // 首步立即规划，后续由控制器统一节拍；面板不再自行创建重复定时器。
     move(axis, direction, true)
@@ -343,10 +383,8 @@ export function useCartesianControl(options: CartesianControlOptions) {
       clearInterval(continuousTimer)
       continuousTimer = null
     }
-    planningVersion += 1
-    queuedContinuousTarget = null
-    continuousPlanning = false
-    options.cancelPlanning?.()
+    if (options.endContinuous) options.endContinuous()
+    else options.stopMotion?.()
     jogSession.end()
   }
 
@@ -361,7 +399,6 @@ export function useCartesianControl(options: CartesianControlOptions) {
     }
     const basePose = isContinuous ? jogSession.getAnchor(options.pose.value) : options.pose.value
     const target = applyCartesianDelta(basePose, axis, direction, step, coordinateSystem.value)
-    if (isContinuous) jogSession.request(target)
     solveTarget(target, { isContinuous })
   }
 
@@ -382,8 +419,6 @@ export function useCartesianControl(options: CartesianControlOptions) {
 
   function setCoordinateSystem(value: CoordinateSystem): void {
     coordinateSystem.value = value
-    planningVersion += 1
-    options.cancelPlanning?.()
   }
 
   function setPositionStep(value: number): void {

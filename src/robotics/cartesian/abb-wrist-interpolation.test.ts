@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
 import type { JointAngles, Pose } from '@/robotics/model/index.ts'
-import { planCartesianPath } from './path-planner.ts'
+import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
 
 const TRUE_ZERO: JointAngles = [0, 0, 0, 0, 0, 0]
 

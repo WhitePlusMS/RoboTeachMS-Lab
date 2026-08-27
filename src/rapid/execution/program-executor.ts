@@ -1,4 +1,9 @@
-import type { MotionPlanDiagnostic, MotionPlanError, MotionPlanErrorKind } from '../planning/motion-input.ts'
+import type {
+  MotionPlanDiagnostic,
+  MotionPlanError,
+  MotionPlanErrorKind,
+} from '../planning/motion-input.ts'
+import type { MotionError } from '@/robot-motion-core/index.ts'
 import type {
   RapidScalarValue,
   RapidScalarVariable,
@@ -28,6 +33,7 @@ export interface ProgramError {
   code: MotionPlanErrorKind | 'runtime-error'
   message: string
   diagnostic?: MotionPlanDiagnostic
+  coreError?: MotionError
 }
 
 /** 调用方主动查询的稳定程序快照；字段不可被调用方直接改写内部状态。 */
@@ -155,10 +161,18 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
 
   function isMotionInstruction(instruction: TInstruction): boolean {
     return (
-      instruction.kind === 'movej' ||
-      instruction.kind === 'movel' ||
-      instruction.kind === 'movec'
+      instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec'
     )
+  }
+
+  function toRuntimeError(error: unknown): InstructionOutcome {
+    return {
+      ok: false,
+      error: {
+        kind: 'runtime-error',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }
   }
 
   /** 只有未运行时才可启动新的执行（idle/stopped）；运行中返回 false 防止第二条链。 */
@@ -178,6 +192,9 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
         code: outcome.error.kind,
         message: outcome.error.message,
         ...(diagnostic ? { diagnostic } : {}),
+        ...('coreError' in outcome.error && outcome.error.coreError
+          ? { coreError: outcome.error.coreError }
+          : {}),
       }
       motionPointer = null
       stopRequested = false
@@ -216,7 +233,14 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
     while (programPointer < instructions.length) {
       const index = programPointer
       motionPointer = isMotionInstruction(instructions[index]) ? index : null
-      const outcome = await seam.execute(instructions[index], context)
+      let outcome: InstructionOutcome
+      try {
+        outcome = await seam.execute(instructions[index], context)
+      } catch (executionError) {
+        // Runner/执行 seam 的同步或异步异常必须在程序边界结算，
+        // 不能让 executeLoop 拒绝而遗留 running + MP 状态。
+        outcome = toRuntimeError(executionError)
+      }
       const decision = settleOutcome(index, outcome)
       if (decision === 'continue') {
         if (programPointer >= instructions.length) break
@@ -244,14 +268,26 @@ export function createProgramExecutor<TInstruction extends ProgramInstruction>(
     stopReason = null
     const index = programPointer
     motionPointer = isMotionInstruction(instructions[index]) ? index : null
-    return seam.execute(instructions[index], context).then((outcome) => {
-      const decision = settleOutcome(index, outcome)
-      if (decision !== 'continue') return state
-      // 单步完成一条指令：PP 已推进；还有指令则等待下一步，否则已完成。
-      state = programPointer < instructions.length ? 'stopped' : 'completed'
-      stopReason = state === 'stopped' ? 'step-completed' : null
-      return state
-    })
+    let execution: Promise<InstructionOutcome>
+    try {
+      execution = seam.execute(instructions[index], context)
+    } catch (executionError) {
+      execution = Promise.resolve(toRuntimeError(executionError))
+    }
+    return execution.then(
+      (outcome) => {
+        const decision = settleOutcome(index, outcome)
+        if (decision !== 'continue') return state
+        // 单步完成一条指令：PP 已推进；还有指令则等待下一步，否则已完成。
+        state = programPointer < instructions.length ? 'stopped' : 'completed'
+        stopReason = state === 'stopped' ? 'step-completed' : null
+        return state
+      },
+      (executionError) => {
+        settleOutcome(index, toRuntimeError(executionError))
+        return state
+      },
+    )
   }
 
   function stop(): void {

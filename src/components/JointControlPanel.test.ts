@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import JointControlPanel from './JointControlPanel.vue'
-import { KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/index.ts'
+import { KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/parameters.ts'
 import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
 
 const joints: JointAngles = [0, 0, 0, 0, 0, 0]
@@ -49,6 +49,8 @@ describe('JointControlPanel', () => {
     const events = wrapper.emitted('adjust-joint') ?? []
     expect(events.length).toBeGreaterThan(1)
     expect(events.slice(1).every((event) => event[2] === true)).toBe(true)
+    expect(wrapper.emitted('continuous-start')?.[0]).toEqual([0, 1])
+    expect(wrapper.emitted('continuous-end')).toHaveLength(1)
   })
 
   it('手动输入、步进切换、教学 Home、机械零位和随机按钮均发出对应事件', async () => {

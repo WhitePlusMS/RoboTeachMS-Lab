@@ -1,26 +1,17 @@
-import type { MotionResult } from '@/robotics/motion/runner.ts'
-import type { MotionPlanningResultOk } from '@/robot-motion-core/index.ts'
-import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
 import type { JointAngles } from '@/robotics/model/index.ts'
-import { executeMoveJ } from '../planning/movej-planner.ts'
-import { executeMoveL } from '../planning/movel-planner.ts'
-import { executeMoveC } from '../planning/movec-planner.ts'
+import type { MotionPlanningRequest } from '@/robot-motion-core/index.ts'
 import type { InstructionOutcome } from './program-executor.ts'
 import type { RapidMotionInstruction } from '../language/index.ts'
 import type { SingAreaMode } from '../data/index.ts'
+import { buildRapidMotionRequest } from '../planning/motion-requests.ts'
 
-/** RAPID 运动执行所需的唯一外部 seam；J/L/C 共用同一组运行时依赖。 */
+/** RAPID 运动提交 seam；规划和播放都由宿主 MotionCoordinator 完成。 */
 export interface RapidMotionExecutionContext {
-  model: RobotModel
   currentJoints: () => JointAngles
-  jointRanges: SixAxisJointRanges
-  runEased: (target: JointAngles, durationMs: number) => Promise<MotionResult>
-  runTrajectory: (
-    waypoints: readonly JointAngles[],
-    durationMs: number,
-    corePlan?: MotionPlanningResultOk,
-  ) => Promise<MotionResult>
+  submit: (
+    request: MotionPlanningRequest,
+    playback: 'eased' | 'trajectory',
+  ) => Promise<InstructionOutcome>
 }
 
 /**
@@ -32,26 +23,7 @@ export async function executeRapidMotion(
   singArea: SingAreaMode,
   context: RapidMotionExecutionContext,
 ): Promise<InstructionOutcome> {
-  if (instruction.kind === 'movej') {
-    return executeMoveJ(instruction, {
-      model: context.model,
-      currentJoints: context.currentJoints,
-      jointRanges: context.jointRanges,
-      runEased: context.runEased,
-    })
-  }
-  if (instruction.kind === 'movel') {
-    return executeMoveL({ ...instruction, singArea }, {
-      model: context.model,
-      currentJoints: context.currentJoints,
-      jointRanges: context.jointRanges,
-      runTrajectory: context.runTrajectory,
-    })
-  }
-  return executeMoveC({ ...instruction, singArea }, {
-    model: context.model,
-    currentJoints: context.currentJoints,
-    jointRanges: context.jointRanges,
-    runTrajectory: context.runTrajectory,
-  })
+  const planned = buildRapidMotionRequest(instruction, singArea, context.currentJoints())
+  if (!planned.ok) return { ok: false, error: planned.error }
+  return context.submit(planned.request, planned.playback)
 }

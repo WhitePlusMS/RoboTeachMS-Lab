@@ -3,7 +3,7 @@
  * 六个预设按「运行能力维度」各代表一类：1 大范围慢速循环、2 自定义工具/工件+Offs、
  * 3 控制流与标量、4 流水线多点位往返取放、5 锯齿高低起伏路径、6 液晶数字 0–9 循环书写。
  * 以「MoveJ 定位 + MoveL 短直线」的安全坐标为主，预设 5 另含一段 MoveC 圆弧过渡；
- * 均用真实 planMoveJ/planMoveL/planMoveC 逐条验证可达。
+ * 均用真实 RobotMotionCore request 逐条验证可达。
  * 表单项只读：六类运动数据、num/bool 标量、IF/WHILE/FOR/EXITDO 控制流等能力全部覆盖。
  * 源码是模板的唯一事实源，运行时由 rapid-parser 解析。
  */

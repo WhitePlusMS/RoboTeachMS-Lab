@@ -29,7 +29,7 @@ import {
 } from '../rapid-lexer.ts'
 import type { RapidDiagnostic, RapidDiagnosticCode } from '../rapid-diagnostics.ts'
 import { sortAndDedupeDiagnostics } from '../rapid-diagnostics.ts'
-import type { OperandKind, OperandSlotResult, RapidDataKind, SymbolEntry } from '../rapid-symbols.ts'
+import type { OperandKind, RapidDataKind, SymbolEntry } from '../rapid-symbols.ts'
 import {
   isKeyword,
   isSymbol,
@@ -38,21 +38,28 @@ import {
   normalizeName,
   operandDescription,
   OPERAND_KIND_SYMBOL_KIND,
-  SUPPORTED_DATA_KINDS,
   systemNamespace,
-  SYSTEM_NAMES,
 } from '../rapid-symbols.ts'
 import type { DataValidationContext } from '../rapid-data-validation.ts'
-import { parseDataValue, parseFiniteNumber } from '../rapid-data-validation.ts'
-import {
-  parseScalarExpression,
-  scalarExpressionType,
-  type ScalarExpressionContext,
-} from './scalar-expression.ts'
+import { scalarExpressionType, type ScalarExpressionContext } from './scalar-expression.ts'
 import { appendPendingStatements } from './control-flow.ts'
+import {
+  parseConditional as parseConditionalStatement,
+  parseExitDo as parseExitDoStatement,
+  parseFor as parseForStatement,
+  parseWhile as parseWhileStatement,
+  type ControlFlowParserContext,
+} from './control-flow-parser.ts'
+import { parseAssignment as parseAssignmentStatement } from './assignment-statement.ts'
+import { parseDataDeclaration as parseDataDeclarationStatement } from './data-declaration.ts'
+import { parseMotion as parseMotionStatement } from './motion-statement.ts'
+import {
+  parseConfiguration as parseConfigurationStatement,
+  parseSingArea as parseSingAreaStatement,
+} from './mode-statement.ts'
+import { parseStatementList as parseStatementListStatement } from './statement-parser.ts'
 import type {
   PendingAssignment,
-  PendingConditionalBranch,
   PendingMotion,
   PendingReference,
   PendingStatement,
@@ -71,8 +78,9 @@ import type {
  * - rapid-diagnostics.ts：诊断模型与排序/去重契约；
  * - rapid-symbols.ts：符号表条目与操作数角色命名空间；
  * - rapid-data-validation.ts：静态数据记录字面量解析（深处实现）。
+ * - parser/*.ts：数据声明、目标/运动语句、语句路由和控制流的强类型解析。
  *
- * 本文件保留 parser 编排、标量表达式解析/类型检查与语句展平逻辑。
+ * 本文件保留 parser 编排、符号结算、指令结果组装和稳定的公开入口。
  */
 
 export type { RapidSourcePosition, RapidSourceRange } from '../rapid-lexer.ts'
@@ -322,10 +330,6 @@ export function parseRapidProgram(source: string): RapidParseResult {
   const symbols = new Map<string, SymbolEntry>()
   // main 内的赋值与运动按源码顺序暂存，最终形成唯一可执行 program 数组。
   const pendingStatements: PendingStatement[] = []
-  // 解析条件体/循环体时临时切换到区块自己的语句容器；最终仍会展平为同一 program 数组。
-  let statementSink = pendingStatements
-  // 当前处于几层循环体内：EXITDO 只在 loopDepth>0 时合法。
-  let loopDepth = 0
   const pendingReferences: PendingReference[] = []
   // 系统预定义名称（tool0/wobj0/load0/速度/zone）在各运动操作数中的引用范围，供 Program Data 只读展示。
   const systemReferences = new Map<string, RapidSourceRange[]>()
@@ -443,21 +447,22 @@ export function parseRapidProgram(source: string): RapidParseResult {
     resolveVariable: (name) => symbols.get(name),
   }
 
-  function parseAssignment(): void {
-    const target = expectIdentifier('赋值目标变量')
-    const assign = expectSymbol(':=')
-    const expression = parseScalarExpression(scalarContext)
-    const semicolon = expectSymbol(';')
-    if (!target || !assign || !expression || !semicolon) return
-    statementSink.push({
-      kind: 'assign',
-      assignment: {
-        targetToken: target,
-        expression,
-        range: rangeFromOffsets(target.start, semicolon.end, lineStarts),
-        sourceText: source.slice(target.start, semicolon.end),
-      },
-    })
+  // 控制流 parser 与语句路由共用这份可变区块状态；状态仍只存在一次，避免
+  // Vue host 或不同 parser feature 各自复制游标/循环深度。
+  const controlFlowContext: ControlFlowParserContext = {
+    source,
+    lineStarts,
+    current,
+    advance,
+    expectKeyword,
+    expectIdentifier,
+    expectSymbol,
+    addDiagnostic,
+    skipToStatementEnd,
+    scalarContext,
+    statementSink: pendingStatements,
+    loopDepth: 0,
+    parseStatementList: (terminators) => parseStatementList(terminators),
   }
 
   function resolveAssignment(pending: PendingAssignment): RapidAssignmentInstruction | null {
@@ -502,109 +507,21 @@ export function parseRapidProgram(source: string): RapidParseResult {
     }
   }
 
-  /** 存储类别是否符合当前支持范围；标量只接受模块级 VAR，运动数据遵循各自已有规则。 */
-  function validateStorage(
-    kind: RapidDataKind,
-    storageKind: 'const' | 'pers' | 'var',
-    typeName: string,
-  ): boolean {
-    if (kind === 'num' || kind === 'bool') {
-      if (storageKind !== 'var') {
-        addDiagnostic('unsupported-option', `${typeName} 当前只支持模块级 VAR 声明`)
-        return false
-      }
-      return true
-    }
-    if (
-      (kind === 'tooldata' || kind === 'loaddata' || kind === 'wobjdata') &&
-      storageKind !== 'pers'
-    ) {
-      addDiagnostic('invalid-data', `${typeName} 声明必须使用 PERS（模块级 ${typeName}）`)
-      return false
-    }
-    if (kind === 'speeddata' || kind === 'zonedata') return true
-    if (storageKind === 'var') {
-      addDiagnostic('invalid-data', `robtarget 声明不支持 VAR`)
-      return false
-    }
-    return true
-  }
 
   function parseDataDeclaration(): void {
-    const storage = advance()
-    const declarationStart = storage.start
-    let storageKind: 'const' | 'pers' | 'var' = 'const'
-    if (isKeyword(storage, 'TASK')) {
-      if (!expectKeyword('PERS')) {
-        skipToStatementEnd()
-        return
-      }
-      storageKind = 'pers'
-    } else if (isKeyword(storage, 'PERS')) {
-      storageKind = 'pers'
-    } else if (isKeyword(storage, 'VAR')) {
-      storageKind = 'var'
-    }
-
-    const type = expectIdentifier('数据类型')
-    if (!type) {
-      skipToStatementEnd()
-      return
-    }
-    const typeName = normalizeName(type.text)
-    const kind = SUPPORTED_DATA_KINDS[typeName]
-    if (!kind) {
-      // 已知但不支持的类型名（num/bool 等）报 unsupported；否则像是漏写了数据类型、把名称顶到了类型位。
-      if (KNOWN_UNSUPPORTED_TYPES.has(typeName)) {
-        addDiagnostic('unsupported-option', `暂不支持 ${type.text} 声明`, type)
-        skipToStatementEnd()
-        return
-      }
-      addMissingDiagnostic(
-        'syntax-error',
-        `缺少数据类型（期望 robtarget/tooldata/wobjdata/loaddata/speeddata/zonedata/num/bool）`,
-        type,
-      )
-      skipToStatementEnd()
-      return
-    }
-
-    const name = expectIdentifier(`${typeName} 名称`)
-    const assign = expectSymbol(':=')
-    if (!name || !assign) {
-      // 缺少名称或 `:=`：值无法与名称可靠对应，恢复本声明但不生成半合法 Program Data 条目。
-      skipToStatementEnd()
-      return
-    }
-    const valueStartOffset = current().start
-    const parsedValue = parseDataValue(dataCtx, kind)
-    const semicolon = expectSymbol(';')
-    if (!parsedValue) return
-    validateStorage(kind, storageKind, typeName)
-    const declarationEnd = semicolon ? semicolon.end : current().start
-    const nameRange = rangeFromToken(name, lineStarts)
-
-    const key = normalizeName(name.text)
-    // 系统名称只读且不能重定义；用户符号名也不能与系统预定义名冲突。
-    if (symbols.has(key) || SYSTEM_NAMES.has(key)) {
-      const label = SYSTEM_NAMES.has(key)
-        ? `系统预定义 ${typeName} ${name.text} 不能重定义`
-        : `重复定义 ${typeName} ${name.text}`
-      addDiagnostic('duplicate-symbol', label, name)
-      return
-    }
-    symbols.set(key, {
-      kind,
-      value: parsedValue,
-      range: nameRange,
-      declarationRange: rangeFromOffsets(declarationStart, declarationEnd, lineStarts),
-      valueRange: rangeFromOffsets(
-        valueStartOffset,
-        semicolon ? semicolon.start : valueStartOffset,
-        lineStarts,
-      ),
-      storage: storageKind,
-      references: [],
+    parseDataDeclarationStatement({
+      source,
+      lineStarts,
+      dataContext: dataCtx,
+      current,
+      advance,
+      expectKeyword,
+      expectIdentifier,
+      expectSymbol,
+      skipToStatementEnd,
+      addDiagnostic,
+      addMissingDiagnostic,
+      symbols,
     })
   }
 
@@ -750,382 +667,23 @@ export function parseRapidProgram(source: string): RapidParseResult {
    * - 当前是结构边界 → 指令不完整：发一次根因并让调用方中止；
    * - 否则解析并返回该操作数（缺失时报缺操作数，返回 null）。
    */
-  function expectOperandSlot(desc: string, onAbort: () => void): OperandSlotResult {
-    if (isSymbol(current(), ',')) {
-      addMissingDiagnostic('syntax-error', `缺少${desc}（空操作数，当前为 ","）`, current())
-      advance()
-      return { token: null, separatorConsumed: true }
-    }
-    if (atOperandBoundary()) {
-      addMissingDiagnostic(
-        'syntax-error',
-        '运动指令参数不完整（缺少 "," 分隔的操作数或分号）',
-        current(),
-      )
-      onAbort()
-      return { token: null, separatorConsumed: false }
-    }
-    return { token: expectIdentifier(desc), separatorConsumed: false }
-  }
-
-  /**
-   * 读取目标操作数：先取首 token（普通 robtarget 名称，或 Offs/RelTool 位置函数关键字）。
-   * FlexPendant 式 `*` 未示教占位也合法：产生 missing-target error（程序不可运行，
-   * 与真实控制器一致），但指令仍进入 instructions 视图供受控编辑补全。
-   * Offs(p,[x,y,z]) / RelTool(p,[dx,dy,dz[,rx,ry,rz]]) 参数为数值字面量；RelTool 还接受
-   * `\\Rx:=`、`\\Ry:=`、`\\Rz:=` 命名旋转开关。缺失基准、参数数量错误、非数值参数或缺失括号
-   * 均给出精确诊断并中止整条运动。
-   */
-  function parseTargetOperand(onAbort: () => void): {
-    target: PendingTarget | null
-    separatorConsumed: boolean
-  } {
-    // FlexPendant 新插入的运动指令以 `*` 作为未示教目标占位（3HAC050941 5.3.5 示例）。
-    if (isSymbol(current(), '*')) {
-      const star = advance()
-      addDiagnostic('missing-target', '目标点未示教（*）：请选择已有点位或新建点位', star)
-      return {
-        target: {
-          kind: 'star',
-          baseName: '*',
-          baseToken: star,
-          range: rangeFromToken(star, lineStarts),
-          sourceText: '*',
-        },
-        separatorConsumed: false,
-      }
-    }
-    const slot = expectOperandSlot('目标点名称', onAbort)
-    const first = slot.token
-    if (!first) return { target: null, separatorConsumed: slot.separatorConsumed }
-    const keyword = normalizeName(first.text)
-
-    // 位置函数：Offs / RelTool，且紧跟 `(`。
-    if ((keyword === 'offs' || keyword === 'reltool') && isSymbol(current(), '(')) {
-      const exprStart = first.start
-      advance() // '('
-      const base = expectIdentifier('基准目标名称')
-      if (!base) {
-        recoverMotionTail()
-        onAbort()
-        return { target: null, separatorConsumed: false }
-      }
-      const params: number[] = []
-      while (isSymbol(current(), ',')) {
-        advance() // ','
-        const value = parseFiniteNumber(dataCtx, `${first.text} 的参数`)
-        if (value === null) {
-          recoverMotionTail()
-          onAbort()
-          return { target: null, separatorConsumed: false }
-        }
-        params.push(value)
-      }
-
-      let namedRotationCount = 0
-      let namedRx: number | undefined
-      let namedRy: number | undefined
-      let namedRz: number | undefined
-      const namedRotationNames = new Set<string>()
-      if (keyword === 'reltool') {
-        while (isSymbol(current(), '\\')) {
-          advance()
-          const option = expectIdentifier('RelTool 可选参数名称')
-          if (!option) {
-            recoverMotionTail()
-            onAbort()
-            return { target: null, separatorConsumed: false }
-          }
-          const optionName = normalizeName(option.text)
-          if (optionName !== 'rx' && optionName !== 'ry' && optionName !== 'rz') {
-            addDiagnostic('unsupported-option', `不支持 RelTool 可选参数 ${option.text}`, option)
-            recoverMotionTail()
-            onAbort()
-            return { target: null, separatorConsumed: false }
-          }
-          if (namedRotationNames.has(optionName)) {
-            addDiagnostic('unsupported-option', `重复的 RelTool 可选参数 ${option.text}`, option)
-            recoverMotionTail()
-            onAbort()
-            return { target: null, separatorConsumed: false }
-          }
-          namedRotationNames.add(optionName)
-          namedRotationCount += 1
-          const assign = expectSymbol(':=')
-          const value = parseFiniteNumber(dataCtx, `RelTool ${option.text} 的参数`)
-          if (!assign || value === null) {
-            recoverMotionTail()
-            onAbort()
-            return { target: null, separatorConsumed: false }
-          }
-          if (optionName === 'rx') namedRx = value
-          if (optionName === 'ry') namedRy = value
-          if (optionName === 'rz') namedRz = value
-        }
-      }
-      if (!isSymbol(current(), ')')) {
-        addMissingDiagnostic('syntax-error', `缺少 ${first.text} 的右括号 ")"`, current())
-        recoverMotionTail()
-        onAbort()
-        return { target: null, separatorConsumed: false }
-      }
-      advance() // ')'
-      // 参数数量：Offs 必须 3；RelTool 必须 3（平移）或 6（平移 + 旋转）。
-      const paramCount = params.length
-      if (keyword === 'offs' && paramCount !== 3) {
-        addDiagnostic('invalid-data', `Offs 需要 3 个平移参数，实际 ${paramCount} 个`, first)
-        return { target: null, separatorConsumed: false }
-      }
-      if (keyword === 'reltool' && namedRotationCount > 0 && paramCount !== 3) {
-        addDiagnostic(
-          'invalid-data',
-          `RelTool 使用命名旋转开关时必须有 3 个平移参数，实际 ${paramCount} 个`,
-          first,
-        )
-        return { target: null, separatorConsumed: false }
-      }
-      if (
-        keyword === 'reltool' &&
-        namedRotationCount === 0 &&
-        paramCount !== 3 &&
-        paramCount !== 6
-      ) {
-        addDiagnostic('invalid-data', `RelTool 需要 3 或 6 个参数，实际 ${paramCount} 个`, first)
-        return { target: null, separatorConsumed: false }
-      }
-      const [dx, dy, dz, rx, ry, rz] = params
-      const end = current().start
-      return {
-        target: {
-          kind: keyword as 'offs' | 'reltool',
-          baseName: base.text,
-          baseToken: base,
-          dx,
-          dy,
-          dz,
-          rx: namedRotationCount > 0 ? namedRx : paramCount === 6 ? rx : undefined,
-          ry: namedRotationCount > 0 ? namedRy : paramCount === 6 ? ry : undefined,
-          rz: namedRotationCount > 0 ? namedRz : paramCount === 6 ? rz : undefined,
-          range: rangeFromOffsets(exprStart, end, lineStarts),
-          sourceText: source.slice(exprStart, end),
-        },
-        separatorConsumed: false,
-      }
-    }
-
-    // 普通命名 robtarget。
-    return {
-      target: {
-        kind: 'name',
-        baseName: first.text,
-        baseToken: first,
-        range: rangeFromToken(first, lineStarts),
-        sourceText: first.text,
-      },
-      separatorConsumed: slot.separatorConsumed,
-    }
-  }
-
   function parseMotion(): void {
-    const start = advance()
-    const kind = normalizeName(start.text) as PendingMotion['kind']
-    motionAnchors.push({ offset: start.start, line: positionAt(start.start, lineStarts).line })
-    let abandoned = false
-    const abort = (): void => {
-      abandoned = true
-    }
-
-    // 首个目标：movej/movel 是唯一目标（终点）；movec 是圆弧途经点 CirPoint。
-    const firstTargetResult = parseTargetOperand(abort)
-    const firstTarget = firstTargetResult.target
-    let separatorConsumed = firstTargetResult.separatorConsumed
-    if (firstTarget && firstTarget.kind !== 'star') {
-      queueReference('target', firstTarget.baseToken, firstTarget.kind === 'name' ? undefined : firstTarget.kind)
-    }
-    if (abandoned) return
-
-    // MoveC 的第二个位置目标（终点 ToPoint）：先消费逗号，再复用 parseTargetOperand。
-    let cirPoint: PendingTarget | undefined = undefined
-    let target = firstTarget
-    if (kind === 'movec') {
-      if (firstTarget === null) return
-      cirPoint = firstTarget
-      if (!separatorConsumed && !isSymbol(current(), ',')) {
-        if (atOperandBoundary()) {
-          addMissingDiagnostic(
-            'syntax-error',
-            'MoveC 指令缺少圆弧终点 ToPoint（缺少 "," 分隔的操作数或分号）',
-            current(),
-          )
-        } else {
-          addMissingDiagnostic('syntax-error', 'MoveC 的圆点与终点之间缺少逗号 ","', current())
-          recoverMotionTail()
-        }
-        abort()
-        return
-      }
-      if (!separatorConsumed) advance()
-      const toResult = parseTargetOperand(abort)
-      target = toResult.target
-      separatorConsumed = toResult.separatorConsumed
-      if (target && target.kind !== 'star') {
-        queueReference('target', target.baseToken, target.kind === 'name' ? undefined : target.kind)
-      }
-      if (abandoned) return
-    }
-
-    // 期望 "," 分隔后解析下一个操作数；缺逗号时只报一次根因并中止，避免连锁缺参错误。
-    const operandAfterSeparator = (desc: string): Token | null => {
-      if (!separatorConsumed && !isSymbol(current(), ',')) {
-        if (atOperandBoundary()) {
-          addMissingDiagnostic(
-            'syntax-error',
-            '运动指令参数不完整（缺少 "," 分隔的操作数或分号）',
-            current(),
-          )
-        } else {
-          addMissingDiagnostic('syntax-error', '运动操作数之间缺少逗号 ","', current())
-          // 漏逗号后残余的操作数不再逐条误报，直接恢复本指令。
-          recoverMotionTail()
-        }
-        abort()
-        return null
-      }
-      if (!separatorConsumed) advance()
-      const slot = expectOperandSlot(desc, abort)
-      separatorConsumed = slot.separatorConsumed
-      return slot.token
-    }
-
-    const speed = operandAfterSeparator('速度名称')
-    if (abandoned) return
-    const zone = operandAfterSeparator('zone 名称')
-    if (abandoned) return
-    const tool = operandAfterSeparator('工具名称')
-    if (abandoned) return
-    if (speed) queueReference('speed', speed)
-    if (zone) queueReference('zone', zone)
-    if (tool) queueReference('tool', tool)
-
-    /**
-     * 参数解析收尾：若当前位置既非分号、又非法继续（普通参数位/可选参数位允许的延续不同），
-     * 则视为多出的参数，报一根因并恢复；返回 true 表示已因多余参数中止本指令。
-     * allowWobj 为 true 时允许可选参数反斜杠（普通位置参数后）；false 用于可选参数之后（无第二个反斜杠）。
-     */
-    const rejectTrailingParams = (allowWobj: boolean): boolean => {
-      const hasWobj = allowWobj && isSymbol(current(), '\\')
-      if (!isSymbol(current(), ';') && !hasWobj && !atOperandBoundary()) {
-        addMissingDiagnostic(
-          'syntax-error',
-          `运动指令包含多余参数 ${current().text || '（空）'}`,
-          current(),
-        )
-        recoverMotionTail()
-        return true
-      }
-      return false
-    }
-
-    // 第 5 个及更多普通位置参数 / 尾随逗号：多出的参数根因。
-    if (rejectTrailingParams(true)) return
-
-    let wobjName = 'wobj0'
-    let wobjToken: Token | null = null
-    let sawWobjOption = false
-    while (isSymbol(current(), '\\')) {
-      advance()
-      const option = expectIdentifier('可选参数名称')
-      if (!option) {
-        // 残缺反斜杠或缺失可选参数名：已报缺名根因，恢复。
-        recoverMotionTail()
-        return
-      }
-      if (normalizeName(option.text) !== 'wobj') {
-        addDiagnostic('unsupported-option', `不支持可选参数 ${option.text}`, option)
-        recoverMotionTail()
-        return
-      }
-      if (sawWobjOption) {
-        addDiagnostic('unsupported-option', '重复的 WObj 可选参数', option)
-        recoverMotionTail()
-        return
-      }
-      sawWobjOption = true
-      const assign = expectSymbol(':=')
-      const wobj = expectIdentifier('工件坐标名称')
-      if (!assign || !wobj) {
-        recoverMotionTail()
-        return
-      }
-      wobjName = wobj.text
-      wobjToken = wobj
-      queueReference('wobj', wobj)
-    }
-
-    // 可选参数之后仍有非分号内容：多余的参数根因。
-    if (rejectTrailingParams(false)) return
-
-    const semicolon = expectSymbol(';')
-    const end = semicolon ?? current()
-    if (!target || !speed || !zone || !tool) return
-    statementSink.push({
-      kind: 'motion',
-      motion: {
-        kind,
-        target: target as PendingTarget,
-        ...(kind === 'movec' && cirPoint ? { cirPoint } : {}),
-        speedName: speed.text,
-        speedToken: speed,
-        zoneName: zone.text,
-        zoneToken: zone,
-        toolName: tool.text,
-        toolToken: tool,
-        wobjName,
-        wobjToken,
-        range: rangeFromOffsets(start.start, end.end, lineStarts),
-        sourceText: source.slice(start.start, end.end),
-      },
+    parseMotionStatement({
+      source,
+      lineStarts,
+      dataContext: dataCtx,
+      current,
+      advance,
+      expectIdentifier,
+      expectSymbol,
+      addDiagnostic,
+      addMissingDiagnostic,
+      atOperandBoundary,
+      recoverMotionTail,
+      queueReference,
+      motionAnchors,
+      statementSink: controlFlowContext.statementSink,
     })
-  }
-
-  /** 解析 ABB 腕部奇异处理指令；模式持续到下一条 SingArea 指令或程序重新装载。 */
-  function parseSingArea(): void {
-    const start = advance()
-    const slash = expectSymbol('\\')
-    const modeToken = expectIdentifier('SingArea 模式（Wrist/Off）')
-    const semicolon = expectSymbol(';')
-    if (!slash || !modeToken || !semicolon) return
-    const modeName = normalizeName(modeToken.text)
-    if (modeName !== 'wrist' && modeName !== 'off') {
-      addDiagnostic(
-        'unsupported-option',
-        `不支持 SingArea 模式 ${modeToken.text}（仅支持 \\Wrist/\\Off）`,
-        modeToken,
-      )
-      return
-    }
-    statementSink.push({
-      kind: 'singarea',
-      singArea: {
-        mode: modeName,
-        range: rangeFromOffsets(start.start, semicolon.end, lineStarts),
-        sourceText: source.slice(start.start, semicolon.end),
-      },
-    })
-  }
-
-  function parseConfiguration(kind: 'confj' | 'confl'): void {
-    const start = advance()
-    const slash = expectSymbol('\\')
-    const modeToken = expectIdentifier(`${kind === 'confj' ? 'ConfJ' : 'ConfL'} 模式（On/Off）`)
-    const semicolon = expectSymbol(';')
-    if (!slash || !modeToken || !semicolon) return
-    const modeName = normalizeName(modeToken.text)
-    if (modeName !== 'on' && modeName !== 'off') {
-      addDiagnostic('unsupported-option', `不支持 ${kind === 'confj' ? 'ConfJ' : 'ConfL'} 模式 ${modeToken.text}（仅支持 \\On/\\Off）`, modeToken)
-      return
-    }
-    statementSink.push({ kind: kind === 'confj' ? 'confj' : 'confl', configuration: { mode: modeName, range: rangeFromOffsets(start.start, semicolon.end, lineStarts), sourceText: source.slice(start.start, semicolon.end) } })
   }
 
   function skipUnsupportedControl(): void {
@@ -1136,191 +694,70 @@ export function parseRapidProgram(source: string): RapidParseResult {
   }
 
   function parseStatementList(terminators: ReadonlySet<string>): void {
-    while (
-      current().kind !== 'eof' &&
-      !isKeyword(current(), 'ENDPROC') &&
-      !isKeyword(current(), 'ENDMODULE') &&
-      !terminators.has(current().text)
-    ) {
-      if (isKeyword(current(), 'MOVEJ') || isKeyword(current(), 'MOVEL') || isKeyword(current(), 'MOVEC')) {
-        parseMotion()
-      } else if (isKeyword(current(), 'SINGAREA')) {
-        parseSingArea()
-      } else if (isKeyword(current(), 'CONFJ')) {
-        parseConfiguration('confj')
-      } else if (isKeyword(current(), 'CONFL')) {
-        parseConfiguration('confl')
-      } else if (current().kind === 'identifier' && isSymbol(peek(), ':=')) {
-        parseAssignment()
-      } else if (isKeyword(current(), 'IF')) {
-        parseConditional()
-      } else if (isKeyword(current(), 'WHILE')) {
-        parseWhile()
-      } else if (isKeyword(current(), 'FOR')) {
-        parseFor()
-      } else if (isKeyword(current(), 'EXITDO')) {
-        parseExitDo()
-      } else if (isKeyword(current(), 'MOVEABSJ')) {
-        skipUnsupportedControl()
-      } else if (
-        isKeyword(current(), 'ELSEIF') ||
-        isKeyword(current(), 'ELSE') ||
-        isKeyword(current(), 'ENDIF') ||
-        isKeyword(current(), 'ENDWHILE') ||
-        isKeyword(current(), 'ENDFOR')
-      ) {
-        addDiagnostic('syntax-error', `${current().text} 没有对应的 IF/WHILE/FOR 控制流结束结构`)
-        advance()
-      } else {
-        addDiagnostic('unsupported-syntax', `首期不支持 ${current().text || '空语句'}`)
-        skipToStatementEnd()
-      }
-    }
+    parseStatementListStatement(
+      {
+        current,
+        peek,
+        advance,
+        addDiagnostic,
+        parseMotion,
+        parseSingArea: () =>
+          parseSingAreaStatement({
+            source,
+            lineStarts,
+            advance,
+            expectSymbol,
+            expectIdentifier,
+            addDiagnostic,
+            statementSink: controlFlowContext.statementSink,
+          }),
+        parseConfiguration: (kind) =>
+          parseConfigurationStatement(
+            {
+              source,
+              lineStarts,
+              advance,
+              expectSymbol,
+              expectIdentifier,
+              addDiagnostic,
+              statementSink: controlFlowContext.statementSink,
+            },
+            kind,
+          ),
+        parseAssignment: () =>
+          parseAssignmentStatement({
+            source,
+            lineStarts,
+            scalarContext,
+            expectIdentifier,
+            expectSymbol,
+            statementSink: controlFlowContext.statementSink,
+          }),
+        parseConditional,
+        parseWhile,
+        parseFor,
+        parseExitDo,
+        skipUnsupportedControl,
+        skipToStatementEnd,
+      },
+      terminators,
+    )
   }
 
-  /** 解析 WHILE 条件循环；循环体内支持嵌套 IF/循环/赋值/运动。 */
   function parseWhile(): void {
-    const start = advance()
-    const condition = parseScalarExpression(scalarContext)
-    const doToken = expectKeyword('DO')
-    const statements: PendingStatement[] = []
-    loopDepth += 1
-    const previousSink = statementSink
-    statementSink = statements
-    parseStatementList(new Set(['ENDWHILE']))
-    statementSink = previousSink
-    loopDepth -= 1
-    const end = expectKeyword('ENDWHILE')
-    if (!end) return
-    const headerEnd = doToken?.end ?? condition?.range.end.offset ?? start.end
-    statementSink.push({
-      kind: 'while',
-      whileLoop: {
-        condition,
-        conditionToken: start,
-        range: rangeFromOffsets(start.start, headerEnd, lineStarts),
-        sourceText: source.slice(start.start, headerEnd),
-        statements,
-      },
-    })
+    parseWhileStatement(controlFlowContext)
   }
 
-  /** 解析 FOR 计数循环：FOR i FROM a TO b STEP s DO ... ENDFOR。 */
   function parseFor(): void {
-    const start = advance()
-    const loopVarToken = expectIdentifier('FOR 循环变量')
-    if (!loopVarToken) return
-    expectKeyword('FROM')
-    const fromExpr = parseScalarExpression(scalarContext)
-    expectKeyword('TO')
-    const toExpr = parseScalarExpression(scalarContext)
-    let stepExpr: RapidScalarExpression | null = null
-    if (isKeyword(current(), 'STEP')) {
-      advance()
-      stepExpr = parseScalarExpression(scalarContext)
-    }
-    const doToken = expectKeyword('DO')
-    const statements: PendingStatement[] = []
-    loopDepth += 1
-    const previousSink = statementSink
-    statementSink = statements
-    parseStatementList(new Set(['ENDFOR']))
-    statementSink = previousSink
-    loopDepth -= 1
-    const end = expectKeyword('ENDFOR')
-    if (!end) return
-    const headerEnd = doToken?.end ?? toExpr?.range.end.offset ?? start.end
-    statementSink.push({
-      kind: 'for',
-      forLoop: {
-        loopVarToken,
-        fromExpr,
-        toExpr,
-        stepExpr,
-        range: rangeFromOffsets(start.start, headerEnd, lineStarts),
-        sourceText: source.slice(start.start, headerEnd),
-        statements,
-      },
-    })
+    parseForStatement(controlFlowContext)
   }
 
-  /** EXITDO 只能出现在循环体内；循环外给出诊断并阻止该语句。 */
   function parseExitDo(): void {
-    const start = advance()
-    if (loopDepth === 0) {
-      addDiagnostic('syntax-error', 'EXITDO 只能出现在循环体内', start)
-      skipToStatementEnd()
-      return
-    }
-    const semicolon = expectSymbol(';')
-    if (!semicolon) return
-    statementSink.push({
-      kind: 'exitdo',
-      exit: {
-        token: start,
-        range: rangeFromOffsets(start.start, semicolon.end, lineStarts),
-        sourceText: source.slice(start.start, semicolon.end),
-      },
-    })
-  }
-
-  function parseConditionalBranch(
-    conditionKind: PendingConditionalBranch['conditionKind'],
-    start: Token,
-  ): PendingConditionalBranch {
-    const condition = parseScalarExpression(scalarContext)
-    const thenToken = expectKeyword('THEN')
-    const statements: PendingStatement[] = []
-    const previousSink = statementSink
-    statementSink = statements
-    parseStatementList(new Set(['ELSEIF', 'ELSE', 'ENDIF']))
-    statementSink = previousSink
-    const headerEnd = thenToken?.end ?? condition?.range.end.offset ?? start.end
-    return {
-      conditionKind,
-      condition,
-      range: rangeFromOffsets(start.start, headerEnd, lineStarts),
-      sourceText: source.slice(start.start, headerEnd),
-      statements,
-    }
-  }
-
-  function skipConditionalTail(): void {
-    while (
-      current().kind !== 'eof' &&
-      !isKeyword(current(), 'ENDIF') &&
-      !isKeyword(current(), 'ENDPROC') &&
-      !isKeyword(current(), 'ENDMODULE')
-    ) {
-      advance()
-    }
+    parseExitDoStatement(controlFlowContext)
   }
 
   function parseConditional(): void {
-    const ifToken = advance()
-    const branches: PendingConditionalBranch[] = [parseConditionalBranch('if', ifToken)]
-    while (isKeyword(current(), 'ELSEIF')) {
-      const elseifToken = advance()
-      branches.push(parseConditionalBranch('elseif', elseifToken))
-    }
-
-    let elseStatements: PendingStatement[] | null = null
-    if (isKeyword(current(), 'ELSE')) {
-      advance()
-      elseStatements = []
-      const previousSink = statementSink
-      statementSink = elseStatements
-      parseStatementList(new Set(['ELSEIF', 'ELSE', 'ENDIF']))
-      statementSink = previousSink
-      if (isKeyword(current(), 'ELSE') || isKeyword(current(), 'ELSEIF')) {
-        addDiagnostic('syntax-error', 'ELSEIF/ELSE 不能出现在 ELSE 分支之后', current())
-        skipConditionalTail()
-      }
-    }
-
-    const end = expectKeyword('ENDIF')
-    if (!end) return
-    statementSink.push({ kind: 'conditional', conditional: { branches, elseStatements } })
+    parseConditionalStatement(controlFlowContext)
   }
 
   function parseMainBody(): void {
@@ -1484,7 +921,8 @@ export function parseRapidProgram(source: string): RapidParseResult {
     const tool = resolveTool(pending.toolName)
     const wobj = resolveWobj(pending.wobjName)
 
-    // MVP 能力门：vmax 依赖机器人型号暂不执行；非 fine zone（z0..z200）票据 04 起可执行（以安全停点近似），
+    // MVP 能力门：vmax 依赖机器人型号暂不执行；非 fine zone 保留为合法语法，
+    // 由程序控制层在启动前统一拒绝，避免部分运动后才失败；
     // fly-by 语义与“未模拟路径融合”提示由运行时/观察区呈现。
     if (speed && !Number.isFinite(speed.v_tcp)) {
       addDiagnostic(

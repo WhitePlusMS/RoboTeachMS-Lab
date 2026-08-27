@@ -37,6 +37,8 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'set-joint': [index: number, value: number]
   'adjust-joint': [index: number, direction: JointDirection, isContinuous?: boolean]
+  'joint-continuous-start': [index: number, direction: JointDirection]
+  'joint-continuous-end': []
   'step-change': [value: number]
   reset: []
   'mechanical-zero': []
@@ -69,6 +71,8 @@ const controller: RobotController =
     setJoint: (index, value) => emit('set-joint', index, value),
     adjustJoint: (index, direction, isContinuous) =>
       emit('adjust-joint', index, direction, isContinuous),
+    beginJointContinuous: (index, direction) => emit('joint-continuous-start', index, direction),
+    endJointContinuous: () => emit('joint-continuous-end'),
     setStep: (value) => emit('step-change', value),
     reset: () => emit('reset'),
     resetMechanicalZero: () => emit('mechanical-zero'),
@@ -169,6 +173,8 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         :joint-step="controller.jointStep.value"
         @set-joint="controller.setJoint"
         @adjust-joint="controller.adjustJoint"
+        @continuous-start="controller.beginJointContinuous"
+        @continuous-end="controller.endJointContinuous"
         @step-change="controller.setStep"
         @reset="controller.reset"
         @mechanical-zero="controller.resetMechanicalZero"

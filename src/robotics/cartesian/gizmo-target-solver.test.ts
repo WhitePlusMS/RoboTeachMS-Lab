@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_IK_CONFIG, solveIK } from '../inverse-kinematics/numerical-ik.ts'
-import { solveGizmoTarget } from './gizmo-target-solver.ts'
+import { solveGizmoTarget } from '@/robot-motion-core/internal/cartesian/gizmo-target-solver.ts'
 import type { JointAngles, Pose } from '../model/index.ts'
 import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'

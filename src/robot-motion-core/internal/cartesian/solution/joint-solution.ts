@@ -1,16 +1,16 @@
-import { DEFAULT_IK_CONFIG, solveIK } from '../../inverse-kinematics/numerical-ik.ts'
+import { DEFAULT_IK_CONFIG, solveIK } from '@/robotics/inverse-kinematics/numerical-ik.ts'
 import {
   buildIKCandidateCatalog,
   isCandidateAtJointLimit,
   JOINT_LIMIT_EPS_DEG,
   selectBestIKCandidate,
   type IKCandidateRecord,
-} from '../../inverse-kinematics/candidate-catalog.ts'
+} from '@/robotics/inverse-kinematics/candidate-catalog.ts'
 import { MAX_CARTESIAN_JOINT_STEP_DEG } from '../step-policy.ts'
-import { rotationDistanceRad } from '../../math/rotation3d.ts'
-import type { RobotModel } from '../../model/robot-model.ts'
-import type { JointAngles, Pose } from '../../model/joint-pose.ts'
-import type { IKSolverConfig } from '../../inverse-kinematics/types.ts'
+import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
 import type {
   JointFailureDetail,
   JointSolutionFailureReason,

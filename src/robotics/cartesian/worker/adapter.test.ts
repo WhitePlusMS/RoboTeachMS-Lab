@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { createCartesianTargetRequest, planMotion, type MotionPlanningRequest, type MotionPlanningResult } from '@/robot-motion-core/index.ts'
+import { planMotion, type MotionPlanningRequest, type MotionPlanningResult } from '@/robot-motion-core/index.ts'
+import { createCartesianTargetRequest } from '@/application/motion-requests.ts'
 import { createMotionPlannerWorkerAdapter } from './adapter.ts'
 
-const request = createCartesianTargetRequest({ positionMm: [1, 2, 3], quaternionWxyz: [1, 0, 0, 0] }, [0, 0, 0, 0, 30, 0])
+const request = createCartesianTargetRequest(
+  { position: [1, 2, 3], euler: [0, 0, 0], rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },
+  [0, 0, 0, 0, 30, 0],
+)
 
 class FakeWorker {
   static instances: FakeWorker[] = []
@@ -30,17 +34,20 @@ describe('Core Worker adapter', () => {
     adapter.dispose()
   })
 
-  it('活动规划期间只保留最新请求，取消不终止常驻 Worker', async () => {
+  it('取消活动规划会终止旧 Worker，下一请求只进入新 transport', async () => {
     Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     const adapter = createMotionPlannerWorkerAdapter()
     const first = adapter.plan(request)
+    adapter.cancel()
     const secondRequest = { ...request, state: { jointsDeg: [1, 1, 1, 1, 30, 1] as MotionPlanningRequest['state']['jointsDeg'] } }
     const second = adapter.plan(secondRequest)
     await expect(first).resolves.toBeNull()
-    expect(FakeWorker.instances[0].request).toEqual(secondRequest)
+    expect(FakeWorker.instances[0].terminated).toBe(true)
+    expect(FakeWorker.instances[0].request).toEqual(request)
+    expect(FakeWorker.instances[1].request).toEqual(secondRequest)
     adapter.cancel()
     await expect(second).resolves.toBeNull()
-    expect(FakeWorker.instances[0].terminated).toBe(false)
+    expect(FakeWorker.instances[1].terminated).toBe(true)
     adapter.dispose()
   })
 })

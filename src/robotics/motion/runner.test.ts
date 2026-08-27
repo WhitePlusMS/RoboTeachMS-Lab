@@ -580,7 +580,7 @@ describe('Motion Runner 未来轨迹尾部追加', () => {
     expect(joints).toEqual(jointsAt(20))
   })
 
-  it('新结果整段落后于执行尾部时拒绝追加而不反向运动', () => {
+  it('新结果替换当前段时只在当前位置与最新终点之间运动', () => {
     const clock = new ManualMotionClock()
     let joints = jointsAt(0)
     const runner = createMotionRunner({
@@ -595,10 +595,11 @@ describe('Motion Runner 未来轨迹尾部追加', () => {
     clock.advanceBy(25)
     runner.appendTrajectory([jointsAt(5), jointsAt(6)], 50)
     clock.advanceBy(25)
-    expect(joints[0]).toBeGreaterThanOrEqual(10)
+    expect(joints[0]).toBeGreaterThanOrEqual(5)
+    expect(joints[0]).toBeLessThanOrEqual(6)
   })
 
-  it('旧结果在尾部前后摆动时拒绝反向后缀', () => {
+  it('连续目标替换不会保留旧 future waypoint 队列', () => {
     const clock = new ManualMotionClock()
     let joints = jointsAt(0)
     const samples: number[] = []
@@ -616,7 +617,8 @@ describe('Motion Runner 未来轨迹尾部追加', () => {
     runner.appendTrajectory([jointsAt(5), jointsAt(20), jointsAt(0)], 50)
     clock.advanceBy(25)
 
-    expect(joints).toEqual(jointsAt(10))
-    expect(samples.every((value, index) => index === 0 || value >= samples[index - 1])).toBe(true)
+    expect(joints[0]).toBeGreaterThanOrEqual(0)
+    expect(joints[0]).toBeLessThanOrEqual(5)
+    expect(samples.length).toBeLessThan(10)
   })
 })

@@ -3,9 +3,9 @@ import {
   rotationMatrixToEulerZYX,
   rotationMatrixToQuaternion,
 } from '@/robotics/math/rotation3d.ts'
-import type { RobotModel } from '../model/robot-model.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { IKSolverConfig } from '../inverse-kinematics/types.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
 import { solvePoseWaypoints } from './solution/waypoint-solver.ts'
 import type {
   WaypointFailureDiagnostic,
@@ -85,6 +85,8 @@ export function planCartesianPath(
     toFlange?: (pose: Pose) => Pose
     allowWristFallback?: boolean
     preserveConfiguration?: boolean
+    requiredConfiguration?: readonly number[]
+    maxJointStepDeg?: number | null
   },
 ): CartesianPathResult {
   const startPose = opts?.tcpStart ?? model.forwardKinematics(initialJoints)
@@ -139,7 +141,11 @@ export function planCartesianPath(
       // 始终先使用完整位姿 IK；`solvePoseWaypoints` 只在单个 waypoint
       // 接近腕部奇异或发生构型重新分配时，按算法自动局部回退。
       { ...MOVE_L_IK_CONFIG, preserveConfiguration: opts?.preserveConfiguration },
-      { allowWristFallback: opts?.allowWristFallback },
+      {
+        allowWristFallback: opts?.allowWristFallback,
+        requiredConfiguration: opts?.requiredConfiguration,
+        maxJointStepDeg: opts?.maxJointStepDeg,
+      },
     )
 
   let segmentCount = initialSegmentCount

@@ -8,7 +8,7 @@ import { isRapidMotionInstruction, parseRapidProgram } from './rapid-parser.ts'
  * 保留真实的大小写、空格、缩进与注释风格；真实语料仅作诊断韧性验证，不要求本轮可执行。
  */
 describe('Ticket 04 — 真实 RAPID 语料诊断韧性', () => {
-  it('真实 MoveJ 用 v40/z100/fine 识别的官方 speed/zone 名可解析执行（票据 04 起）', () => {
+  it('真实 MoveJ 用 v40/z100/fine 识别官方 speed/zone 名并交给启动前预检', () => {
     // 来源：abb-rapid-eval/references/rapid-real-code-examples.md 片段1（rafacastalla Pick&Place MainModule）；裁剪：去掉 IO/WaitTime，只留一条运动与最小上下文。
     const source = `MODULE MainModule
     CONST robtarget POS_ORIGEN := [[515,0,712],[0,0,1,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
@@ -18,7 +18,7 @@ describe('Ticket 04 — 真实 RAPID 语料诊断韧性', () => {
 ENDMODULE
 `
     const result = parseRapidProgram(source)
-    // v40 与 z100 均为官方预定义名：无需猜测、不报词法错误；z100 是 fly-by，MVP 以安全停点近似执行。
+    // v40 与 z100 均为官方预定义名：无需猜测、不报词法错误；z100 的执行拒绝由启动前预检负责。
     expect(result.diagnostics).toEqual([])
     expect(result.canExecute).toBe(true)
     expect(result.program).toHaveLength(1)

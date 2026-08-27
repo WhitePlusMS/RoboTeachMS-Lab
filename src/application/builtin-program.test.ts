@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import { planMoveJ } from '@/rapid/planning/index.ts'
-import { planMoveL } from '@/rapid/planning/index.ts'
+import { planMotion } from '@/robot-motion-core/index.ts'
+import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
 import { isDefaultTool0, isDefaultWobj0 } from '@/rapid/data/index.ts'
 import { robTargetToPose } from '@/rapid/data/pose-transform.ts'
 import { orientationError } from '@/robotics/math/rotation3d.ts'
@@ -28,6 +28,15 @@ function rotationErrorMagnitude(
   target: Parameters<typeof orientationError>[1],
 ): number {
   return Math.hypot(...orientationError(actual, target))
+}
+
+function planRapidMotion(
+  instruction: Parameters<typeof buildRapidMotionRequest>[0],
+  joints: JointAngles,
+) {
+  const request = buildRapidMotionRequest(instruction, 'off', joints)
+  if (!request.ok) throw new Error(request.error.message)
+  return planMotion(request.request)
 }
 
 describe('页面默认 RAPID 源程序', () => {
@@ -71,7 +80,6 @@ describe('页面默认 RAPID 源程序', () => {
 
   it('按真实程序顺序逐条几何验收：MoveJ 终点 FK、MoveL 沿 ABB 基座 Z 轴直线下降、MoveJ 返回 pRest', () => {
     const model = ABB_IRB1200_PROFILE.model
-    const jointRanges = ABB_IRB1200_PROFILE.jointRanges
     const homeJoints: JointAngles = [...ABB_IRB1200_PROFILE.homeJoints]
 
     const result = parseRapidProgram(createBuiltinRapidSource())
@@ -90,12 +98,12 @@ describe('页面默认 RAPID 源程序', () => {
     }
 
     // —— 第一条 MoveJ -> pApproach ——
-    const moveJ = planMoveJ(first, model, homeJoints, jointRanges)
+    const moveJ = planRapidMotion(first, homeJoints)
     expect(moveJ.ok, `指令 0 (${first.target.trans}) 规划失败`).toBe(true)
     if (!moveJ.ok) return
 
     // MoveJ 终点 FK：位置与姿态误差均应满足既有 IK 容差。
-    const approachPose = model.forwardKinematics(moveJ.joints)
+    const approachPose = model.forwardKinematics([...moveJ.end.jointsDeg] as JointAngles)
     expect(approachPose).not.toBeNull()
     if (approachPose) {
       expect(positionError(approachPose.position, P_APPROACH)).toBeLessThanOrEqual(
@@ -108,11 +116,11 @@ describe('页面默认 RAPID 源程序', () => {
     }
 
     // —— 第二条 MoveL -> pWork（沿 ABB 基座 Z 轴下降约 50mm）——
-    const moveL = planMoveL(second, model, moveJ.joints, jointRanges)
+    const moveL = planRapidMotion(second, [...moveJ.end.jointsDeg] as JointAngles)
     expect(moveL.ok, '指令 1 (MoveL 下降) 从第一条终点规划失败').toBe(true)
     if (!moveL.ok) return
 
-    const waypoints = moveL.waypoints
+    const waypoints = moveL.waypoints.map((point) => [...point.jointsDeg] as JointAngles)
     expect(waypoints.length).toBeGreaterThanOrEqual(2)
 
     // 逐 waypoint 做 FK：MoveL 主体沿 ABB 基座 Z 轴下降约 50mm，横向（X/Y）位移保持极小。
@@ -145,7 +153,7 @@ describe('页面默认 RAPID 源程序', () => {
     }
 
     // 包含 MoveJ 终点到首个 waypoint 的过渡，任一相邻关节步长不超过 5°。
-    const jointPath = [moveJ.joints, ...waypoints]
+    const jointPath = [moveJ.end.jointsDeg as JointAngles, ...waypoints]
     for (let i = 1; i < jointPath.length; i += 1) {
       const prev = jointPath[i - 1]
       const curr = jointPath[i]
@@ -162,11 +170,11 @@ describe('页面默认 RAPID 源程序', () => {
 
     // —— 第三条 MoveJ -> pRest（从 MoveL 最后 waypoint 起）——
     const lastMoveLWaypoint = waypoints[waypoints.length - 1]
-    const moveJFinal = planMoveJ(third, model, lastMoveLWaypoint, jointRanges)
+    const moveJFinal = planRapidMotion(third, lastMoveLWaypoint)
     expect(moveJFinal.ok, '指令 2 (MoveJ 返回) 从第二条终点规划失败').toBe(true)
     if (!moveJFinal.ok) return
 
-    const restPose = model.forwardKinematics(moveJFinal.joints)
+    const restPose = model.forwardKinematics([...moveJFinal.end.jointsDeg] as JointAngles)
     expect(restPose).not.toBeNull()
     if (restPose) {
       expect(positionError(restPose.position, P_REST)).toBeLessThanOrEqual(

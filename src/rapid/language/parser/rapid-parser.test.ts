@@ -153,7 +153,7 @@ ENDMODULE
     expect(result.canExecute).toBe(false)
     expect(codes).toContain('duplicate-symbol')
     expect(codes).toContain('invalid-data')
-    // v999/tool1/wobj1 未定义 → undefined-symbol（z20 是官方 fly-by 名，票据 04 起可执行，不再 unsupported）。
+    // v999/tool1/wobj1 未定义 → undefined-symbol；z20 是官方 fly-by 名，解析阶段不拦截。
     expect(codes).toContain('undefined-symbol')
   })
 

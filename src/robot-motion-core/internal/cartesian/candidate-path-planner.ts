@@ -1,11 +1,11 @@
-import { DEFAULT_IK_CONFIG } from '../inverse-kinematics/numerical-ik.ts'
+import { DEFAULT_IK_CONFIG } from '@/robotics/inverse-kinematics/numerical-ik.ts'
 import {
   buildIKCandidateCatalog,
   type IKCandidateRecord,
-} from '../inverse-kinematics/candidate-catalog.ts'
-import type { RobotModel } from '../model/robot-model.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { IKSolverConfig, RobotConfiguration } from '../inverse-kinematics/types.ts'
+} from '@/robotics/inverse-kinematics/candidate-catalog.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
+import type { IKSolverConfig, RobotConfiguration } from '@/robotics/inverse-kinematics/types.ts'
 import type { WaypointFailureDiagnostic } from './solution/waypoint-types.ts'
 import { MAX_CARTESIAN_JOINT_STEP_DEG } from './step-policy.ts'
 
@@ -20,6 +20,8 @@ export interface CandidateGraphOptions {
   maxJointStepDeg?: number | null
   /** 默认保持起始关节的型号构型；显式轨迹重放可关闭。 */
   preserveConfiguration?: boolean
+  /** RAPID robconf 目标；提供时终点 waypoint 只保留该型号构型。 */
+  requiredConfiguration?: readonly number[]
 }
 
 export type CandidateGraphResult =
@@ -122,7 +124,9 @@ function validCandidates(
   catalog: readonly IKCandidateRecord[],
   config: IKSolverConfig,
   referenceConfiguration?: RobotConfiguration,
+  requiredConfiguration?: readonly number[],
 ): IKCandidateRecord[] {
+  const expectedConfiguration = requiredConfiguration ?? referenceConfiguration
   return catalog.filter(
     (candidate) =>
       candidate.normalizedJoints !== null &&
@@ -130,10 +134,10 @@ function validCandidates(
       !candidate.atJointLimit &&
       candidate.positionErrorMm <= config.posTolerance &&
       candidate.orientationErrorRad <= config.oriTolerance &&
-      (referenceConfiguration === undefined ||
+      (expectedConfiguration === undefined ||
         (candidate.configuration !== undefined &&
           candidate.configuration.every(
-            (value, index) => value === referenceConfiguration[index],
+            (value, index) => value === expectedConfiguration[index],
           ))),
   )
 }
@@ -168,12 +172,15 @@ export function planStrictCandidateGraph(
     const pose = poses[poseIndex]
     const catalog = buildIKCandidateCatalog(toFlange(pose), initialJoints, model, jointRanges)
     hasOutOfRangeCandidate ||= catalog.some((candidate) => !candidate.withinJointRanges)
-    const candidates = validCandidates(catalog, config, referenceConfiguration)
+    // required robconf 是终点语义；路径起点/中间层仍需允许当前构型，
+    // 否则从当前构型切换到目标构型会在第一层就被错误判为不可达。
+    const requiredForLayer = poseIndex === poses.length - 1 ? options.requiredConfiguration : undefined
+    const candidates = validCandidates(catalog, config, referenceConfiguration, requiredForLayer)
       .map((candidate) => candidate.normalizedJoints)
       .filter((candidate): candidate is JointAngles => candidate !== null)
     if (candidates.length === 0) {
       const hasSameGeometryOnAnotherConfiguration =
-        referenceConfiguration !== undefined &&
+        (referenceConfiguration !== undefined || requiredForLayer !== undefined) &&
         catalog.some(
           (candidate) =>
             candidate.normalizedJoints !== null &&

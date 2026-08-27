@@ -1,6 +1,4 @@
-import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
-import type { CartesianPathFailure } from '@/robotics/cartesian/index.ts'
+import type { MotionError } from '@/robot-motion-core/index.ts'
 import {
   NO_EXTERNAL_AXIS,
   type RobTarget,
@@ -9,6 +7,13 @@ import {
   type WobjData,
   type ZoneData,
 } from '../data/index.ts'
+
+type CartesianPathFailure =
+  | 'wrist-singularity'
+  | 'wrist-reconfiguration'
+  | 'joint-limit'
+  | 'joint-step'
+  | 'ik-not-converged'
 
 /** 外部轴六项是否均为 ABB“未使用”常量（9E9），即目标不带外部轴。 */
 function isNoExternalAxis(extax: RobTarget['extax']): boolean {
@@ -47,6 +52,8 @@ export interface MotionPlanError {
   kind: MotionPlanErrorKind
   message: string
   diagnostic?: MotionPlanDiagnostic
+  /** 保留 Core 原始机器错误，供日志和诊断关联；展示文案仍由 RAPID 层负责。 */
+  coreError?: MotionError
 }
 
 /** 把笛卡尔 waypoint 失败映射为 RAPID 运行时可定位的规划错误，禁止吞成普通 unreachable。 */
@@ -249,26 +256,4 @@ export function validateMotionInput(
     validateSpeed(speed) ??
     checkSupportedConfiguration(tool, wobj, target)
   )
-}
-
-/**
- * 计算一条 MoveJ/MoveL 的仿真时长：TCP 起点到目标距离 / v_tcp，转毫秒并钳位为正的有限值。
- * 模型正解失败返回 null（调用方映射为 unreachable 规划错误）。MoveJ/MoveL 共用同一份
- * “有限性 + 正时长钳位”逻辑，避免两处各写一份且条件不一致。
- */
-export function simulateDurationMs(
-  model: RobotModel,
-  currentJoints: JointAngles,
-  trans: readonly [number, number, number],
-  vTcp: number,
-): number | null {
-  const startPose = model.forwardKinematics(currentJoints)
-  if (!startPose) return null
-  const distance = Math.hypot(
-    trans[0] - startPose.position[0],
-    trans[1] - startPose.position[1],
-    trans[2] - startPose.position[2],
-  )
-  const durationMs = (distance / vTcp) * 1000
-  return Number.isFinite(durationMs) && durationMs > 0 ? Math.max(durationMs, 1) : 1
 }

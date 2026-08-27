@@ -39,6 +39,8 @@ export interface RobotController {
   /** 关节动作。 */
   setJoint(index: number, value: number): void
   adjustJoint(index: number, direction: JointDirection, isContinuous?: boolean): void
+  beginJointContinuous(index: number, direction: JointDirection): void
+  endJointContinuous(): void
   setStep(value: number): void
   reset(): void
   resetMechanicalZero(): void

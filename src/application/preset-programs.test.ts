@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { findRapidPreset, RAPID_PRESET_PROGRAMS } from './preset-programs.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/language/index.ts'
-import { planMoveJ } from '@/rapid/planning/index.ts'
-import { planMoveL } from '@/rapid/planning/index.ts'
-import { planMoveC } from '@/rapid/planning/index.ts'
+import { planMotion } from '@/robot-motion-core/index.ts'
+import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import type { JointAngles } from '@/robotics/model/index.ts'
-import type { StructuredMoveC, StructuredMoveJ, StructuredMoveL } from '@/rapid/data/index.ts'
 
 describe('RAPID 预设程序库', () => {
   it('提供 6 个取自测试用例文档的可运行示例模板', () => {
@@ -40,9 +38,7 @@ describe('RAPID 预设程序库', () => {
     }
   })
 
-  it('预设含 MoveC 时，圆弧指令经真实 planMoveC 按程序次序可全部规划', () => {
-    const model = ABB_IRB1200_PROFILE.model
-    const jointRanges = ABB_IRB1200_PROFILE.jointRanges
+  it('预设含 MoveC 时，圆弧指令经真实 Core 按程序次序可全部规划', () => {
     for (const preset of RAPID_PRESET_PROGRAMS) {
       const result = parseRapidProgram(preset.source)
       // 线性累计关节状态：随运动指令推进（控制流/赋值不改关节），逐条规划到位。
@@ -50,27 +46,14 @@ describe('RAPID 预设程序库', () => {
       let movecCount = 0
       for (const inst of result.program) {
         if (!isRapidMotionInstruction(inst)) continue
-        if (inst.kind === 'movej') {
-          // 预设是旧版几何示例，点位未携带与当前模型一致的逐点 confdata；
-          // 这里显式验证几何可达性，生产 RAPID 执行仍走默认严格构型保持。
-          const plan = planMoveJ(inst as StructuredMoveJ, model, joints, jointRanges, {
-            preserveConfiguration: false,
-          })
-          expect(plan.ok, `${preset.name} MoveJ 规划失败`).toBe(true)
-          if (plan.ok) joints = [...plan.joints]
-        } else if (inst.kind === 'movel') {
-          const plan = planMoveL(inst as StructuredMoveL, model, joints, jointRanges, {
-            preserveConfiguration: false,
-          })
-          expect(plan.ok, `${preset.name} MoveL 规划失败`).toBe(true)
-          if (plan.ok) joints = [...plan.waypoints[plan.waypoints.length - 1]]
-        } else if (inst.kind === 'movec') {
+        const request = buildRapidMotionRequest(inst, 'off', joints)
+        expect(request.ok, `${preset.name} ${inst.kind} 请求构造失败`).toBe(true)
+        if (!request.ok) continue
+        const plan = planMotion(request.request)
+        expect(plan.ok, `${preset.name} ${inst.kind} 规划失败`).toBe(true)
+        if (plan.ok) joints = [...plan.end.jointsDeg] as JointAngles
+        if (inst.kind === 'movec') {
           movecCount += 1
-          const plan = planMoveC(inst as StructuredMoveC, model, joints, jointRanges, {
-            preserveConfiguration: false,
-          })
-          expect(plan.ok, `${preset.name} MoveC 规划失败`).toBe(true)
-          if (plan.ok) joints = [...plan.waypoints[plan.waypoints.length - 1]]
         }
       }
       // 至少一个预设实际演示 MoveC（当前为预设 5）。

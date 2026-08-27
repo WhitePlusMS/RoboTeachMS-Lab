@@ -150,10 +150,10 @@ describe('Ticket 03 — 名称与能力诊断', () => {
     expect(result.canExecute).toBe(false)
   })
 
-  it('z20 执行于安全停点近似；未声明的 tool1/wobj1 报未定义（各自精确分类）', () => {
+  it('z20 保留为合法语法；未声明的 tool1/wobj1 报未定义（各自精确分类）', () => {
     const result = parseMotionFixture('        MoveJ p1,v100,z20,tool1\\WObj:=wobj1;\n')
     const msgs = result.diagnostics.map((d) => d.message)
-    // z20 是官方 zone 名（票据 04 起可执行，fly-by 以安全停点近似），不再产生 "fine 提示" 拦截。
+    // z20 是官方 zone 名，不产生词法/符号错误；程序启动前再由能力预检拒绝 fly-by。
     expect(msgs.some((m) => m.includes('fine'))).toBe(false)
     // tool1/wobj1 未声明：报 undefined-symbol，而非旧的“仅 tool0/wobj0”文案。
     expect(

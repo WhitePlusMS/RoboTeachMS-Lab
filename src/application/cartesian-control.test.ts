@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
-import { poseFromJoints } from '@/robot-models/kuka-like/index.ts'
+import { poseFromJoints } from '@/robot-models/kuka-like/kinematics/legacy-forward-kinematics.ts'
 import { radToDeg } from '@/robotics/math/angle.ts'
-import { applyCartesianDelta, useCartesianControl } from './cartesian-control.ts'
-import type { CartesianPathResult } from '@/robotics/cartesian/path-planner.ts'
+import {
+  applyCartesianDelta,
+  useCartesianControl,
+  type CartesianControlOptions,
+  type CartesianPathResult,
+} from './cartesian-control.ts'
+import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
 import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
+import type { MotionCommandOutcome } from './motion-coordinator.ts'
+import { createCartesianTargetRequest } from './motion-requests.ts'
+import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import type { RobotProfile, SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
@@ -12,8 +20,8 @@ import {
   KUKA_JOINT_RANGES,
   KUKA_LIKE,
   DEFAULT_JOINTS,
-} from '@/robot-models/kuka-like/index.ts'
-import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/index.ts'
+} from '@/robot-models/kuka-like/parameters.ts'
+import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
 
 /** 测试用 KUKA 局部 profile；沿用既有 KUKA 模型与常量，不迁移 KUKA 实现。 */
 const KUKA_PROFILE: RobotProfile = {
@@ -28,6 +36,105 @@ const KUKA_PROFILE: RobotProfile = {
 const pose: PoseDisplay = {
   positionMm: [100, 200, 300],
   orientationDeg: [0, 0, 90],
+}
+
+type LegacyPlanTarget = (
+  target: { position: [number, number, number]; euler: [number, number, number]; rotation: number[][] },
+  initial: JointAngles,
+  context: { isContinuous: boolean },
+) => CartesianPathResult | Promise<CartesianPathResult | null>
+type TestControlOptions = Omit<CartesianControlOptions, 'submitMotion' | 'buildRequest'> & {
+  planTarget?: LegacyPlanTarget
+  moveToTrajectory?: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
+}
+
+function createControl(options: TestControlOptions) {
+  const {
+    planTarget: suppliedPlanTarget,
+    moveToTrajectory,
+    ...controlOptions
+  } = options
+  const planTarget: LegacyPlanTarget = suppliedPlanTarget ?? ((target, initial) =>
+    planCartesianPath(target, initial, options.profile.model, options.profile.jointRanges, {
+      preserveConfiguration: false,
+    }))
+  const submitMotion = (
+    request: Parameters<CartesianControlOptions['submitMotion']>[0],
+    mode: Parameters<CartesianControlOptions['submitMotion']>[1],
+  ): MotionCommandOutcome | Promise<MotionCommandOutcome> => {
+    if (request.intent.kind !== 'cartesian-target') {
+      throw new Error('测试 Cartesian 控制只接受 cartesian-target request')
+    }
+    const euler = [0, 0, 0] as [number, number, number]
+    const target = {
+      position: [...request.intent.targetTcpPose.positionMm] as [number, number, number],
+      euler,
+      rotation: quaternionToRotationMatrix([
+        request.intent.targetTcpPose.quaternionWxyz[1],
+        request.intent.targetTcpPose.quaternionWxyz[2],
+        request.intent.targetTcpPose.quaternionWxyz[3],
+        request.intent.targetTcpPose.quaternionWxyz[0],
+      ]),
+    }
+    const context = { isContinuous: mode === 'stream' }
+    const toOutcome = (path: CartesianPathResult | null): MotionCommandOutcome => {
+      if (path === null || !path.ok) {
+        const details: Readonly<Record<string, string | number | boolean | null>> = path?.diagnostic
+          ? {
+              waypointIndex: path.diagnostic.waypointIndex,
+              axisIndex: path.diagnostic.axisIndex,
+              previousAngleDeg: path.diagnostic.previousAngleDeg,
+              attemptedAngleDeg: path.diagnostic.attemptedAngleDeg ?? null,
+              deltaDeg: path.diagnostic.deltaDeg ?? null,
+            }
+          : { reason: 'test-planning-failure' }
+        return {
+          ok: false,
+          reason: 'planning-failure',
+          result: {
+            ok: false,
+            error: {
+              code:
+                path?.coreError?.code ??
+                (path?.failure === 'joint-step'
+                  ? 'path-discontinuity'
+                  : path?.failure === 'joint-limit'
+                    ? 'joint-limit'
+                    : path?.failure === 'wrist-singularity'
+                      ? 'wrist-singularity'
+                      : 'unreachable'),
+              category: 'planning-failure',
+              details,
+            },
+          },
+        }
+      }
+      const waypoints = [
+        { timeMs: 0, jointsDeg: request.state.jointsDeg },
+        ...path.waypoints.map((joints, index) => ({ timeMs: index + 1, jointsDeg: joints })),
+      ]
+      moveToTrajectory?.(path.waypoints, context.isContinuous)
+      return {
+        ok: true,
+        result: 'completed',
+        plan: {
+          ok: true,
+          waypoints,
+          end: { jointsDeg: waypoints.at(-1)?.jointsDeg ?? request.state.jointsDeg },
+          validation: {
+            relaxedConstraints: path.appliedSingularityMode ? ['orientation'] : undefined,
+          },
+        },
+      }
+    }
+    const planned = planTarget(target, [...request.state.jointsDeg] as JointAngles, context)
+    return planned instanceof Promise ? planned.then(toOutcome) : toOutcome(planned)
+  }
+  return useCartesianControl({
+    ...controlOptions,
+    buildRequest: createCartesianTargetRequest,
+    submitMotion,
+  })
 }
 
 describe('笛卡尔坐标增量', () => {
@@ -48,7 +155,7 @@ describe('笛卡尔坐标增量', () => {
   it('非法输入只更新失败状态，不覆盖当前关节', () => {
     const joints = ref<JointAngles>([...DEFAULT_JOINTS])
     const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: KUKA_PROFILE,
@@ -68,7 +175,7 @@ describe('笛卡尔坐标增量', () => {
   it('不可达目标只更新失败状态，不覆盖当前关节', () => {
     const joints = ref<JointAngles>([...DEFAULT_JOINTS])
     const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: KUKA_PROFILE,
@@ -88,7 +195,7 @@ describe('笛卡尔坐标增量', () => {
   it('路径失败时展示具体不可继续的关节轴', () => {
     const joints = ref<JointAngles>([...DEFAULT_JOINTS])
     const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: KUKA_PROFILE,
@@ -126,7 +233,7 @@ describe('笛卡尔坐标增量', () => {
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
       }
     })
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
@@ -155,7 +262,7 @@ describe('笛卡尔坐标增量', () => {
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
       }
     })
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
@@ -186,7 +293,7 @@ describe('笛卡尔坐标增量', () => {
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
       }
     })
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
@@ -208,7 +315,7 @@ describe('笛卡尔坐标增量', () => {
         orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
       }
     })
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
@@ -234,7 +341,7 @@ describe('笛卡尔坐标增量', () => {
       }
     })
     const submitted: JointAngles[] = []
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
@@ -257,7 +364,7 @@ describe('笛卡尔坐标增量', () => {
     expect(poseRef.value.positionMm[0]).toBeGreaterThan(initialX + 4)
   })
 
-  it('连续同步规划在动画尚未回写关节时仍从最新目标锚点递进', () => {
+  it('连续同步规划在动画尚未回写关节时仍按已提交锚点递进', () => {
     const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
     const poseRef = computed<PoseDisplay>(() => {
@@ -268,11 +375,11 @@ describe('笛卡尔坐标增量', () => {
       }
     })
     const submittedX: number[] = []
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
-      // 模拟动画帧尚未回写关节：会话锚点仍应把目标向未来累加。
+      // 同步规划已立即提交计划，下一次可以从已提交锚点继续。
       moveToTrajectory: (trajectory) => {
         const finalJoints = trajectory[trajectory.length - 1]
         if (finalJoints) submittedX.push(model.forwardKinematics(finalJoints).position[0])
@@ -284,6 +391,30 @@ describe('笛卡尔坐标增量', () => {
     expect(submittedX).toHaveLength(3)
     expect(submittedX[1] - submittedX[0]).toBeCloseTo(1, 8)
     expect(submittedX[2] - submittedX[1]).toBeCloseTo(1, 8)
+  })
+
+  it('连续点动结束时通知宿主停止当前运动', () => {
+    const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = new AbbRobotModelAdapter().forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const stopMotion = vi.fn()
+    const control = createControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      moveToTrajectory: () => undefined,
+      stopMotion,
+    })
+
+    control.move('x', 1, true)
+    control.endContinuous()
+
+    expect(stopMotion).toHaveBeenCalledTimes(1)
   })
 
   it('异步连续规划先提交当前成功结果，再处理最新排队目标', async () => {
@@ -298,7 +429,7 @@ describe('笛卡尔坐标增量', () => {
     const resolvers: Array<(result: CartesianPathResult) => void> = []
     const submitted: readonly JointAngles[][] = []
     const trajectories: JointAngles[][] = []
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,
@@ -335,7 +466,7 @@ describe('笛卡尔坐标增量', () => {
       }
     })
     let submittedTrajectory: readonly JointAngles[] = []
-    const control = useCartesianControl({
+    const control = createControl({
       joints,
       pose: poseRef,
       profile: ABB_IRB1200_PROFILE,

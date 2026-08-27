@@ -1,3 +1,7 @@
+import {
+  ABB_IRB1200_MODEL_ID,
+  ABB_IRB1200_MODEL_REVISION,
+} from '@/robot-motion-core/index.ts'
 import type {
   ABBConfigurationData,
   ConfigurationPolicy,
@@ -13,9 +17,6 @@ import type { ConfigurationMonitoringMode } from '../data/index.ts'
 import type { RobTarget, ToolData, WobjData } from '../data/index.ts'
 import { quaternionToRotationMatrix, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 import type { Pose } from '@/robotics/model/index.ts'
-
-export const ABB_MODEL_ID = 'abb-irb1200-5-0.9'
-export const ABB_MODEL_REVISION = 'dh-standard-v1'
 
 export function poseDataFromRapidPose(pose: { trans: readonly [number, number, number]; rot: readonly [number, number, number, number] }): PoseData {
   return { positionMm: [...pose.trans] as PoseData['positionMm'], quaternionWxyz: [...pose.rot] as PoseData['quaternionWxyz'] }
@@ -54,24 +55,25 @@ export function coreRequest(
   state: JointAngles,
   intent: MotionPlanningRequest['intent'],
 ): MotionPlanningRequest {
-  return { schemaVersion: 1, robot: { modelId: ABB_MODEL_ID, modelRevision: ABB_MODEL_REVISION }, state: { jointsDeg: [...state] as MotionPlanningRequest['state']['jointsDeg'] }, intent }
+  return { schemaVersion: 1, robot: { modelId: ABB_IRB1200_MODEL_ID, modelRevision: ABB_IRB1200_MODEL_REVISION }, state: { jointsDeg: [...state] as MotionPlanningRequest['state']['jointsDeg'] }, intent }
 }
 
 export function coreSingularity(mode: 'off' | 'wrist'): SingularityPolicy {
   return mode === 'wrist' ? 'wrist-interpolation' : 'strict'
 }
 
-export function mapCoreFailure(result: MotionPlanningResult): { kind: 'invalid-data' | 'unsupported-option' | 'unreachable' | 'joint-limit' | 'wrist-singularity' | 'wrist-reconfiguration' | 'joint-step'; message: string } | null {
+export function mapCoreFailure(result: MotionPlanningResult): { kind: 'invalid-data' | 'unsupported-option' | 'unreachable' | 'joint-limit' | 'wrist-singularity' | 'wrist-reconfiguration' | 'joint-step'; message: string; coreError: Extract<MotionPlanningResult, { ok: false }>['error'] } | null {
   if (result.ok) return null
   const message = `Core 运动规划失败：${result.error.code}`
+  const withCoreError = (kind: 'invalid-data' | 'unsupported-option' | 'unreachable' | 'joint-limit' | 'wrist-singularity' | 'wrist-reconfiguration' | 'joint-step', translatedMessage = message) => ({ kind, message: translatedMessage, coreError: result.error })
   switch (result.error.code) {
-    case 'invalid-request': return { kind: 'invalid-data', message }
-    case 'unsupported-capability': return { kind: 'unsupported-option', message: result.error.details.zone ? '仅支持 fine 停点；非 fine fly-by zone 尚未支持' : message }
-    case 'configuration-unreachable': return { kind: 'unsupported-option', message: '目标 robconf 与当前 ConfJ/ConfL 运行时构型策略不兼容' }
-    case 'joint-limit': return { kind: 'joint-limit', message }
-    case 'wrist-singularity': return { kind: 'wrist-singularity', message }
-    case 'path-discontinuity': return { kind: 'joint-step', message }
-    default: return { kind: 'unreachable', message }
+    case 'invalid-request': return withCoreError('invalid-data')
+    case 'unsupported-capability': return withCoreError('unsupported-option', result.error.details.zone !== undefined ? '仅支持 fine 停点；非 fine fly-by zone 尚未支持' : message)
+    case 'configuration-unreachable': return withCoreError('unsupported-option', '目标 robconf 与当前 ConfJ/ConfL 运行时构型策略不兼容')
+    case 'joint-limit': return withCoreError('joint-limit')
+    case 'wrist-singularity': return withCoreError('wrist-singularity')
+    case 'path-discontinuity': return withCoreError('joint-step')
+    default: return withCoreError('unreachable')
   }
 }
 

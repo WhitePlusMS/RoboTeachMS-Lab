@@ -1,7 +1,7 @@
 import { planStrictCandidateGraph } from './candidate-path-planner.ts'
-import type { RobotModel } from '../model/robot-model.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { IKSolverConfig } from '../inverse-kinematics/types.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
 export function solveGizmoTarget(
   targetPose: Pose,
   referenceJoints: JointAngles,

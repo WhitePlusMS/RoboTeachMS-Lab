@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import { planCartesianTarget } from './index.ts'
+import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
+import type { RobotProfile } from '../model/robot-profile.ts'
 import type { JointAngles, Pose } from '../model/index.ts'
+
+const planCartesianTarget = (
+  target: Pose,
+  joints: JointAngles,
+  profile: RobotProfile,
+  options?: Parameters<typeof planCartesianPath>[4],
+) => planCartesianPath(target, joints, profile.model, profile.jointRanges, options)
 
 const ZERO_JOINTS: JointAngles = [0, 0, 0, 0, 30, 0]
 

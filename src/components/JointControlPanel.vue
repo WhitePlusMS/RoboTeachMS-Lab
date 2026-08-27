@@ -17,6 +17,8 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'set-joint': [index: number, value: number]
   'adjust-joint': [index: number, direction: JointDirection, isContinuous?: boolean]
+  'continuous-start': [index: number, direction: JointDirection]
+  'continuous-end': []
   'step-change': [value: number]
   reset: []
   'mechanical-zero': []
@@ -33,9 +35,10 @@ interface ActivePress {
 
 const activePress = ref<ActivePress | null>(null)
 
-function stopPress(): void {
+function stopPress(notify = true): void {
   const press = activePress.value
   if (!press) return
+  if (notify && press.repeated) emit('continuous-end')
   window.clearTimeout(press.timeoutId)
   if (press.intervalId !== null) window.clearInterval(press.intervalId)
   activePress.value = null
@@ -52,6 +55,7 @@ function startPress(index: number, direction: JointDirection): void {
   }
   press.timeoutId = window.setTimeout(() => {
     press.repeated = true
+    emit('continuous-start', press.index, press.direction)
     press.intervalId = window.setInterval(() => {
       emit('adjust-joint', press.index, press.direction, true)
     }, 80)
@@ -63,7 +67,8 @@ function finishPress(): void {
   const press = activePress.value
   if (!press) return
   if (!press.repeated) emit('adjust-joint', press.index, press.direction, false)
-  stopPress()
+  else emit('continuous-end')
+  stopPress(false)
 }
 
 function handleAngleChange(index: number, event: Event): void {

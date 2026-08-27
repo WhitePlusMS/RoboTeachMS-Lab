@@ -1,8 +1,8 @@
 import { planStrictCandidateGraph } from '../candidate-path-planner.ts'
 import { MAX_CARTESIAN_JOINT_STEP_DEG } from '../step-policy.ts'
-import type { RobotModel } from '../../model/robot-model.ts'
-import type { JointAngles, Pose } from '../../model/joint-pose.ts'
-import type { IKSolverConfig } from '../../inverse-kinematics/types.ts'
+import type { RobotModel } from '@/robotics/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
 import {
   buildJointStepDetail,
   getSinglePointWristEscapeDirection,
@@ -44,6 +44,8 @@ export function solvePoseWaypoints(
     const graph = planStrictCandidateGraph(poses, initialJoints, model, jointRanges, toFlange, {
       solverConfig,
       preserveConfiguration: solverConfig.preserveConfiguration,
+      requiredConfiguration: options.requiredConfiguration,
+      maxJointStepDeg: options.maxJointStepDeg,
     })
     if (graph.ok) {
       return {

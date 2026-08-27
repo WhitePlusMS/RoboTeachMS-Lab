@@ -1,10 +1,11 @@
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import { planCartesianPath } from '@/robotics/cartesian/path-planner.ts'
-import { solvePoseWaypoints } from '@/robotics/cartesian/solution/waypoint-solver.ts'
-import { sampleArcPoses } from './arc-geometry.ts'
+import { planCartesianPath } from './internal/cartesian/path-planner.ts'
+import { solvePoseWaypoints } from './internal/cartesian/solution/waypoint-solver.ts'
+import { arcLengthMm, sampleArcPoses } from './arc-geometry.ts'
 import type { JointAngles, Pose } from '@/robotics/model/index.ts'
 import { quaternionToRotationMatrix, rotationDistanceRad, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
 
+export const ABB_IRB1200_MODEL_ID = ABB_IRB1200_PROFILE.id
 export const ABB_IRB1200_MODEL_REVISION = 'dh-standard-v1'
 export type JointVector6 = readonly [number, number, number, number, number, number]
 export type PositionMm = readonly [number, number, number]
@@ -30,6 +31,7 @@ export interface JointTargetIntent { readonly kind: 'joint-target'; readonly tar
 export interface CartesianTargetIntent {
   readonly kind: 'cartesian-target'; readonly targetTcpPose: PoseData; readonly tool: ToolData; readonly workObject: WorkObjectData
   readonly configurationPolicy: ConfigurationPolicy; readonly singularityPolicy: SingularityPolicy
+  readonly zone: 'fine' | 'fly-by'; readonly speedMmPerSec?: number
 }
 export interface LinearPathIntent {
   readonly kind: 'linear-path'; readonly targetTcpPose: PoseData; readonly tool: ToolData; readonly workObject: WorkObjectData
@@ -39,10 +41,7 @@ export interface CircularPathIntent {
   readonly kind: 'circular-path'; readonly viaTcpPose: PoseData; readonly targetTcpPose: PoseData; readonly tool: ToolData; readonly workObject: WorkObjectData
   readonly speedMmPerSec: number; readonly zone: 'fine' | 'fly-by'; readonly configurationPolicy: ConfigurationPolicy; readonly singularityPolicy: SingularityPolicy
 }
-export interface DegenerateIkIntent {
-  readonly kind: 'degenerate-ik'; readonly targetTcpPose: PoseData; readonly constraint: 'position-priority' | 'locked-joints' | 'numerical-only'; readonly lockedJointsDeg?: JointVector6
-}
-export type MotionIntent = JointTargetIntent | CartesianTargetIntent | LinearPathIntent | CircularPathIntent | DegenerateIkIntent
+export type MotionIntent = JointTargetIntent | CartesianTargetIntent | LinearPathIntent | CircularPathIntent
 export interface MotionPlanningRequest {
   readonly schemaVersion: 1
   readonly robot: { readonly modelId: string; readonly modelRevision: string }
@@ -65,10 +64,23 @@ function invalidRequest(field: string, reason: string): MotionPlanningResultErro
   return { ok: false, error: { code: 'invalid-request', category: 'invalid-request', details: { field, reason } } }
 }
 function isSixFinite(values: readonly number[]): values is JointVector6 { return values.length === 6 && values.every((value) => Number.isFinite(value)) }
-function isPoseData(value: PoseData | undefined): value is PoseData {
-  return Boolean(value && value.positionMm.length === 3 && value.quaternionWxyz.length === 4 && [...value.positionMm, ...value.quaternionWxyz].every(Number.isFinite) && Math.hypot(...value.quaternionWxyz) > 0)
+function isPoseData(value: unknown): value is PoseData {
+  if (!value || typeof value !== 'object') return false
+  const pose = value as { positionMm?: unknown; quaternionWxyz?: unknown }
+  if (!Array.isArray(pose.positionMm) || !Array.isArray(pose.quaternionWxyz)) return false
+  return pose.positionMm.length === 3 &&
+    pose.quaternionWxyz.length === 4 &&
+    [...pose.positionMm, ...pose.quaternionWxyz].every((item) => typeof item === 'number' && Number.isFinite(item)) &&
+    Math.hypot(...pose.quaternionWxyz as number[]) > 0
 }
 function isFinitePositive(value: number): boolean { return Number.isFinite(value) && value > 0 }
+function isConfigurationData(value: unknown): value is ABBConfigurationData {
+  if (!value || typeof value !== 'object') return false
+  const configuration = value as Partial<ABBConfigurationData>
+  return [configuration.cf1, configuration.cf4, configuration.cf6, configuration.cfx].every(
+    (item) => typeof item === 'number' && Number.isFinite(item),
+  )
+}
 function toPose(data: PoseData): Pose {
   const raw = [data.quaternionWxyz[1], data.quaternionWxyz[2], data.quaternionWxyz[3], data.quaternionWxyz[0]] as [number, number, number, number]
   const length = Math.hypot(...raw)
@@ -140,12 +152,12 @@ function poseToFrameData(pose: Pose): RigidFrameData {
   return fromPose(pose)
 }
 
-export function targetFlangePose(intent: CartesianTargetIntent | LinearPathIntent, target: PoseData): Pose {
+function targetFlangePose(intent: CartesianTargetIntent | LinearPathIntent, target: PoseData): Pose {
   const targetMatrix = multiplyRigid(
-    multiplyRigid(frameMatrix(intent.workObject?.userFrame ?? IDENTITY_FRAME), frameMatrix(intent.workObject?.objectFrame ?? IDENTITY_FRAME)),
+    multiplyRigid(frameMatrix(intent.workObject.userFrame), frameMatrix(intent.workObject.objectFrame)),
     frameMatrix(target),
   )
-  return poseFromMatrix(multiplyRigid(targetMatrix, inverseRigid(frameMatrix(intent.tool?.tcpInFlange ?? IDENTITY_FRAME))))
+  return poseFromMatrix(multiplyRigid(targetMatrix, inverseRigid(frameMatrix(intent.tool.tcpInFlange))))
 }
 
 function targetWorldPose(intent: CartesianTargetIntent | LinearPathIntent | CircularPathIntent, target: PoseData): Pose {
@@ -156,58 +168,30 @@ function targetWorldPose(intent: CartesianTargetIntent | LinearPathIntent | Circ
     ),
   )
 }
-export function fromPose(pose: Pose): PoseData {
+function fromPose(pose: Pose): PoseData {
   const q = rotationMatrixToQuaternion(pose.rotation)
   return { positionMm: [...pose.position] as PositionMm, quaternionWxyz: [q[3], q[0], q[1], q[2]] }
 }
 
-const IDENTITY_FRAME: RigidFrameData = {
-  positionMm: [0, 0, 0],
-  quaternionWxyz: [1, 0, 0, 0],
-}
-
-export function createCartesianTargetRequest(
-  targetTcpPose: PoseData,
-  stateJointsDeg: JointVector6,
-  singularityPolicy: SingularityPolicy = 'strict',
-): MotionPlanningRequest {
-  return {
-    schemaVersion: 1,
-    robot: { modelId: ABB_IRB1200_PROFILE.id, modelRevision: ABB_IRB1200_MODEL_REVISION },
-    state: { jointsDeg: [...stateJointsDeg] as JointVector6 },
-    intent: {
-      kind: 'cartesian-target',
-      targetTcpPose,
-      tool: { robhold: true, tcpInFlange: IDENTITY_FRAME },
-      workObject: {
-        robhold: false,
-        userFrame: IDENTITY_FRAME,
-        objectFrame: IDENTITY_FRAME,
-        ufprog: true,
-        ufmec: '',
-      },
-      configurationPolicy: { kind: 'nearest-valid' },
-      singularityPolicy,
-    },
-  }
-}
 function validateFrame(frame: RigidFrameData | undefined, field: string): MotionPlanningResultError | null {
-  return frame === undefined || isPoseData(frame) ? null : invalidRequest(field, 'expected-finite-rigid-frame')
+  return isPoseData(frame) ? null : invalidRequest(field, 'expected-finite-rigid-frame')
 }
 function validateIntent(intent: MotionIntent): MotionPlanningResultError | null {
   if (!intent || typeof intent.kind !== 'string') return invalidRequest('intent', 'expected-discriminated-intent')
   if (intent.kind === 'joint-target') return isSixFinite(intent.targetJointsDeg) ? null : invalidRequest('intent.targetJointsDeg', 'expected-six-finite-numbers')
-  if (intent.kind === 'degenerate-ik') {
-    if (!isPoseData(intent.targetTcpPose)) return invalidRequest('intent.targetTcpPose', 'expected-finite-pose')
-    return intent.constraint === 'locked-joints' && !isSixFinite(intent.lockedJointsDeg ?? []) ? invalidRequest('intent.lockedJointsDeg', 'expected-six-finite-numbers') : null
-  }
+  if (intent.kind !== 'cartesian-target' && intent.kind !== 'linear-path' && intent.kind !== 'circular-path') return invalidRequest('intent.kind', 'unsupported-intent')
   if (!isPoseData(intent.targetTcpPose)) return invalidRequest('intent.targetTcpPose', 'expected-finite-pose')
   if (intent.kind === 'circular-path' && !isPoseData(intent.viaTcpPose)) return invalidRequest('intent.viaTcpPose', 'expected-finite-pose')
   if ((intent.kind === 'linear-path' || intent.kind === 'circular-path') && !isFinitePositive(intent.speedMmPerSec)) return invalidRequest('intent.speedMmPerSec', 'expected-positive-finite-number')
-  if ((intent.kind === 'linear-path' || intent.kind === 'circular-path') && intent.zone !== 'fine') return { ok: false, error: { code: 'unsupported-capability', category: 'unsupported-capability', details: { zone: intent.zone } } }
+  if (intent.zone !== 'fine') return { ok: false, error: { code: 'unsupported-capability', category: 'unsupported-capability', details: { zone: intent.zone } } }
+  if (intent.kind === 'cartesian-target' && intent.speedMmPerSec !== undefined && !isFinitePositive(intent.speedMmPerSec)) return invalidRequest('intent.speedMmPerSec', 'expected-positive-finite-number')
   if (!intent.tool || !intent.workObject) return invalidRequest('intent.tool/workObject', 'required-for-cartesian-intent')
-  if (intent.configurationPolicy.kind === 'required' && !intent.configurationPolicy.target) return invalidRequest('intent.configurationPolicy.target', 'required')
-  if (intent.configurationPolicy.kind === 'current-main' && !intent.configurationPolicy.currentMain) return invalidRequest('intent.configurationPolicy.currentMain', 'required')
+  if (!intent.configurationPolicy || typeof intent.configurationPolicy.kind !== 'string') return invalidRequest('intent.configurationPolicy', 'expected-policy')
+  if (!['nearest-valid', 'current-main', 'required'].includes(intent.configurationPolicy.kind)) return invalidRequest('intent.configurationPolicy.kind', 'unsupported-policy')
+  if (intent.tool.robhold !== true) return { ok: false, error: { code: 'unsupported-capability', category: 'unsupported-capability', details: { field: 'intent.tool.robhold' } } }
+  if (intent.workObject.robhold !== false || intent.workObject.ufprog !== true || intent.workObject.ufmec !== '') return { ok: false, error: { code: 'unsupported-capability', category: 'unsupported-capability', details: { field: 'intent.workObject' } } }
+  if (intent.configurationPolicy.kind === 'required' && !isConfigurationData(intent.configurationPolicy.target)) return invalidRequest('intent.configurationPolicy.target', 'expected-finite-configuration')
+  if (intent.configurationPolicy.kind === 'current-main' && !isConfigurationData(intent.configurationPolicy.currentMain)) return invalidRequest('intent.configurationPolicy.currentMain', 'expected-finite-configuration')
   const toolError = validateFrame(intent.tool.tcpInFlange, 'intent.tool.tcpInFlange'); if (toolError) return toolError
   const userError = validateFrame(intent.workObject.userFrame, 'intent.workObject.userFrame'); if (userError) return userError
   return validateFrame(intent.workObject.objectFrame, 'intent.workObject.objectFrame')
@@ -247,29 +231,94 @@ function makePlan(waypoints: readonly JointAngles[], initial: JointVector6, targ
   const configuration = configurationData(end as JointAngles)
   return { ok: true, waypoints: timed, end: { jointsDeg: end, ...(configuration ? { configuration } : {}) }, validation: { tcpResidualMm, orientationResidualDeg, relaxedConstraints } }
 }
+
+function tcpPoseForJoints(joints: JointAngles, tool: ToolData): Pose | null {
+  const flange = ABB_IRB1200_PROFILE.model.forwardKinematics(joints)
+  return flange
+    ? poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(flange)), frameMatrix(tool.tcpInFlange)))
+    : null
+}
+
+/** 依据 TCP 点列累计距离分配时间，最终总时长严格等于几何长度/速度。 */
+function retimeByTcpPathLength(
+  plan: MotionPlanningResultOk,
+  initial: JointVector6,
+  tool: ToolData,
+  pathLengthMm: number,
+  speedMmPerSec: number,
+): MotionPlanningResultOk {
+  const durationMs = Math.max(1, Math.round(pathLengthMm / speedMmPerSec * 1000), plan.waypoints.length - 1)
+  const tcpPoints = plan.waypoints.map((point, index) =>
+    tcpPoseForJoints(point.jointsDeg as JointAngles, tool) ??
+      (index === 0 ? tcpPoseForJoints(initial as JointAngles, tool) : null),
+  )
+  const cumulative = [0]
+  for (let index = 1; index < tcpPoints.length; index += 1) {
+    const previous = tcpPoints[index - 1]
+    const current = tcpPoints[index]
+    const segment = previous && current
+      ? Math.hypot(...current.position.map((value, axis) => value - previous.position[axis]))
+      : 0
+    cumulative.push(cumulative[index - 1] + (Number.isFinite(segment) ? segment : 0))
+  }
+  const measuredLength = cumulative.at(-1) ?? 0
+  const denominator = measuredLength > 1e-9 ? measuredLength : Math.max(1, cumulative.length - 1)
+  let previousTimeMs = 0
+  return {
+    ...plan,
+    waypoints: plan.waypoints.map((point, index) => {
+      if (index === 0) return { ...point, timeMs: 0 }
+      const roundedGeometricTime = Math.round(
+        durationMs *
+          (measuredLength > 1e-9 ? cumulative[index] / denominator : index / denominator),
+      )
+      const timeMs = Math.max(previousTimeMs + 1, roundedGeometricTime)
+      previousTimeMs = timeMs
+      return { ...point, timeMs }
+    }),
+  }
+}
 function planJointTarget(state: JointVector6, intent: JointTargetIntent): MotionPlanningResult {
   const axisIndex = withinRanges(intent.targetJointsDeg)
   return axisIndex === null ? makePlan([intent.targetJointsDeg as JointAngles], state) : { ok: false, error: { code: 'joint-limit', category: 'planning-failure', details: { axisIndex } } }
 }
 function planCartesianTarget(state: JointVector6, intent: CartesianTargetIntent): MotionPlanningResult {
   const target = targetFlangePose(intent, intent.targetTcpPose)
-  const result = planCartesianPath(target, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, { allowWristFallback: intent.singularityPolicy === 'wrist-interpolation', preserveConfiguration: intent.configurationPolicy.kind === 'current-main' })
+  const result = planCartesianPath(target, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, {
+    allowWristFallback: intent.singularityPolicy === 'wrist-interpolation',
+    preserveConfiguration: intent.configurationPolicy.kind === 'current-main',
+    requiredConfiguration: intent.configurationPolicy.kind === 'required' ? Object.values(intent.configurationPolicy.target) : undefined,
+    maxJointStepDeg: intent.configurationPolicy.kind === 'required' ? null : undefined,
+  })
   if (!result.ok) return mapPathFailure(result.failure)
   const end = result.waypoints.at(-1)
-  return !end || !configurationMatches(configurationData(end), intent.configurationPolicy) ? { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } } : makePlan(result.waypoints, state, target, result.appliedSingularityMode ? ['orientation'] : undefined)
+  if (!end || !configurationMatches(configurationData(end), intent.configurationPolicy)) return { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } }
+  const plan = makePlan(result.waypoints, state, target, result.appliedSingularityMode ? ['orientation'] : undefined)
+  if (intent.speedMmPerSec === undefined) return plan
+  const targetWorld = targetWorldPose(intent, intent.targetTcpPose)
+  const startTcp = tcpPoseForJoints(state as JointAngles, intent.tool)
+  const distance = startTcp ? Math.hypot(...targetWorld.position.map((value, axis) => value - startTcp.position[axis])) : 0
+  return retimeByTcpPathLength(plan, state, intent.tool, distance, intent.speedMmPerSec)
 }
 function planLinearPath(state: JointVector6, intent: LinearPathIntent): MotionPlanningResult {
   const target = targetWorldPose(intent, intent.targetTcpPose)
   const startFlange = ABB_IRB1200_PROFILE.model.forwardKinematics(state as JointAngles)
   if (!startFlange) return { ok: false, error: { code: 'unreachable', category: 'planning-failure', details: { reason: 'start-forward-kinematics' } } }
   const startTcp = poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(startFlange)), frameMatrix(intent.tool.tcpInFlange)))
-  const result = planCartesianPath(target, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, { tcpStart: startTcp, toFlange: (tcp) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(tcp)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))), allowWristFallback: intent.singularityPolicy === 'wrist-interpolation', preserveConfiguration: intent.configurationPolicy.kind === 'current-main' })
+  const result = planCartesianPath(target, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, {
+    tcpStart: startTcp,
+    toFlange: (tcp) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(tcp)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))),
+    allowWristFallback: intent.singularityPolicy === 'wrist-interpolation',
+    preserveConfiguration: intent.configurationPolicy.kind === 'current-main',
+    requiredConfiguration: intent.configurationPolicy.kind === 'required' ? Object.values(intent.configurationPolicy.target) : undefined,
+    maxJointStepDeg: intent.configurationPolicy.kind === 'required' ? null : undefined,
+  })
   if (!result.ok) return mapPathFailure(result.failure)
   const end = result.waypoints.at(-1)
   if (!end || !configurationMatches(configurationData(end), intent.configurationPolicy)) return { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } }
   const plan = makePlan(result.waypoints, state, target, result.appliedSingularityMode ? ['orientation'] : undefined)
-  const duration = Math.max(1, Math.round(1000 * Math.max(1, result.waypoints.length) / intent.speedMmPerSec))
-  return { ...plan, waypoints: plan.waypoints.map((point, index) => ({ ...point, timeMs: Math.round(duration * index / Math.max(1, plan.waypoints.length - 1)) })) }
+  const distance = Math.hypot(...target.position.map((value, axis) => value - startTcp.position[axis]))
+  return retimeByTcpPathLength(plan, state, intent.tool, distance, intent.speedMmPerSec)
 }
 function planCircularPath(state: JointVector6, intent: CircularPathIntent): MotionPlanningResult {
   const via = targetWorldPose(intent, intent.viaTcpPose); const target = targetWorldPose(intent, intent.targetTcpPose)
@@ -282,13 +331,18 @@ function planCircularPath(state: JointVector6, intent: CircularPathIntent): Moti
   const poses = sampleArcPoses(startTcp.position, via.position, target.position, q0, q2, Math.min(64, Math.max(8, Math.ceil(distance / 4))))
   if (!poses) return { ok: false, error: { code: 'unreachable', category: 'planning-failure', details: { reason: 'degenerate-arc' } } }
   const targetFlange = poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(target)), inverseRigid(frameMatrix(intent.tool.tcpInFlange))))
-  const result = solvePoseWaypoints(poses, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, (pose) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(pose)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))), { preserveConfiguration: intent.configurationPolicy.kind === 'current-main' }, { allowWristFallback: intent.singularityPolicy === 'wrist-interpolation' })
+  const result = solvePoseWaypoints(poses, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, (pose) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(pose)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))), { preserveConfiguration: intent.configurationPolicy.kind === 'current-main' }, {
+    allowWristFallback: intent.singularityPolicy === 'wrist-interpolation',
+    requiredConfiguration: intent.configurationPolicy.kind === 'required' ? Object.values(intent.configurationPolicy.target) : undefined,
+    maxJointStepDeg: intent.configurationPolicy.kind === 'required' ? null : undefined,
+  })
   if (!result.ok) return mapPathFailure(result.failure)
   const end = result.waypoints.at(-1)
   if (!end || !configurationMatches(configurationData(end), intent.configurationPolicy)) return { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } }
   const plan = makePlan(result.waypoints, state, targetFlange)
-  const duration = Math.max(1, Math.round(1000 * Math.max(1, result.waypoints.length) / intent.speedMmPerSec))
-  return { ...plan, waypoints: plan.waypoints.map((point, index) => ({ ...point, timeMs: Math.round(duration * index / Math.max(1, plan.waypoints.length - 1)) })) }
+  const length = arcLengthMm(startTcp.position, via.position, target.position)
+  if (length === null) return { ok: false, error: { code: 'unreachable', category: 'planning-failure', details: { reason: 'degenerate-arc' } } }
+  return retimeByTcpPathLength(plan, state, intent.tool, length, intent.speedMmPerSec)
 }
 export function planMotion(request: MotionPlanningRequest): MotionPlanningResult {
   const validationError = validateRequest(request); if (validationError) return validationError
@@ -298,6 +352,5 @@ export function planMotion(request: MotionPlanningRequest): MotionPlanningResult
     case 'cartesian-target': return planCartesianTarget(request.state.jointsDeg, request.intent)
     case 'linear-path': return planLinearPath(request.state.jointsDeg, request.intent)
     case 'circular-path': return planCircularPath(request.state.jointsDeg, request.intent)
-    case 'degenerate-ik': return { ok: false, error: { code: 'unsupported-capability', category: 'unsupported-capability', details: { intent: request.intent.kind } } }
   }
 }

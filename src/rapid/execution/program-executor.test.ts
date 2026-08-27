@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createMotionRunner } from '@/robotics/motion/runner.ts'
-import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
-import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
-import { executeMoveJ } from '../planning/movej-planner.ts'
-import { executeMoveL } from '../planning/movel-planner.ts'
 import { internalQuatToRapid } from '../data/pose-transform.ts'
 import {
   createProgramExecutor,
@@ -171,6 +165,23 @@ describe('ProgramExecutor 运行与指针语义', () => {
     expect(snapshot.programPointer).toBe(0)
     expect(snapshot.motionPointer).toBeNull()
     expect(seam.calls).toEqual(['movej'])
+  })
+
+  it('底层运动执行异常进入 error，释放运行态且不推进 PP', async () => {
+    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], {
+      execute: async () => {
+        throw new Error('Runner 启动失败')
+      },
+      stop: () => undefined,
+    })
+
+    await expect(executor.run()).resolves.toBe('error')
+    expect(executor.getSnapshot()).toMatchObject({
+      state: 'error',
+      programPointer: 0,
+      motionPointer: null,
+      error: { index: 0, code: 'runtime-error', message: 'Runner 启动失败' },
+    })
   })
 
   it('规划错误保留 waypoint 与关节级诊断，供控制器日志定位', async () => {
@@ -532,115 +543,6 @@ describe('ProgramExecutor 标量变量 seam', () => {
     expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 1 })
     expect(await executor.run()).toBe('completed')
     expect(executor.getSnapshot().variables.get('count')).toEqual({ kind: 'num', value: 3 })
-  })
-})
-
-describe('ProgramExecutor 与真实规划器/手动 MotionClock 集成', () => {
-  function makeModelAndRunner(home: JointAngles = [0, 0, 0, 0, 30, 180]) {
-    const model = new AbbRobotModelAdapter()
-    const clock = new ManualMotionClock()
-    let joints: JointAngles = [...home]
-    const runner = createMotionRunner({
-      clock,
-      getCurrentJoints: () => joints,
-      setJoints: (next) => {
-        joints = [...next]
-      },
-    })
-    const seam: ProgramExecutionSeam = {
-      execute: (instruction) => {
-        if (instruction.kind === 'movej') {
-          return executeMoveJ(instruction, {
-            model,
-            currentJoints: () => joints,
-            jointRanges: ABB_JOINT_RANGES,
-            runEased: (target, durationMs) => runner.startEased(target, durationMs),
-          })
-        }
-        if (instruction.kind !== 'movel') throw new Error('此 seam 只支持 movej/movel')
-        return executeMoveL(instruction, {
-          model,
-          currentJoints: () => joints,
-          jointRanges: ABB_JOINT_RANGES,
-          runTrajectory: (waypoints, durationMs) => runner.startTrajectory(waypoints, durationMs),
-        })
-      },
-      stop: () => runner.stop(),
-    }
-    return { model, clock, joints, runner, seam }
-  }
-
-  it('真实 MoveJ → MoveL → MoveJ 按顺序完成并推进指针', async () => {
-    const start: JointAngles = [15, -20, 30, 10, 25, 30]
-    const { model, clock, joints, seam } = makeModelAndRunner(start)
-    const poseTarget = (joints: JointAngles): RobTarget => {
-      const pose = model.forwardKinematics(joints)!
-      return {
-        trans: [...pose.position],
-        rot: internalQuatToRapid(rotationMatrixToQuaternion(pose.rotation)),
-        robconf: [0, 0, 0, 0],
-        extax: [...NO_EXTERNAL_AXIS],
-      }
-    }
-    const moveJTarget = poseTarget([16, -20, 30, 10, 25, 30])
-    const moveLTarget = poseTarget([16, -19, 30, 10, 25, 30])
-    const finalMoveJTarget = poseTarget([17, -19, 30, 10, 25, 30])
-    const program: StructuredMotionInstruction[] = [
-      makeMoveJ({ target: moveJTarget }),
-      makeMoveL({ target: moveLTarget }),
-      makeMoveJ({ target: finalMoveJTarget }),
-    ]
-    const executor = createProgramExecutor(program, seam)
-
-    const runPromise = executor.run()
-    for (let index = 0; index < 400; index += 1) {
-      clock.advanceBy(100)
-      await Promise.resolve()
-    }
-    expect(await runPromise).toBe('completed')
-    expect(executor.getSnapshot().programPointer).toBe(3)
-    expect(executor.getSnapshot().motionPointer).toBeNull()
-    void joints
-  })
-
-  it('真实 MoveJ 运动中停止：关节停在当前位置、指针不推进、后续不执行', async () => {
-    const { clock, joints, seam } = makeModelAndRunner()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
-
-    const runPromise = executor.run()
-    await Promise.resolve()
-    clock.advanceBy(400)
-    const stoppedAt = [...joints]
-    executor.stop()
-
-    // 停止后不再推进剩余轨迹；旧程序不会继续推进到下一条指令。
-    clock.advanceBy(5000)
-    expect(joints).toEqual(stoppedAt)
-    expect(await runPromise).toBe('stopped')
-    expect(executor.getSnapshot().state).toBe('stopped')
-    expect(executor.getSnapshot().programPointer).toBe(0)
-    expect(executor.getSnapshot().motionPointer).toBeNull()
-  })
-
-  it('真实停止后单步从当前位置完成一条运动并停在等待下一步', async () => {
-    const { clock, joints, seam } = makeModelAndRunner()
-    const executor = createProgramExecutor([makeMoveJ(), makeMoveL()], seam)
-
-    const runPromise = executor.run()
-    await Promise.resolve()
-    clock.advanceBy(300)
-    executor.stop()
-    await runPromise
-    expect(executor.getSnapshot().state).toBe('stopped')
-
-    const stepPromise = executor.step()
-    for (let index = 0; index < 400; index += 1) {
-      clock.advanceBy(100)
-      await Promise.resolve()
-    }
-    expect(await stepPromise).toBe('stopped')
-    expect(executor.getSnapshot().programPointer).toBe(1)
-    void joints
   })
 })
 

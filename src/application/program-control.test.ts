@@ -7,6 +7,9 @@ import {
   type MotionResult,
   type MotionRunner,
 } from '@/robotics/motion/runner.ts'
+import { planMotion, type MotionPlanningRequest } from '@/robot-motion-core/index.ts'
+import { mapCoreFailure } from '@/rapid/planning/core-motion.ts'
+import type { InstructionOutcome } from '@/rapid/execution/index.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
 import type { JointAngles } from '@/robotics/model/index.ts'
 import { isRapidMotionInstruction } from '@/rapid/language/index.ts'
@@ -33,13 +36,23 @@ function makeMotion() {
   let resolveEased: ((r: MotionResult) => void) | null = null
   const calls = { stop: 0, eased: 0 }
   const motion: ProgramControllerMotion = {
-    startEasedAnimation: () => {
-      calls.eased += 1
-      return new Promise<MotionResult>((resolve) => {
-        resolveEased = resolve
-      })
+    submitMotion: (request: MotionPlanningRequest, playback): Promise<InstructionOutcome> => {
+      const planned = planMotion(request)
+      if (!planned.ok) {
+        const error = mapCoreFailure(planned)
+        return Promise.resolve({
+          ok: false,
+          error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' },
+        })
+      }
+      if (playback === 'eased') {
+        calls.eased += 1
+        return new Promise<InstructionOutcome>((resolve) => {
+          resolveEased = (result) => resolve({ ok: true, result })
+        })
+      }
+      return new Promise<InstructionOutcome>(() => {})
     },
-    startCartesianTrajectory: () => new Promise<MotionResult>(() => {}),
     stopAnimation: () => {
       calls.stop += 1
       // 与真实 MotionRunner 一致：停止结算当前活动运动为 stopped，让执行链推进。
@@ -52,6 +65,28 @@ function makeMotion() {
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 describe('program-control adapter', () => {
+  it('启动前拒绝整段程序中的 fly-by，不启动任何运动', async () => {
+    const { motion, calls } = makeMotion()
+    const source = ref(MOVEJ_SOURCE.replace('fine', 'z50'))
+    const ctrl = useProgramController({
+      source,
+      profile: ABB_IRB1200_PROFILE,
+      joints: ref<JointAngles>([...MOVEJ_START_JOINTS]),
+      motion,
+    })
+
+    ctrl.run()
+    await flush()
+
+    expect(ctrl.snapshot.value.state).toBe('error')
+    expect(ctrl.snapshot.value.error).toEqual(expect.objectContaining({
+      index: 0,
+      code: 'unsupported-option',
+      sourceRange: expect.any(Object),
+    }))
+    expect(calls.eased).toBe(0)
+  })
+
   it('ProgramController 暴露 run/step/stop/ppToMain，且关键命令输出 [ABB-PROGRAM] 日志', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -156,9 +191,18 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
       },
     })
     const motion: ProgramControllerMotion = {
-      startEasedAnimation: (target, duration) => runner.startEased(target, duration),
-      startCartesianTrajectory: (waypoints, duration) =>
-        runner.startTrajectory(waypoints, duration),
+      submitMotion: async (request, playback) => {
+        const planned = planMotion(request)
+        if (!planned.ok) {
+          const error = mapCoreFailure(planned)
+          return { ok: false, error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' } }
+        }
+        const waypoints = planned.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles)
+        const result = playback === 'eased'
+          ? await runner.startEased([...planned.end.jointsDeg] as JointAngles, planned.waypoints.at(-1)?.timeMs)
+          : await runner.startTrajectory(waypoints, planned.waypoints.at(-1)?.timeMs)
+        return { ok: true, result }
+      },
       stopAnimation: () => runner.stop(),
     }
     const ctrl = useProgramController({
@@ -664,9 +708,18 @@ describe('off-path Clear 全程单一 MotionRunner 集成', () => {
       },
     })
     const motion: ProgramControllerMotion = {
-      startEasedAnimation: (target, duration) => runner.startEased(target, duration),
-      startCartesianTrajectory: (waypoints, duration) =>
-        runner.startTrajectory(waypoints, duration),
+      submitMotion: async (request, playback) => {
+        const planned = planMotion(request)
+        if (!planned.ok) {
+          const error = mapCoreFailure(planned)
+          return { ok: false, error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' } }
+        }
+        const waypoints = planned.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles)
+        const result = playback === 'eased'
+          ? await runner.startEased([...planned.end.jointsDeg] as JointAngles, planned.waypoints.at(-1)?.timeMs)
+          : await runner.startTrajectory(waypoints, planned.waypoints.at(-1)?.timeMs)
+        return { ok: true, result }
+      },
       stopAnimation: () => runner.stop(),
     }
     const ctrl = useProgramController({

@@ -17,10 +17,9 @@ export type {
   QuaternionWxyz,
   JointVector6,
   ConfigurationPolicy,
-  DegenerateIkIntent,
   RigidFrameData,
   SingularityPolicy,
   ToolData,
   WorkObjectData,
 } from './planner.ts'
-export { ABB_IRB1200_MODEL_REVISION, createCartesianTargetRequest, fromPose, planMotion, targetFlangePose } from './planner.ts'
+export { ABB_IRB1200_MODEL_ID, ABB_IRB1200_MODEL_REVISION, planMotion } from './planner.ts'

@@ -2,8 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationDistanceRad } from '../math/rotation3d.ts'
 import { createMotionRunner, type MotionClock } from '../motion/runner.ts'
-import { planCartesianTarget } from './index.ts'
+import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
+import type { RobotProfile } from '../model/robot-profile.ts'
 import type { JointAngles, Pose } from '../model/index.ts'
+
+const planCartesianTarget = (
+  target: Pose,
+  joints: JointAngles,
+  profile: RobotProfile,
+  options?: Parameters<typeof planCartesianPath>[4],
+) => planCartesianPath(target, joints, profile.model, profile.jointRanges, options)
 
 class ManualMotionClock implements MotionClock {
   private currentTime = 0

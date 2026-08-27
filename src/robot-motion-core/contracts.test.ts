@@ -71,12 +71,15 @@ describe('robot motion core contract', () => {
           quaternionWxyz: [1, 0, 0, 0],
         },
         constraint: 'numerical-only',
-      },
+      } as unknown as MotionPlanningRequest['intent'],
     })
 
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.error.code).toBe('unsupported-capability')
-    expect(result.error.category).toBe('unsupported-capability')
+    expect(result.error).toEqual({
+      code: 'invalid-request',
+      category: 'invalid-request',
+      details: { field: 'intent.kind', reason: 'unsupported-intent' },
+    })
   })
 })
