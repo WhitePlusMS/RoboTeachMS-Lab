@@ -481,4 +481,75 @@ describe('MotionCoordinator', () => {
     })).resolves.toEqual({ ok: false, reason: 'cancelled' })
     expect(planSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('目标暂时不可达（unreachable/joint-limit 等）不会关闭连续会话——拖出再拖回可恢复', async () => {
+    let unreachable = true
+    const planSpy = vi.fn(() =>
+      unreachable
+        ? {
+            ok: false as const,
+            error: { code: 'unreachable' as const, category: 'planning-failure' as const, details: {} },
+          }
+        : plan,
+    )
+    const coordinator = createMotionCoordinator({
+      plan: planSpy,
+      runImmediate: vi.fn(),
+      runEased: async () => 'completed',
+      runTrajectory: async () => 'completed',
+      appendTrajectory: async () => 'completed',
+      runSpeedLimited: async () => 'completed',
+      stopRunner: vi.fn(),
+    })
+
+    await coordinator.submit({ kind: 'continuous-begin', source: 'gizmo' })
+    // 第一个 tick：目标在工作空间外，规划失败，但会话不应关闭。
+    await expect(coordinator.submit({
+      kind: 'continuous-update',
+      source: 'gizmo',
+      request,
+      playback: 'stream',
+    })).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
+
+    unreachable = false
+    // 第二个 tick：拖回工作空间内，同一会话应能继续规划并成功，不需要重新 continuous-begin。
+    await expect(coordinator.submit({
+      kind: 'continuous-update',
+      source: 'gizmo',
+      request,
+      playback: 'stream',
+    })).resolves.toMatchObject({ ok: true, result: 'completed' })
+    expect(planSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('硬错误（invalid-request/unsupported-model 等）仍会关闭连续会话', async () => {
+    const planSpy = vi.fn(() => ({
+      ok: false as const,
+      error: { code: 'unsupported-model' as const, category: 'unsupported-model' as const, details: {} },
+    }))
+    const coordinator = createMotionCoordinator({
+      plan: planSpy,
+      runImmediate: vi.fn(),
+      runEased: async () => 'completed',
+      runTrajectory: async () => 'completed',
+      appendTrajectory: async () => 'completed',
+      runSpeedLimited: async () => 'completed',
+      stopRunner: vi.fn(),
+    })
+
+    await coordinator.submit({ kind: 'continuous-begin', source: 'gizmo' })
+    await expect(coordinator.submit({
+      kind: 'continuous-update',
+      source: 'gizmo',
+      request,
+      playback: 'stream',
+    })).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
+    await expect(coordinator.submit({
+      kind: 'continuous-update',
+      source: 'gizmo',
+      request,
+      playback: 'stream',
+    })).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    expect(planSpy).toHaveBeenCalledTimes(1)
+  })
 })

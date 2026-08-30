@@ -8,6 +8,22 @@ import type { MotionResult } from '@/robot-geometry/motion/runner.ts'
 
 export type MotionSource = 'manual-joint' | 'manual-cartesian' | 'gizmo' | 'rapid'
 export type ContinuousMotionSource = Exclude<MotionSource, 'rapid'>
+/**
+ * 连续会话内，规划失败后是否终止整次会话（拖到再拖回需要松开重按）。
+ * 只有请求构造本身有问题或规划器基础设施故障（无 result，如 Worker 异常）才终止；
+ * "目标暂时不可达"（unreachable/joint-limit/wrist-singularity/path-discontinuity/
+ * configuration-unreachable）是交互式拖拽/点动中随姿态变化自然出现、自然消失的边界状态，
+ * 只应跳过当前 tick，不终止会话——否则拖出工作空间再拖回来，机械臂会永久停摆。
+ */
+function isFatalContinuousFailure(outcome: MotionCommandOutcome): boolean {
+  if (outcome.ok) return false
+  if (!outcome.result || outcome.result.ok) return true
+  return (
+    outcome.result.error.code === 'invalid-request' ||
+    outcome.result.error.code === 'unsupported-capability' ||
+    outcome.result.error.code === 'unsupported-model'
+  )
+}
 export type MotionSubmissionMode = 'immediate' | 'eased' | 'trajectory' | 'stream' | 'speed-limited'
 export type MotionStopReason = 'user' | 'superseded' | 'program-start' | 'dispose'
 
@@ -424,7 +440,8 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
       }
     } catch {
       // 连续手动输入没有 ProgramExecutor 边界；把 Runner 异常结算为本次更新失败，
-      // 避免 UI 的 fire-and-forget tick 形成未处理 Promise rejection。
+      // 避免 UI 的 fire-and-forget tick 形成未处理 Promise rejection。规划器/Runner
+      // 直接抛异常属于基础设施故障（无 result），恒为硬错误，必须终止会话。
       entry.resolve({ ok: false, reason: 'planning-failure' })
       if (continuousSession === entry.command.source) {
         continuousSession = null
