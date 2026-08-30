@@ -22,7 +22,7 @@ import type {
   ZoneData,
   LoadData,
 } from '@/rapid/data/index.ts'
-import type { JointAngles, Pose } from '@/robotics/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
 
 interface Props {
   /** 完整 Program Data 联合（六类运动数据、num/bool 标量与系统预定义项）。 */

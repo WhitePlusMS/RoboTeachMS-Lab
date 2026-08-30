@@ -5,7 +5,7 @@ import {
   randomJointAngles,
   setJointAngle,
 } from './joint-control.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/parameters.ts'
 
 describe('关节控制状态', () => {

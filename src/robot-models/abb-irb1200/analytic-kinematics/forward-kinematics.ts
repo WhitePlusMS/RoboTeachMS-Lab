@@ -1,6 +1,6 @@
-import { Matrix4x4 } from '@/robotics/kinematics/transform-matrix.ts'
-import type { JointAngles } from '@/robotics/model/joint-pose.ts'
-import type { RobotConfig } from '@/robotics/kinematics/dh-types.ts'
+import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
+import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
+import type { RobotConfig } from '@/robot-geometry/transform/dh-types.ts'
 import { ABB_IRB1200_5_90_STANDARD_DH } from '../parameters.ts'
 
 /**

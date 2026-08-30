@@ -1,6 +1,6 @@
-import type { SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
-import type { JointAngles } from '@/robotics/model/joint-pose.ts'
-import type { RobotConfig } from '@/robotics/kinematics/dh-types.ts'
+import type { SixAxisJointRanges } from '@/robot-geometry/model/robot-profile.ts'
+import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
+import type { RobotConfig } from '@/robot-geometry/transform/dh-types.ts'
 
 /**
  * ABB 经典 IRB 1200-5/0.9 候选标准 DH profile。

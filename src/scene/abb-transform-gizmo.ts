@@ -1,11 +1,11 @@
 import * as THREE from 'three'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Pose } from '@/robotics/model/index.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 import {
   abbPoseToSceneTransform,
   sceneTransformToAbbPose,
-} from '@/robotics/math/scene-pose-transform.ts'
+} from '@/robot-geometry/math/scene-pose-transform.ts'
 import { findNode } from './scene-factory.ts'
 
 export type TransformGizmoMode = 'translate' | 'rotate'

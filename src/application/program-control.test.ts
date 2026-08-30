@@ -6,12 +6,12 @@ import {
   createMotionRunner,
   type MotionResult,
   type MotionRunner,
-} from '@/robotics/motion/runner.ts'
+} from '@/robot-geometry/motion/runner.ts'
 import { planMotion, type MotionPlanningRequest } from '@/robot-motion-core/index.ts'
 import { mapCoreFailure } from '@/rapid/planning/core-motion.ts'
 import type { InstructionOutcome } from '@/rapid/execution/index.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { isRapidMotionInstruction } from '@/rapid/language/index.ts'
 import { createBuiltinRapidSource } from './builtin-program.ts'
 import { useProgramController, type ProgramControllerMotion } from './program-control.ts'

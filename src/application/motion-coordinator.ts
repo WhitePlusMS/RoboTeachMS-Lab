@@ -3,8 +3,8 @@ import type {
   MotionPlanningResult,
   MotionPlanWaypoint,
 } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
-import type { MotionResult } from '@/robotics/motion/runner.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { MotionResult } from '@/robot-geometry/motion/runner.ts'
 
 export type MotionSource = 'manual-joint' | 'manual-cartesian' | 'gizmo' | 'rapid'
 export type ContinuousMotionSource = Exclude<MotionSource, 'rapid'>

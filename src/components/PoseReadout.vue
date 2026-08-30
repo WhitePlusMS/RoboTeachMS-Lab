@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { Axis3d, Copy, Rotate3d, SlidersHorizontal } from '@lucide/vue'
-import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
 import { injectRobotController } from '@/application/use-robot-controller.ts'
-import { eulerZYXToMatrix } from '@/robotics/kinematics/transform-matrix.ts'
-import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
+import { eulerZYXToMatrix } from '@/robot-geometry/transform/transform-matrix.ts'
+import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
 
 interface Props {
   /** 独立挂载（测试）时直接传入；真实应用里优先使用共享机器人控制器的 pose。 */

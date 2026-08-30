@@ -2,10 +2,10 @@ import {
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
   rotationMatrixToQuaternion,
-} from '@/robotics/math/rotation3d.ts'
-import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
-import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
+} from '@/robot-geometry/math/rotation3d.ts'
+import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robot-geometry/numerical-ik/types.ts'
 import { solvePoseWaypoints } from './solution/waypoint-solver.ts'
 import type {
   WaypointFailureDiagnostic,

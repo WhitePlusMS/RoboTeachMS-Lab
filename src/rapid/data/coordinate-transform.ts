@@ -1,10 +1,10 @@
-import { Matrix4x4 } from '@/robotics/kinematics/transform-matrix.ts'
+import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
 import {
   mat3Transpose,
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
-} from '@/robotics/math/rotation3d.ts'
-import type { Pose } from '@/robotics/model/index.ts'
+} from '@/robot-geometry/math/rotation3d.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidPose, RobTarget, ToolData, WobjData } from './index.ts'
 import { rapidQuatToInternal } from './pose-transform.ts'
 

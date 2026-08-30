@@ -1,10 +1,10 @@
-import { Matrix4x4 } from '@/robotics/kinematics/transform-matrix.ts'
+import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
 import {
   mat3Mul,
   quaternionToRotationMatrix,
   rotationMatrixToQuaternion,
-} from '@/robotics/math/rotation3d.ts'
-import { degToRad } from '@/robotics/math/angle.ts'
+} from '@/robot-geometry/math/rotation3d.ts'
+import { degToRad } from '@/robot-geometry/math/angle.ts'
 import type { RobTarget } from './index.ts'
 import { internalQuatToRapid, rapidQuatToInternal } from './pose-transform.ts'
 

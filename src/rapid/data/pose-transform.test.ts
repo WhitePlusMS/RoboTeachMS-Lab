@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
+import { quaternionToRotationMatrix } from '@/robot-geometry/math/rotation3d.ts'
 import { rapidQuatToInternal } from './pose-transform.ts'
 import {
   defaultTool0,

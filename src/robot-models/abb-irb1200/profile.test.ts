@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { RobotProfile } from '@/robotics/model/robot-profile.ts'
-import { AbbRobotModelAdapter } from './kinematics/abb-robot-model-adapter.ts'
+import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
+import { AbbRobotModelAdapter } from './analytic-kinematics/abb-robot-model-adapter.ts'
 import { ABB_IRB1200_PROFILE } from './profile.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,

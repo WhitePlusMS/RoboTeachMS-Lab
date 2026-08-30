@@ -7,7 +7,7 @@ import {
   type RapidExecutableInstruction,
   type RapidProgramData,
 } from '@/rapid/language/index.ts'
-import type { Pose } from '@/robotics/model/index.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 

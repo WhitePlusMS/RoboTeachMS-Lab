@@ -1,5 +1,5 @@
 import type { MotionPlanningRequest } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { abbConfigurationFromJoints } from '@/robot-models/abb-irb1200/index.ts'
 import type { RapidMotionInstruction, RapidSourceRange } from '@/rapid/language/index.ts'
 import type { SingAreaMode } from '../data/index.ts'

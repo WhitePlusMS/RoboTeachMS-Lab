@@ -12,11 +12,11 @@ import type {
   ToolData as CoreToolData,
   WorkObjectData,
 } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import type { ConfigurationMonitoringMode } from '../data/index.ts'
 import type { RobTarget, ToolData, WobjData } from '../data/index.ts'
-import { quaternionToRotationMatrix, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
-import type { Pose } from '@/robotics/model/index.ts'
+import { quaternionToRotationMatrix, rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 
 export function poseDataFromRapidPose(pose: { trans: readonly [number, number, number]; rot: readonly [number, number, number, number] }): PoseData {
   return { positionMm: [...pose.trans] as PoseData['positionMm'], quaternionWxyz: [...pose.rot] as PoseData['quaternionWxyz'] }

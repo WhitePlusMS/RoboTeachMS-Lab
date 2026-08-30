@@ -1,5 +1,5 @@
-import type { JointAngles } from '@/robotics/model/joint-pose.ts'
-import type { RobotConfig } from '@/robotics/kinematics/dh-types.ts'
+import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
+import type { RobotConfig } from '@/robot-geometry/transform/dh-types.ts'
 
 /** KUKA-like 六轴模型的 DH 配置，长度单位毫米，控制角度单位度。 */
 export const KUKA_LIKE: RobotConfig = {

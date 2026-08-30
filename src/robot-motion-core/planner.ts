@@ -2,8 +2,8 @@ import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { planCartesianPath } from './internal/cartesian/path-planner.ts'
 import { solvePoseWaypoints } from './internal/cartesian/solution/waypoint-solver.ts'
 import { arcLengthMm, sampleArcPoses } from './arc-geometry.ts'
-import type { JointAngles, Pose } from '@/robotics/model/index.ts'
-import { quaternionToRotationMatrix, rotationDistanceRad, rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import { quaternionToRotationMatrix, rotationDistanceRad, rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
 
 export const ABB_IRB1200_MODEL_ID = ABB_IRB1200_PROFILE.id
 export const ABB_IRB1200_MODEL_REVISION = 'dh-standard-v1'

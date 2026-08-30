@@ -4,7 +4,7 @@ import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/language/in
 import { planMotion } from '@/robot-motion-core/index.ts'
 import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 
 describe('RAPID 预设程序库', () => {
   it('提供 6 个取自测试用例文档的可运行示例模板', () => {

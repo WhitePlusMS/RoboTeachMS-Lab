@@ -5,7 +5,7 @@ import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/language/index.ts'
 import type { EditorView } from '@codemirror/view'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
-import type { Pose } from '@/robotics/model/index.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 /** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */

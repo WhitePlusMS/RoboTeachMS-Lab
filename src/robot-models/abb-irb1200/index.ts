@@ -8,18 +8,18 @@ export {
   ABB_WRIST_SINGULARITY_THRESHOLD_DEG,
   ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG,
 } from './parameters.ts'
-export { AbbRobotModelAdapter } from './kinematics/abb-robot-model-adapter.ts'
+export { AbbRobotModelAdapter } from './analytic-kinematics/abb-robot-model-adapter.ts'
 export {
   ABB_FLANGE_CORRECTION,
   forwardAbbKinematics,
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFrames,
   forwardAbbKinematicsFramesDegrees,
-} from './kinematics/forward-kinematics.ts'
-export { abbConfigurationFromJoints, solveAbbAnalyticIK } from './kinematics/analytic-inverse-kinematics.ts'
+} from './analytic-kinematics/forward-kinematics.ts'
+export { abbConfigurationFromJoints, solveAbbAnalyticIK } from './analytic-kinematics/analytic-inverse-kinematics.ts'
 export {
   abbConfigurationForRepresentation,
   abbConfigurationFromBranch,
   abbQuadrant,
-} from './kinematics/configuration.ts'
-export type { ABBConfiguration } from './kinematics/configuration.ts'
+} from './analytic-kinematics/configuration.ts'
+export type { ABBConfiguration } from './analytic-kinematics/configuration.ts'

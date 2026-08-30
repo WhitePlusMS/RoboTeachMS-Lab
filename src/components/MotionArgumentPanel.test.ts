@@ -5,7 +5,7 @@ import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/language/index.ts'
 import type { EditorView } from '@codemirror/view'
 import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
-import type { Pose } from '@/robotics/model/index.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 const SOURCE = `MODULE Demo

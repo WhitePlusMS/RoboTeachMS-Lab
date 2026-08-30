@@ -1,4 +1,4 @@
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import type { MotionPlanningRequest } from '@/robot-motion-core/index.ts'
 import type { InstructionOutcome } from './program-executor.ts'
 import type { RapidMotionInstruction } from '../language/index.ts'

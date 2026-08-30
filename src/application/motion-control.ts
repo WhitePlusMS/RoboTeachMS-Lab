@@ -4,9 +4,9 @@ import {
   type MotionClock,
   type MotionResult,
   type MotionStatus,
-} from '@/robotics/motion/runner.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
-import type { MotionConfig } from '@/robotics/motion/types.ts'
+} from '@/robot-geometry/motion/runner.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { MotionConfig } from '@/robot-geometry/motion/types.ts'
 
 export interface MotionControlOptions {
   getCurrentJoints: () => JointAngles

@@ -6,9 +6,9 @@ import type {
   RapidMotionInsertionPoint,
   RapidProgramData,
 } from '@/rapid/language/index.ts'
-import type { Pose } from '@/robotics/model/index.ts'
+import type { Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 
 /**
  * 只读 ref：面板只读展示控制器提供的状态切片，因此只要求可读的 .value。

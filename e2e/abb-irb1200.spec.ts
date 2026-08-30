@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import { extractPose } from '@/robotics/kinematics'
-import type { JointAngles } from '@/robotics/types'
+import { extractPose } from '@/robot-geometry/transform'
+import type { JointAngles } from '@/robot-geometry/types'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { forwardAbbKinematicsFramesDegrees } from '@/robot-models/abb-irb1200/index.ts'
 import { abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
 import { abbScene } from '@/theme/scene.ts'

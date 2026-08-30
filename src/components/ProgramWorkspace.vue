@@ -16,7 +16,7 @@ import type {
   RapidProgramData,
   RapidSourceRange,
 } from '@/rapid/language/index.ts'
-import type { JointAngles, Pose } from '@/robotics/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
 import {
   injectProgramPanelController,

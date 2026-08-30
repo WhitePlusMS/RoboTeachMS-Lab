@@ -5,8 +5,8 @@ import {
   type PoseData,
   type JointVector6,
 } from '@/robot-motion-core/index.ts'
-import type { JointAngles, Pose } from '@/robotics/model/index.ts'
-import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
 
 const IDENTITY_FRAME: PoseData = {
   positionMm: [0, 0, 0],

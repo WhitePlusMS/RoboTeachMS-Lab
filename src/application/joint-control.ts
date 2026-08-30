@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
-import { radToDeg } from '@/robotics/math/angle.ts'
-import type { JointRange, RobotProfile } from '@/robotics/model/robot-profile.ts'
-import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
+import { radToDeg } from '@/robot-geometry/math/angle.ts'
+import type { JointRange, RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
 import { KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/parameters.ts'
 
 export const JOINT_STEPS = [0.1, 1, 5, 10] as const

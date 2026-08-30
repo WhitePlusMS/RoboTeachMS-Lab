@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { poseFromJoints } from '@/robot-models/kuka-like/kinematics/legacy-forward-kinematics.ts'
-import { radToDeg } from '@/robotics/math/angle.ts'
+import { radToDeg } from '@/robot-geometry/math/angle.ts'
 import {
   applyCartesianDelta,
   useCartesianControl,
@@ -9,13 +9,13 @@ import {
   type CartesianPathResult,
 } from './cartesian-control.ts'
 import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
-import type { JointAngles, PoseDisplay } from '@/robotics/model/index.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
 import type { MotionCommandOutcome } from './motion-coordinator.ts'
 import { createCartesianTargetRequest } from './motion-requests.ts'
-import { quaternionToRotationMatrix } from '@/robotics/math/rotation3d.ts'
+import { quaternionToRotationMatrix } from '@/robot-geometry/math/rotation3d.ts'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import type { RobotProfile, SixAxisJointRanges } from '@/robotics/model/robot-profile.ts'
+import type { RobotProfile, SixAxisJointRanges } from '@/robot-geometry/model/robot-profile.ts'
 import {
   KUKA_JOINT_RANGES,
   KUKA_LIKE,

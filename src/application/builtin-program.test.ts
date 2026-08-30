@@ -5,9 +5,9 @@ import { planMotion } from '@/robot-motion-core/index.ts'
 import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
 import { isDefaultTool0, isDefaultWobj0 } from '@/rapid/data/index.ts'
 import { robTargetToPose } from '@/rapid/data/pose-transform.ts'
-import { orientationError } from '@/robotics/math/rotation3d.ts'
-import { DEFAULT_IK_CONFIG } from '@/robotics/inverse-kinematics/numerical-ik.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import { orientationError } from '@/robot-geometry/math/rotation3d.ts'
+import { DEFAULT_IK_CONFIG } from '@/robot-geometry/numerical-ik/numerical-ik.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/language/index.ts'
 
 /** 相邻 waypoint 构型跳变上限（度），由 Cartesian 候选图统一定义。 */

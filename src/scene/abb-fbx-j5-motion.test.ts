@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { forwardAbbKinematicsFramesDegrees } from '@/robot-models/abb-irb1200/index.ts'
-import type { JointAngles } from '@/robotics/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
 import {
   ABB_ACTIVE_JOINT_NODE_NAMES,
