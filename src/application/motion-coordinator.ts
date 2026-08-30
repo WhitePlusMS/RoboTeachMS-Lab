@@ -50,8 +50,15 @@ export type MotionCommandOutcome =
     }
 
 export interface MotionCoordinatorOptions {
+  /**
+   * source 透传给调用方，便于按来源选择规划 transport：
+   * gizmo/manual-cartesian 走主线程同步直调（复刻旧版本 5391fad 的低延迟路径），
+   * 其余来源（RAPID、关节 Jog）继续走 Worker，行为不变。Coordinator 自身始终 `await`
+   * 返回值，不区分同步/异步，保持排队状态机的微任务时序不变。
+   */
   readonly plan: (
     request: MotionPlanningRequest,
+    source: MotionSource,
   ) => MotionPlanningResult | Promise<MotionPlanningResult | null> | null
   readonly runEased: (target: JointAngles, durationMs?: number) => Promise<MotionResult>
   /** 由 Coordinator 统一承接需要同步反映到面板的已验证关节目标。 */
@@ -329,7 +336,7 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
     })
     let planned: MotionPlanningResult | null
     try {
-      planned = await options.plan(command.request)
+      planned = await options.plan(command.request, command.source)
     } catch (error) {
       if (disposed) return { ok: false, reason: 'stale' }
       if (currentVersion !== version) return invalidatedOutcome(currentVersion)

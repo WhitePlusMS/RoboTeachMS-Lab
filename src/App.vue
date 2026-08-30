@@ -221,13 +221,7 @@ function solveGizmoTarget(pose: Pose): boolean {
     kind: 'continuous-update',
     source: 'gizmo',
     request,
-    playback: 'stream',
-    durationMs: 140,
-  }).then((outcome) => {
-    if (!outcome.ok && outcome.reason === 'planning-failure' && outcome.result && !outcome.result.ok) {
-      gizmoDragUnreachable.value = true
-      gizmoDragError.value = presentMotionError(outcome.result.error)
-    }
+    playback: 'immediate',
   })
   return true
 }
