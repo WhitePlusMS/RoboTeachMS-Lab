@@ -216,6 +216,27 @@ function configurationMatches(configuration: ABBConfigurationData | undefined, p
   const expected = policy.kind === 'required' ? policy.target : policy.kind === 'current-main' ? policy.currentMain : undefined
   return expected === undefined || Boolean(configuration && configuration.cf1 === expected.cf1 && configuration.cf4 === expected.cf4 && configuration.cf6 === expected.cf6 && configuration.cfx === expected.cfx)
 }
+/**
+ * 构型策略（configurationPolicy）从运动意图翻译成底层求解选项；三个笛卡尔规划入口共用同一份派生，
+ * 避免新增运动意图类型时遗漏某一处（对应 b9f3b47 修复过的这一类隐藏规则遗漏风险）。
+ */
+function deriveConfigurationOptions(policy: ConfigurationPolicy): {
+  readonly preserveConfiguration: boolean
+  readonly requiredConfiguration: readonly number[] | undefined
+  readonly maxJointStepDeg: null | undefined
+} {
+  return {
+    preserveConfiguration: policy.kind === 'current-main',
+    requiredConfiguration: policy.kind === 'required' ? Object.values(policy.target) : undefined,
+    maxJointStepDeg: policy.kind === 'required' ? null : undefined,
+  }
+}
+/** 规划得到的终点关节必须仍满足入参的构型策略；否则即使 IK/步长都通过，也判定为构型不可达。 */
+function verifyConfigurationReached(end: JointAngles | undefined, policy: ConfigurationPolicy): MotionPlanningResultError | null {
+  return !end || !configurationMatches(configurationData(end), policy)
+    ? { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: policy.kind } } }
+    : null
+}
 function mapPathFailure(failure: string): MotionPlanningResultError {
   const code: MotionErrorCode = failure === 'joint-limit' ? 'joint-limit' : failure === 'joint-step' || failure === 'wrist-reconfiguration' ? 'path-discontinuity' : failure === 'wrist-singularity' ? 'wrist-singularity' : 'unreachable'
   return { ok: false, error: { code, category: 'planning-failure', details: { failure } } }
@@ -286,13 +307,12 @@ function planCartesianTarget(state: JointVector6, intent: CartesianTargetIntent)
   const target = targetFlangePose(intent, intent.targetTcpPose)
   const result = planCartesianPath(target, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, {
     allowWristFallback: intent.singularityPolicy === 'wrist-interpolation',
-    preserveConfiguration: intent.configurationPolicy.kind === 'current-main',
-    requiredConfiguration: intent.configurationPolicy.kind === 'required' ? Object.values(intent.configurationPolicy.target) : undefined,
-    maxJointStepDeg: intent.configurationPolicy.kind === 'required' ? null : undefined,
+    ...deriveConfigurationOptions(intent.configurationPolicy),
   })
   if (!result.ok) return mapPathFailure(result.failure)
   const end = result.waypoints.at(-1)
-  if (!end || !configurationMatches(configurationData(end), intent.configurationPolicy)) return { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } }
+  const configurationError = verifyConfigurationReached(end, intent.configurationPolicy)
+  if (configurationError) return configurationError
   const plan = makePlan(result.waypoints, state, target, result.appliedSingularityMode ? ['orientation'] : undefined)
   if (intent.speedMmPerSec === undefined) return plan
   const targetWorld = targetWorldPose(intent, intent.targetTcpPose)
@@ -309,13 +329,12 @@ function planLinearPath(state: JointVector6, intent: LinearPathIntent): MotionPl
     tcpStart: startTcp,
     toFlange: (tcp) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(tcp)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))),
     allowWristFallback: intent.singularityPolicy === 'wrist-interpolation',
-    preserveConfiguration: intent.configurationPolicy.kind === 'current-main',
-    requiredConfiguration: intent.configurationPolicy.kind === 'required' ? Object.values(intent.configurationPolicy.target) : undefined,
-    maxJointStepDeg: intent.configurationPolicy.kind === 'required' ? null : undefined,
+    ...deriveConfigurationOptions(intent.configurationPolicy),
   })
   if (!result.ok) return mapPathFailure(result.failure)
   const end = result.waypoints.at(-1)
-  if (!end || !configurationMatches(configurationData(end), intent.configurationPolicy)) return { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } }
+  const configurationError = verifyConfigurationReached(end, intent.configurationPolicy)
+  if (configurationError) return configurationError
   const plan = makePlan(result.waypoints, state, target, result.appliedSingularityMode ? ['orientation'] : undefined)
   const distance = Math.hypot(...target.position.map((value, axis) => value - startTcp.position[axis]))
   return retimeByTcpPathLength(plan, state, intent.tool, distance, intent.speedMmPerSec)
@@ -331,14 +350,16 @@ function planCircularPath(state: JointVector6, intent: CircularPathIntent): Moti
   const poses = sampleArcPoses(startTcp.position, via.position, target.position, q0, q2, Math.min(64, Math.max(8, Math.ceil(distance / 4))))
   if (!poses) return { ok: false, error: { code: 'unreachable', category: 'planning-failure', details: { reason: 'degenerate-arc' } } }
   const targetFlange = poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(target)), inverseRigid(frameMatrix(intent.tool.tcpInFlange))))
-  const result = solvePoseWaypoints(poses, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, (pose) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(pose)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))), { preserveConfiguration: intent.configurationPolicy.kind === 'current-main' }, {
+  const { preserveConfiguration, requiredConfiguration, maxJointStepDeg } = deriveConfigurationOptions(intent.configurationPolicy)
+  const result = solvePoseWaypoints(poses, state as JointAngles, ABB_IRB1200_PROFILE.model, ABB_IRB1200_PROFILE.jointRanges, (pose) => poseFromMatrix(multiplyRigid(frameMatrix(poseToFrameData(pose)), inverseRigid(frameMatrix(intent.tool.tcpInFlange)))), { preserveConfiguration }, {
     allowWristFallback: intent.singularityPolicy === 'wrist-interpolation',
-    requiredConfiguration: intent.configurationPolicy.kind === 'required' ? Object.values(intent.configurationPolicy.target) : undefined,
-    maxJointStepDeg: intent.configurationPolicy.kind === 'required' ? null : undefined,
+    requiredConfiguration,
+    maxJointStepDeg,
   })
   if (!result.ok) return mapPathFailure(result.failure)
   const end = result.waypoints.at(-1)
-  if (!end || !configurationMatches(configurationData(end), intent.configurationPolicy)) return { ok: false, error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: intent.configurationPolicy.kind } } }
+  const configurationError = verifyConfigurationReached(end, intent.configurationPolicy)
+  if (configurationError) return configurationError
   const plan = makePlan(result.waypoints, state, targetFlange)
   const length = arcLengthMm(startTcp.position, via.position, target.position)
   if (length === null) return { ok: false, error: { code: 'unreachable', category: 'planning-failure', details: { reason: 'degenerate-arc' } } }
