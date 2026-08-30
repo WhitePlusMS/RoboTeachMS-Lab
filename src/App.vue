@@ -217,6 +217,19 @@ const gizmoDragError = ref<HostMotionErrorPresentation | null>(null)
 
 function solveGizmoTarget(pose: Pose): boolean {
   const request = createCartesianTargetRequest(pose, [...joints.value] as JointAngles)
+  // TransformControls 的 objectChange 回调是同步的：先同步预判可达性（复用与
+  // gizmo transport 完全相同的 planMotion），失败立即同步返回 false 让手柄回弹，
+  // 不能等一次异步 submit 往返——那样手柄会先飘到不可达目标再等结果，永远不回弹。
+  const planned = planCartesianTargetSync(request)
+  if (!planned.ok) {
+    gizmoDragUnreachable.value = true
+    gizmoDragError.value = presentMotionError(planned.error)
+    return false
+  }
+  // 成功即重置：该标志反映"最近一次求解结果"，不是"本次拖拽会话是否曾失败过"——
+  // 否则中途扫过不可达边界、最终落回合法位置也会在松开时误报不可达。
+  gizmoDragUnreachable.value = false
+  gizmoDragError.value = null
   void motionCoordinator.submit({
     kind: 'continuous-update',
     source: 'gizmo',
