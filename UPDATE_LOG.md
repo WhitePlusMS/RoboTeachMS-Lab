@@ -1,3 +1,136 @@
+## 2026-08-30 — 修复 gizmo 拖拽误报"目标不可达"：gizmoDragUnreachable 改为反映最近一次求解结果
+
+- 问题：用户实测发现，gizmo 拖拽运动本身已经是正确的（不会移到不可达位置），但松开鼠标后几乎总是弹出"目标不可达"提示。
+- 根因：`gizmoDragUnreachable` 这个标志此前只在 `solveGizmoTarget` 求解失败时置 `true`，成功时从不重置，语义因此变成"本次拖拽会话（按下→松开）期间是否曾出现过一次失败"，而不是"松开那一刻最终定格位置是否可达"。鼠标在 2D 屏幕上是直线移动，机械臂真实可达空间是不规则的 6 维流形，拖拽路径中途短暂扫过关节限位/腕部奇异等边界很常见；哪怕最终稳稳落在完全合法的位置再松开，只要中途有一帧失败过，这个标志依然是 `true`，`handleGizmoDragEnd` 就会误弹"目标不可达"提示。这个设计一直存在，但在当天更早的 gizmo 同步预判修复（补回"不可达立即回弹"）之前几乎不会被触发——此前 `solveGizmoTarget` 一直硬编码返回 `true`、从不真正报告失败，所以这个旧的"一次失败、整次会话报错"逻辑此前一直是静默的死代码；今天补上同步预判后，真实失败第一次被暴露出来，才撞上了这个从未被修过的旧问题。已用一次性诊断测试确认 `planMotion` 对零位移/10mm 小幅度移动均正确返回 `ok: true`，排除了规划算法本身的系统性 bug。
+- 修改文件：
+  - `src/App.vue`：`solveGizmoTarget` 在求解成功分支新增 `gizmoDragUnreachable.value = false` 与 `gizmoDragError.value = null`，让该标志反映"最近一次求解结果"而非"本次会话是否曾失败过"。
+- 修改影响：只有松开鼠标那一刻真实不可达，才会弹出提示；拖拽中途短暂扫过工作空间边界、最终落在合法位置的正常操作不再误报。不改变"不可达立即回弹"这条视觉行为（手柄仍会在每次失败的瞬间同步回弹，只是不再把这个瞬时状态错误地累积成整次会话的最终结论）。不涉及 `robot-motion-core`/`motion-coordinator.ts`。
+- 验证：`npm run check`（vue-tsc）通过；全量 `npx eslint "src/**/*.{ts,vue}"` 无输出；`npm run build` 成功；`npm run test`（`vitest run src`）**70 个测试文件 / 593 个测试全部通过**。
+
+## 2026-08-30 — 修复 gizmo 拖出工作空间后不回弹：solveGizmoTarget 补回同步可达性预判
+
+- 问题：用户实测发现，拖拽笛卡尔坐标轴 gizmo 到机械臂运动空间之外，手柄本身不受限制地跟着鼠标飘走，直到用户自己把手柄拖回工作空间内部，机械臂才突然"追上"手柄——不是"先弹回再追上"，而是手柄本该在不可达时立刻回弹却完全没有回弹的动作。
+- 根因：`src/scene/abb-transform-gizmo.ts:111-126` 的 `handleObjectChange`（TransformControls 的 `objectChange` 事件回调，Three.js 原生同步调用，不支持 `await`）依赖调用方同步返回可达性——`solveTargetPose(pose): boolean`，"成功并应用返回 true，不可达返回 false"（类注释原文），false 时立即触发 `followFlange()` 让手柄贴回法兰。但 `src/App.vue:218` 的 `solveGizmoTarget`（作为 `solveTargetPose` 的实现）内部把请求转发给异步的 `motionCoordinator.submit(...).then(...)`（fire-and-forget），函数体自身**总是同步返回 `true`**，不管目标真实是否可达。这意味着 `handleObjectChange` 里"不可达就回弹"的分支从未被触发——手柄失去了这条契约保证的行为，只能靠用户手动把它拖回工作空间、规划碰巧成功，才会"追上"。这不是当天笛卡尔连续点动/gizmo transport 同步直调修复引入的新问题（那次改的是 Coordinator 内部的 plan 调用方式），而是更早的重构把 gizmo 提交路径改成异步之后，一直存在、此前没有专门测试锁定 `solveTargetPose` 同步契约而被漏掉的既有 bug。
+- 修改文件：
+  - `src/infrastructure/motion-worker/adapter.ts`：新增导出 `planCartesianTargetSync(request): MotionPlanningResult`，直接同步调用 `planMotion`——不是第二套规划实现，只是把 gizmo/笛卡尔点动 transport 本就同步可用的规划结果，提前暴露给需要在同一调用栈内判断可达性的下游（如 TransformControls 的同步回调）。这是唯一被架构门禁允许直接调用 `planMotion` 的三个文件之一，不新增调用点白名单。
+  - `src/App.vue`：`solveGizmoTarget` 改为先调用 `planCartesianTargetSync(request)` 同步预判；不可达时记录 `gizmoDragUnreachable`/`gizmoDragError`（沿用既有的拖拽结束一次性提示机制）并同步返回 `false`（`handleObjectChange` 据此立即回弹）；可达时才提交给 `motionCoordinator.submit({...playback: 'immediate'})`（异步执行、驱动关节和 Runner 播放）并同步返回 `true`。规划本身（同步）和运动执行（异步）职责分离，不改变 `motionCoordinator`/`playback: 'immediate'` 路径本身。
+  - `src/application/app-jog-preemption.test.ts`：`SceneViewportStub` 新增转发 `onGizmoSolve` prop；新增 2 个特征化用例——"gizmo 拖拽到可达目标：同步返回 true，且提交一条运动日志"、"gizmo 拖拽到不可达目标：同步返回 false（手柄可立即回弹），不产生任何运动提交"（用远超 IRB1200 工作空间的坐标验证同步返回值，而非依赖异步回调）。
+- 修改影响：拖出工作空间时手柄立即回弹贴回机械臂当前姿态，不再允许飘到工作空间外等用户自己拖回来。不改变 `robot-motion-core`/`motion-coordinator.ts` 任何一行；不新增第二套 IK/规划逻辑，预判和实际提交调用的是同一个 `planMotion`。同一次 tick 内 `planMotion` 会被调用两次（预判 + 实际提交），已用当天的 benchmark 数据确认最坏情况约 15ms（两次 ×7.4ms），远低于每帧预算和交互响应阈值，不引入新的可感知延迟。不影响关节 Jog、笛卡尔连续点动（方向按钮走的是 `cartesian-control.ts` 里的 `solveTarget`，不共用 `solveGizmoTarget`）、RAPID 路径。
+- 验证：`npm run check`（vue-tsc）通过；全量 `npx eslint "src/**/*.{ts,vue}"` 无输出；`npm run build` 成功；`npm run test`（`vitest run src`）**70 个测试文件 / 593 个测试全部通过**（含本次新增 2 个特征化测试）。
+
+## 2026-08-30 — 修复连续拖拽/点动拖出工作空间再拖回后机械臂永久停摆
+
+- 问题：用户实测发现，笛卡尔连续点动或 gizmo 拖拽时，只要目标一度进入"暂时不可达"（拖出工作空间、撞关节限位、腕部奇异等），此后同一次按住/拖拽期间机械臂就永久不再响应，必须松开重新按下才能恢复。这是当天笛卡尔连续点动/gizmo 同步直调修复之外，另一处独立的既有 bug，与今天的 transport 改动无关。
+- 根因：`src/application/motion-coordinator.ts` 的 `processContinuous` 把 `MotionCommandOutcome.reason === 'planning-failure'` 一概当作"必须终止整次连续会话"处理（`continuousSession = null`）；此后同一会话内的所有 tick 在 `submitContinuousUpdate` 里因 `continuousSession !== command.source` 被直接挡掉，连规划都不再尝试。但 `reason: 'planning-failure'` 是一个粗粒度值，同时覆盖了两类性质完全不同的失败：(a) "目标暂时不可达"（`unreachable`/`joint-limit`/`wrist-singularity`/`path-discontinuity`/`configuration-unreachable`，`MotionError.category` 均为 `'planning-failure'`）——这是交互式拖拽/点动中随姿态变化自然出现、自然消失的边界状态，几乎每次顶到限位都会碰到；(b) 真正的硬错误（`invalid-request`/`unsupported-capability`/`unsupported-model`，或规划器直接抛异常）。原实现对两者一视同仁地关会话，导致(a)也被错误地当成不可恢复的失败。
+- 修改文件：
+  - `src/application/motion-coordinator.ts`：新增 `isFatalContinuousFailure(outcome)`，按 `outcome.result.error.code` 精确区分——只有 `invalid-request`/`unsupported-capability`/`unsupported-model`（或 `catch` 分支的规划器异常，无 `result`）才判定为硬错误；`processContinuous` 里判断是否终止会话的条件从 `!outcome.ok && outcome.reason === 'planning-failure'` 改为 `isFatalContinuousFailure(outcome)`。"目标暂时不可达"类失败仅结算当前 tick 为失败，不再终止会话，下一个 tick 用最新目标继续尝试规划。
+  - `src/application/motion-coordinator.test.ts`：新增 2 个特征化用例——"目标暂时不可达（unreachable/joint-limit 等）不会关闭连续会话——拖出再拖回可恢复"（验证同一会话内先失败后成功、`plan` 被调用两次、不需要重新 `continuous-begin`）；"硬错误（invalid-request/unsupported-model 等）仍会关闭连续会话"（验证硬错误路径行为不变，第二个 tick 仍被 `cancelled`）。
+- 修改影响：笛卡尔连续点动、gizmo 拖拽在拖出工作空间/撞限位/邻近奇异后拖回，机械臂能在同一次按住/拖拽内自动恢复响应，不再需要用户松开重按。不改变任何硬错误场景的现有行为（`invalid-request`/`unsupported-model` 等仍正确终止会话）；不影响 RAPID/离散笛卡尔目标（`kind: 'move'`）路径，该判断只在 `processContinuous`（连续会话专属）内生效。不引入"允许拖到工作空间外"的乐观渲染——机械臂在不可达期间仍然静止、不移动，只是恢复后不再需要重新按下。
+- 验证：`npm run check`（vue-tsc）通过；全量 `npx eslint "src/**/*.{ts,vue}"` 无输出；`npm run build` 成功；`npm run test`（`vitest run src`）**70 个测试文件 / 591 个测试全部通过**（含本次新增 2 个特征化测试）。
+
+## 2026-08-30 — 修复笛卡尔连续点动/gizmo 拖拽卡顿：按来源恢复主线程同步直调 planMotion
+
+- 问题：用户报告两个运动流畅度回归——笛卡尔方向按钮长按连续点动"一顿一顿"；拖拽笛卡尔坐标轴 gizmo 时机械臂模型明显滞后于手柄。用 `/grilling` 深入访谈 + 多个只读调研 agent 定位根因：`a0d0941`（"unify ABB motion planning through core"）与 `b338895` 两次重构，把这两条路径从旧版本 `5391fad` 刻意设计的"主线程同步直算 IK，不走 Worker"（旧版本 `src/App.vue:255-262, 291-308` 注释原文写明"避免长路径阻塞界面"）统一改成必经 `motionCoordinator.submit()` → `await Worker.plan()` 异步往返；gizmo 还额外多了旧版本没有的 140ms `easeInOutCubic` 缓动。这是重构疏漏（UPDATE_LOG 历史记录里从未有一处权衡过"改成异步会不会引入延迟"），不是 Core 架构或"统一走 Core"理念本身的缺陷。
+- 修改文件：
+  - `src/application/motion-coordinator.ts`：`MotionCoordinatorOptions.plan` 签名新增第二参数 `source: MotionSource`，透传给调用方按来源选择 transport；Coordinator 自身逻辑不变，始终统一 `await options.plan(...)`，不区分同步/异步（保留 `continuousProcessing`/`pendingContinuous` latest-only 队列依赖的微任务时序，避免破坏现有排队语义）。`MotionCommand` 的 `continuous-update` 变体新增 `'immediate'` playback 选项。
+  - `src/infrastructure/motion-worker/adapter.ts`：新增 `isSyncTransportSource(source)`（`gizmo`/`manual-cartesian` 返回 true），`createMotionPlannerWorkerAdapter().plan(request, source)` 对这两个来源直接 `Promise.resolve(planMotion(request))`，跳过 `postMessage`/Worker 生命周期；其余来源（`rapid`/`manual-joint`）行为完全不变，仍创建/复用常驻 Worker。
+  - `src/App.vue`：`solveGizmoTarget` 提交的 `playback` 从 `'stream'`（140ms 缓动）改为 `'immediate'`（`motion-coordinator.ts` 内 `runImmediate` 分支，同帧写入关节，`Promise.resolve('completed')`），复刻旧版本 `setJointsImmediate` 的零延迟跟手；不再传 `durationMs: 140`。
+  - 新建 `src/application/motion-baseline-lock.test.ts`：3 个特征化用例，锁定 MOVEL 回放（`playback: 'trajectory'`，规划结果是带严格递增 `timeMs` 的多点轨迹）和关节 Jog（`joint-target` intent，单步 2-waypoint 结果，不触发任何 Cartesian IK）两条基线现状，确保本次改动不连带影响。
+  - 新建 `src/infrastructure/motion-worker/adapter-source-routing.test.ts`：5 个特征化用例，锁定按 `source` 路由 transport 的具体行为——`gizmo`/`manual-cartesian` 不创建 Worker、结果与 `planMotion` 直调一致；`rapid`/`manual-joint` 仍创建 Worker（现状不变）；非浏览器 fallback adapter 对所有来源均同步直调（现状不变）。
+- 决策依据（`/grilling` 访谈 + 事实核查，不凭推测）：
+  1. 用一次性 benchmark（`vitest` 跑完即删）测过笛卡尔 jog 场景下同步直调 `planMotion` 的最坏情况耗时——腕部奇异邻域（J5≈0.5°）+ 50mm 步长，平均 7.4ms/次，远低于 100ms tick 间隔和 40ms 安全边际，确认同步直调安全，不需要给 jog 场景开任何第二条求解分支。
+  2. 已核实 gizmo 拖拽和笛卡尔连续点动这两条路径在代码层面 100% 只会走解析解（`singularityPolicy: 'strict'` 硬编码在 `createCartesianTargetRequest`，`allowWristFallback` 恒为 `false`，唯一会调用数值 DLS/LM 迭代法的 `resolveJointSolution`/`wristContext` 分支不可达）；本次改动全程只调用同一个 `planMotion`/`planCartesianPath`，不新增第二套逆解算法。
+  3. 已核实 `robot-motion-core`（`planMotion` 所在）与 `robot-geometry/motion/runner.ts`（插值/缓动播放状态机）均是宿主无关的纯计算/纯状态机，`runner.ts` 依赖的 `MotionClock` 接口本就通过参数注入、已被手写非浏览器 clock 驱动测试验证过；本次改动只涉及 `motion-coordinator.ts`/`infrastructure/motion-worker/adapter.ts`/`App.vue` 三个 Web 专属接线文件，不触碰这两个未来要迁移到 Unity/C# 复用的模块一行代码。
+- 修改影响：gizmo 拖拽恢复旧版本零延迟跟手；笛卡尔连续点动去掉了每 tick 必经的 Worker `postMessage` 往返，不再有撞上 140ms 缓动窗口边界触发提前收尾的风险。MOVEL/RAPID 回放、关节 Jog、离散笛卡尔目标（非连续）现状完全不变——`command.source` 判断只命中 `'gizmo'`/`'manual-cartesian'` 两个来源，其余来源的 `options.plan` 调用路径逐字不变。
+- 验证：`npm run check`（vue-tsc）通过；全量 `npx eslint "src/**/*.{ts,vue}"` 无输出；`npm run build` 成功；`npm run test`（`vitest run src`）**70 个测试文件 / 589 个测试全部通过**（含本次新增 8 个特征化测试）。
+
+## 2026-08-28 — 架构评审候选4：让 use-robot-controller.ts 成为真正的深模块，收拢 App.vue 七处运动抢占复制
+
+- 修改文件：
+  - 新建 `src/application/app-jog-preemption.test.ts`：8 个特征化用例，先挂载真实 `App.vue`，通过 DOM 交互（数值输入、按住/单击关节按钮、Home/机械零位/随机姿态按钮）与 gizmo 回调 prop（`SceneViewport` 用最小 stub 转发），锁定七处入口改动前各自在运行日志上的现状——包括 `setJoint` 的失败告警路径、连续 Jog tick 不逐条记日志、`handleGizmoDragStart` 完全不写日志这些既有差异。
+  - `src/application/use-robot-controller.ts`：新增导出函数 `preemptManualMotion(deps)`（"结束笛卡尔连续点动 → 停止活动 RAPID 程序"这条公共前置步骤的唯一实现）与 `useRobotController(deps)`（真正组装 `RobotController` 的工厂函数，内部实现 `setJoint`/`adjustJoint`/`beginJointContinuous`/`reset`/`resetMechanicalZero`/`randomize` 六个动作，逐字保留各自现有差异——`setJoint` 独有的 `motionCoordinator.stop('superseded')` 与失败告警、`adjustJoint` 连续分支跳过日志）；`RobotController` 接口本身不变。
+  - `src/App.vue`：删除本地的 `setJoint`/`adjustJoint`/`beginJointContinuous`/`endJointContinuous`/`reset`/`resetMechanicalZero`/`randomize`/`JOINT_LABELS`（全部迁入 `useRobotController`）；`provideRobotController({...})` 改为 `provideRobotController(useRobotController({...}))`，只负责装配依赖（`profile`/`joints`/`motionCoordinator`/`programControl.stopActiveProgram`/`runLog`/笛卡尔动作包）；`handleGizmoDragStart`（第 7 处入口，不属于 `RobotController` 接口）改为调用共享的 `preemptManualMotion`，不再手写重复的两行前置步骤。
+- 修改原因：/improve-codebase-architecture 全项目扫描发现 `use-robot-controller.ts` 只导出类型和 provide/inject 包装，是"接口令牌"而非真正的深模块——七处手动 Jog/拖拽入口"先停程序、再停运动、再提交"这条不变量的实际实现散落在 `App.vue` 里逐字复制；且这七处彼此并不完全相同（差异见上），此前没有任何测试穿过 `App.vue` 验证这套序列。用户明确要求核心逻辑可独立拆出、且当前运动效果不变，因此先补齐覆盖全部七处入口现状的特征化测试，再把编排逻辑迁入模块，逐字保留每处差异，不做行为统一。
+- 修改内容：`RobotController` 接口签名和 `provideRobotController`/`injectRobotController` 的 provide/inject 语义完全不变，只是背后实现从"App.vue 内联函数"变成"useRobotController 工厂函数"；`preemptManualMotion` 是一个独立于 `RobotController` 接口的公共 helper，供接口内的六个动作与接口外的 `handleGizmoDragStart` 共用同一份实现。不改变任何运动提交内容、日志文案、Coordinator 调用顺序或差异化行为。
+- 修改影响：运动抢占不变量现在只有一处实现（`use-robot-controller.ts`），新增第八个手动运动入口时不会再有遗漏第八份复制的风险；`App.vue` 减少约 90 行内联逻辑，只保留依赖装配。七处入口的现状行为由新增的 8 个特征化测试锁定，任何未来改动如果意外改变某处入口的日志/调用顺序会立即被测试捕获。
+- 验证：`npm run check`、`npx eslint`、`npm run build` 均通过；`npx vitest run src/application/app-jog-preemption.test.ts`（8 tests）、`npx vitest run src/application/app-profile-stability.test.ts`（1 test）、`npx vitest run src/architecture`（7 tests）、`npx vitest run src --pool=forks --fileParallelism=false`（68 files/581 tests）全部通过；`git diff --check` 无空白问题（仅 LF/CRLF 行尾提示，非实际空白改动）。
+
+## 2026-08-28 — 架构评审候选2：锁定运动错误呈现现状，确认面板文案与 toast 文案是两个刻意分开的呈现表面
+
+- 修改文件：
+  - `src/application/cartesian-control.test.ts`：新增 2 个特征化用例，锁定 `singularity`/`joint-limit` 两种面板状态目前展示的手动 Jog 场景化文案（此前只有 `joint-step` 状态被测试覆盖）。
+  - `src/application/motion-errors.test.ts`：新增 6 个特征化用例，补齐 `presentMotionError` 对 `configuration-unreachable`/`joint-limit`/`path-discontinuity`/`invalid-request`/`unsupported-model`/`unreachable`（默认分支）六种错误码的文案锁定（此前只有 `wrist-singularity` 被测试覆盖）。
+- 修改原因：/improve-codebase-architecture 全项目扫描最初怀疑 `cartesian-control.ts`（面板状态）与 `motion-errors.ts`（`presentMotionError`）是同一段错误码到文案的重复翻译。深入调研并与用户核对后确认：两者是刻意分开的呈现表面——面板文案面向手动 Jog 操作员（例如"先用关节 Jog 脱离"），`presentMotionError` 面向 RAPID/末端拖拽场景（例如"明确启用 SingArea\Wrist"），后者对手动 Jog 操作员既看不懂也做不到。这正是 `CONTEXT.md`"运动错误呈现"条目里"UI...分别提供场景化短文案"的既有设计，不是需要合并的重复。真正的问题是这两处文案此前完全没有测试锁定，会在后续修改中继续静默分叉而不被发现。
+- 修改内容：不修改任何生产代码——两处呈现表面的文案、状态映射、`failurePresentation` 的计算与使用方式全部保持不变。只新增测试锁定当前行为。
+- 修改影响：两处呈现表面各自的文案现在都有完整测试覆盖（面板 5 种失败状态、`presentMotionError` 全部 8 种 `MotionErrorCode` 分支），今后修改任一处 switch 分支若意外改变文案，测试会立即失败。不改变任何用户可见文案或运动效果。
+- 验证：`npm run check`、`npx eslint` 均通过；`npx vitest run src/application/cartesian-control.test.ts`（17 tests）、`npx vitest run src/application/motion-errors.test.ts`（8 tests）、`npx vitest run src --pool=forks --fileParallelism=false`（67 files/573 tests）全部通过；`git diff --check` 无空白问题。
+
+## 2026-08-28 — 架构评审候选3：收拢腕部奇异诊断的双重实现，两条求解路径选轴策略逐位保留
+
+- 修改文件：
+  - 新建 `src/robot-motion-core/internal/cartesian/solution/waypoint-diagnostics.ts`：导出 `selectStepFailureAxis`/`buildStepFailureDetail`（步长诊断，支持可选 `preferredAxes` 限定轴集合）、`selectNearestLimitAxis`/`buildJointLimitFailureDetail`（限位诊断，第一个贴近边界的轴）、`buildCandidateLimitFailureDetail`（候选图 DP 路径专用限位诊断，越界严重度最大的轴）。
+  - `src/robot-motion-core/internal/cartesian/candidate-path-planner.ts`：删除本地 `buildStepDiagnostic`/`buildLimitDiagnostic`，三处调用改为 `buildStepFailureDetail`/`buildCandidateLimitFailureDetail`。
+  - `src/robot-motion-core/internal/cartesian/solution/joint-solution.ts`：删除本地 `buildJointStepDetail`/`buildJointLimitDetail`（连同不再需要的 `JOINT_LIMIT_EPS_DEG` 导入），四处调用改为共享模块的 `buildStepFailureDetail`/`buildJointLimitFailureDetail`。
+  - `src/robot-motion-core/internal/cartesian/solution/waypoint-solver.ts`：改从共享模块导入 `buildStepFailureDetail`，不再从 `joint-solution.ts` 转手。
+  - 新建 `src/robot-motion-core/internal/cartesian/solution/waypoint-diagnostics.test.ts`：5 个特征化用例，用具体反例证明并锁定两条求解路径的选轴分歧——全轴扫描 vs `preferredAxes` 限定腕部轴（步长诊断）、第一个贴边轴 vs 越界严重度最大轴（限位诊断），以及候选排序规则（优先选中真正夹限位的候选）。
+- 修改原因：/improve-codebase-architecture 全项目扫描发现候选图 DP 路径（`candidate-path-planner.ts`）与逐点腕部逃离路径（`joint-solution.ts`）各自独立实现了一套几乎相同的"哪个关节轴该被归咎"诊断逻辑，且用具体输入验证过两套实现会对同一姿态给出不同归咎轴——这是本仓库提交历史最密集的区域，每次腕部奇异行为改动都有两处可能悄悄分叉的风险。用户明确要求核心逻辑可独立拆出、且当前运动效果不变；诊断只在求解失败时构建、不参与候选筛选或运动规划本身，因此收拢诊断构造不影响任何成功路径的运动结果。
+- 修改内容：两套选轴策略原样保留、不做"顺手统一"，通过参数（`preferredAxes`）和独立导出函数（`buildJointLimitFailureDetail` vs `buildCandidateLimitFailureDetail`）区分，只消除重复实现本身；共享模块是一个新文件而非并入已有的 `waypoint-types.ts`（那里只放类型定义），两条求解路径都从这里 import。不改变任何候选筛选、连续性检查或数值 IK 算法。
+- 修改影响：诊断逻辑的两种选轴口径现在各自只有一份实现，未来行为变更只需改一处；两条求解路径仍保持各自现有的诊断表现（同一失败在两条路径下可能仍指向不同轴，这是历史遗留的产品行为，不是本次要修的 bug）。
+- 验证：`npm run check`、`npx eslint` 均通过；`npx vitest run src/robot-motion-core`（7 files/48 tests，含新增 5 个特征化用例）、`npx vitest run src --pool=forks --fileParallelism=false`（67 files/565 tests）全部通过；`git diff --check` 无空白问题。
+
+## 2026-08-28 — 架构评审候选5：为受控编辑新增 parser 窄访问器，消除对内部结构的直接读取
+
+- 修改文件：
+  - `src/rapid/language/parser/rapid-parser.ts`：新增两个导出函数 `resolveEditTarget(parsed, name)`（按名称、大小写不敏感查找 robtarget 类型 Program Data 条目）与 `resolveEditInstruction(parsed, index)`（按下标取指令，越界返回 `null`）；纯增量导出，未改动 `RapidParseResult`/`RapidProgramData`/`RapidExecutableInstruction` 等既有类型形状。
+  - `src/rapid/language/parser/index.ts`、`src/rapid/language/index.ts`：两个新函数原样加入既有 re-export 列表。
+  - `src/rapid/editing/controlled-rapid-edit.ts`：删除本地 `findTarget`（与新 `resolveEditTarget` 逐字相同的实现）与本地 `instructionAt`（改造为对 `resolveEditInstruction` 的薄包装后确认无调用方，随即整体删除）；`modifyPosition`/`renameTarget`/`deleteTarget`/`editMotionOperand` 四处改调 `resolveEditTarget`；`editMotionOperand`/`deleteInstruction`/`commentInstructions`/`changeMotionKind` 四处改调 `resolveEditInstruction` 直接拿到指令对象，不再先查错误再用下标二次索引 `parsed.instructions[index]`；随之删除两个不再被引用的类型导入（`isRobtargetProgramData`、`RapidProgramDataTarget`、`RapidExecutableInstruction`）。
+- 修改原因：/improve-codebase-architecture 全项目扫描发现 `controlled-rapid-edit.ts` 的 10 个命令处理器直接读取 `RapidParseResult`/`RapidProgramData` 的内部 range/offset 字段（`valueRange`/`nameRange`/`referenceRanges`/`declarationRange`/`operandRanges`），模块接口几乎和 parser 内部一样复杂——parser 计算 range 的方式一旦变化，文本拼接数学可能悄悄错。用户明确要求核心内容可独立拆出，因此把"按名字/按下标查找"这一段原本在编辑模块里重复实现的逻辑收进 parser 自身，作为它的公开窄接口。
+- 修改内容：`resolveEditTarget`/`resolveEditInstruction` 是 parser 对外新增的两个查找函数，各自只对应一类既有调用模式（按名字查 Program Data、按下标查指令），不做成大而全的"编辑上下文"接口；编辑模块不再自己遍历 `parsed.data`/`parsed.instructions`，但仍按原有方式读取查到的条目/指令上的 range 字段（这部分是每个命令天然需要的具体信息，不属于本次候选要收窄的范围）。不改变任何文本替换算法、`guardEditedSource` 的全量重新解析安全网或错误码/错误文案。
+- 修改影响：`rapid-parser.ts` 新增两个可被其他调用方复用的查找函数；`controlled-rapid-edit.ts` 删除两个重复实现（`findTarget`/`instructionAt`），10 个命令处理器的错误消息、返回结构与既有测试断言逐字不变。`ProgramDataPanel.vue`、`program-control.ts`、`use-program-panel-controller.ts` 等既有消费者未改动、未受影响（纯增量导出，未触碰它们依赖的字段）。
+- 验证：`npm run check`、`npx eslint` 均通过；`npx vitest run src/rapid/editing`（1 file/38 tests）、`npx vitest run src/rapid`（16 files/197 tests）、`npx vitest run src --pool=forks --fileParallelism=false`（66 files/560 tests）全部通过；`git diff --check` 无空白问题。
+
+## 2026-08-28 — 架构评审候选1：抽取 planner.ts 三处重复的构型策略校验，删除死代码 gizmo-target-solver
+
+- 修改文件：
+  - `src/robot-motion-core/internal/cartesian/gizmo-target-solver.ts`、`gizmo-target-solver.test.ts`：删除。全仓库 grep 确认导出的 `solveGizmoTarget` 除自身测试外零调用方；生产端末端拖拽走 `App.vue` 内同名但不同实现的本地函数，经 `motionCoordinator` 提交，与该模块无关；模块内部依赖（`planStrictCandidateGraph` 等）均为其他生产代码共用，删除不产生新的孤儿导出。
+  - `src/robot-motion-core/planner.ts`：新增私有函数 `deriveConfigurationOptions(policy)`（把 `ConfigurationPolicy` 翻译成 `preserveConfiguration`/`requiredConfiguration`/`maxJointStepDeg` 三个求解选项）与 `verifyConfigurationReached(end, policy)`（终点关节是否仍满足策略，否则返回 `configuration-unreachable`）；`planCartesianTarget`/`planLinearPath`/`planCircularPath` 三个入口原来各自逐字复制这两段派生与校验逻辑，现在统一调用这两个 helper。
+  - `src/robot-motion-core/contracts.test.ts`：新增特征化测试组（19 个用例），在改动前逐一确认三个入口对 `required`/`current-main`/`nearest-valid` 三种 `ConfigurationPolicy` 的现有行为（成功/`configuration-unreachable`），抽取后原样保持全部通过。
+- 修改原因：/improve-codebase-architecture 全项目扫描确认 `planCartesianTarget`/`planLinearPath`/`planCircularPath` 三处构型策略派生与校验逐字重复——这正是新增第四种运动意图类型时容易漏改的一类隐藏规则遗漏风险（构型策略见 `CONTEXT.md`）；`gizmo-target-solver.ts` 确认为重构历史遗留死代码。用户明确要求核心逻辑可独立拆出、且当前运动效果不变，因此先补齐特征化测试锁定现状，再做纯提取。
+- 修改内容：`deriveConfigurationOptions`/`verifyConfigurationReached` 只在 `planner.ts` 内部使用（当前只有这三个真实调用方，未新增文件或导出），三处入口的求解选项与后置校验逐字等价替换为对这两个 helper 的调用；不改变 `ConfigurationPolicy` 类型、`configurationMatches`/`configurationData` 实现或任何数值算法。
+- 修改影响：新增运动意图类型时构型策略只需改一处；三个入口对 `configurationPolicy` 的行为（成功路径、`configuration-unreachable` 失败路径）逐位不变，由新增特征化测试保护。删除死代码后 `robot-motion-core/internal/cartesian` 少一个孤立模块。
+- 验证：`npm run check`、`npx eslint` 均通过；`npx vitest run src --pool=forks --fileParallelism=false`（66 files/560 tests，含新增 19 个特征化用例）全部通过；`git diff --check` 无空白问题。默认并行 fork 池在本机因仓库路径含中文字符触发 OOM，属已知环境问题，串行运行确认无回归。
+
+
+
+- 修改文件：
+  - `git mv src/robotics → src/robot-geometry`（逐个子目录 `math/model/motion/numerical-ik/transform` 单独 `git mv`，因整目录一次性改名在本机遇到 Windows 文件锁 `Permission denied`），及所有引用 `@/robotics` 的生产与测试文件批量替换为 `@/robot-geometry`；`src/architecture/architecture-gates.test.ts` 里硬编码的 `'robotics/motion/runner.ts'` 路径同步更新为 `'robot-geometry/motion/runner.ts'`。
+  - 删除完全空置的遗留目录 `src/rapid/integration/`（未被 git 追踪，无任何文件，无任何引用）。
+  - `src/rapid/language/parser/statement-parser.ts`：改为从 `rapid/instructions/index.ts` 的 `LEAF_INSTRUCTION_KEYWORDS` 读取运动/模式关键字，删除本地重复的 `'MOVEJ'/'MOVEL'/'MOVEC'/'SINGAREA'/'CONFJ'/'CONFL'` 字符串字面量。
+- 修改原因：`robotics`（厂家无关几何工具箱）与 `robot-motion-core`（厂家无关运动规划核心）、`robot-models`（厂家专属实现）三个目录都带 "robot" 前缀，用户反馈肉眼扫读时无法立刻区分职责；`rapid/integration/` 是历史重构遗留的空壳；`rapid/instructions/index.ts` 新增的关键字注册表原本没有被 `statement-parser.ts` 实际读取，三处（`control-flow.ts` 穷尽 switch、`instructions/index.ts` 注册表、`statement-parser.ts` 字面量）各自维护一份互不同步的关键字集合，违背了"新增叶子指令只改一处"的设计初衷（由 /code-review 双轴审查发现并当场修复）。
+- 修改内容：`robotics` 改名为 `robot-geometry`，更精确传达"厂家无关几何/运动学工具箱"这一职责，与 `robot-motion-core`（规划核心）、`robot-models`（厂家实现）三层单向依赖关系保持不变，不改变任何算法逻辑；`statement-parser.ts` 现在只从注册表派生关键字判断，`LEAF_INSTRUCTION_KEYWORDS` 成为真正的唯一真源。
+- 修改影响：`robotics` 目录不再存在，三个 "robot" 前缀目录中通用几何/运动学工具箱的定位更明确；新增运动类/模式类叶子指令关键字时只需改 `rapid/instructions/index.ts` 一处，`statement-parser.ts` 自动生效；无遗留空目录。运行行为、RAPID 语法支持范围、现有算法均不变。
+- 验证：`npm run check`、`npm run lint`、`npm run build` 通过；`npx vitest run src --pool=forks --no-file-parallelism`（67 files/547 tests）通过（本机默认并行 fork 池因仓库路径含中文字符触发 OOM，此前已知环境问题，串行运行确认无回归；另需将 `TMPDIR`/`TEMP`/`TMP` 指向项目所在盘，系统盘 C: 曾满盘触发 `ENOSPC`，与本次代码改动无关）。
+
+## 2026-08-28 — 按 Wayfinder 最简策略重整运动学目录与 RAPID 叶子指令位置
+
+- 修改文件：
+  - 运动学/IK 目录改名：`git mv src/robotics/kinematics → src/robotics/transform`、`git mv src/robotics/inverse-kinematics → src/robotics/numerical-ik`、`git mv src/robot-models/abb-irb1200/kinematics → src/robot-models/abb-irb1200/analytic-kinematics`，及所有引用这三个目录的生产与测试文件（含 KUKA 的 `parameters.ts`、`legacy-forward-kinematics.ts`、`kuka-robot-model-adapter.ts` 仅更新导入路径，逻辑不变）。
+  - Cartesian 空壳目录清理：`git mv src/robotics/cartesian/worker/{adapter.ts,adapter.test.ts,worker.ts} → src/infrastructure/motion-worker/`；`git mv` 6 个错放测试文件（`path-planner.test.ts`、`candidate-path-planner.test.ts`、`gizmo-target-solver.test.ts`、`abb-wrist-interpolation.test.ts`、`abb-wrist-singularity.integration.test.ts`、`jog-baseline.test.ts`）到 `src/robot-motion-core/internal/cartesian/`；删除已清空的 `src/robotics/cartesian/`；`src/App.vue` 更新 Worker adapter 导入路径。
+  - RAPID 叶子指令重排：新建 `src/rapid/instructions/{motion,mode,assign}/`，`git mv` `motion-statement.ts`/`mode-statement.ts`/`assignment-statement.ts` 入内并修正相对导入；新增 `src/rapid/instructions/index.ts`（`satisfies Record<LeafInstructionKind,...>` 关键字注册表 + 去重断言）；新增 `src/rapid/runtime/scalar-evaluation.ts`（从 `rapid-runtime.ts` 抽出 `evaluateScalarExpression`，assign 与 IF/WHILE/FOR 条件求值共用）；`src/rapid/data/records.ts` 新增导出 `cloneSpeed/cloneTarget/cloneTool/cloneWobj`（从 `rapid-parser.ts` 内部函数提升为数据模块公共工具，供 parser 与叶子指令共用，不重复实现）；`src/rapid/language/parser/rapid-parser.ts` 改为从 `../../instructions/index.ts` 导入运动/模式/赋值解析函数，删除内部重复的 clone 函数；`src/rapid/language/parser/control-flow.ts` 的 `setBranchExit` 由硬编码 `||` 链改为基于 `RapidExecutableInstruction.kind` 的穷尽 `switch`（含 `satisfies never` 兜底），新增叶子指令类型时会编译报错而非静默漏挂 `nextPointer`。
+  - `src/architecture/architecture-gates.test.ts` 同步更新：Worker adapter/worker 允许路径改为 `infrastructure/motion-worker/*`；Core 反向依赖检查移除对 `robotics/cartesian/worker` 的过时 lookahead 例外；RAPID parser 委托断言改为核对 `rapid/instructions/{motion,mode,assign}/*.ts` 与 `rapid/runtime/scalar-evaluation.ts` 的新路径。
+- 修改原因：用户核心需求是运动核心代码可复用、易扩展——此前 `kinematics` 命名在三处目录重复出现却职责不同（纯变换数学 / 模型无关数值 IK / ABB 解析 IK），`robotics/cartesian/` 已沦为只剩 Worker 胶水和几个错放测试的空壳，RAPID 新增指令时不知道该往哪个文件加、`setBranchExit` 的隐式 `||` 链会在漏写新指令时悄悄丢失跳转目标。均属结构/命名整理，不改变任何运动学算法或 RAPID 语义。
+- 修改内容：见上；三个目录改名 + Worker/测试文件归位 + RAPID 叶子指令目录化均为纯移动/重导出，不修改内部算法逻辑；`control-flow.ts` 的 switch 化和 `scalar-evaluation.ts` 的抽取是本次唯一的行为无关重构（去重复实现，保留原有分支语义）。
+- 修改影响：新增 RAPID 叶子指令（运动/模式/赋值类）时只需在 `rapid/instructions/` 对应子目录加文件并在 `index.ts` 注册关键字，`control-flow.ts` 的穷尽 switch 会在漏处理时编译报错；IK 相关目录命名不再有歧义；`robotics/cartesian` 目录已不存在。运行行为、RAPID 语法支持范围、现有 ABB/KUKA 数值算法均不变。
+- 验证：`npm run check` 通过；`npx vitest run src/architecture/architecture-gates.test.ts`（7/7）与 `npx vitest run src/rapid`（16 files/197 tests）通过；`npx vitest run src --pool=forks --no-file-parallelism`（67 files/547 tests）通过（默认并行 fork 池在本机因仓库路径含中文字符触发 OOM/worker 崩溃，属环境问题，串行运行确认无回归）；`npm run build`、`npm run lint` 通过；`git diff --check` 无空白问题。
+
+
+
+- 修改文件：`src/application/motion-coordinator.ts`、`src/application/motion-coordinator.test.ts`、`src/application/cartesian-control.ts`、`src/application/cartesian-control.test.ts`、`src/App.vue`、`UPDATE_LOG.md`。
+- 修改原因：浏览器在 50 mm 步进长按 Z− 时稳定出现约 200–217 ms 静止空档；实测 6 次完成请求只产生 3 次有效位移，定位为 Coordinator 等待活动 stream 完成后才处理最新目标，且 Cartesian Jog 直到运动完成才推进锚点，导致旧锚点生成重复目标。
+- 修改内容：Coordinator 只串行化 Worker 规划，Runner 接受目标后立即处理 latest pending，并提供强类型 `onPlanAccepted` 接缝；同一连续会话内 retarget 共享 generation，只有 begin/end、失败或离散抢占才换代；Cartesian Jog 在计划通过 Core 校验且被 Runner 接受时提交锚点。新增“活动 Runner 未完成仍追加最新 stream”和“运动结果未完成仍连续递进锚点”回归测试。顶栏和程序工作区统一复用 `handleProgramRun`、`handleProgramStep`，避免模板多语句被格式化后触发 Vue 编译错误。
+- 修改影响：连续 stream 使用 Runner 已有的活动中 retarget 能力，同时保持单 Runner、latest-only、失败不推进锚点及真实 completed/stopped 语义；离散 Jog 和 RAPID 运动不变。修复后 50 mm 长按的最大 TCP 更新间隔从约 200–217 ms 降至 33.4 ms，超过 80 ms 的空档为 0，松手后持续观察 700 ms 无漂移。
+- 验证：`npm run check`、聚焦测试 57/57、全量测试 67 files / 547 tests、`npm run build`、`npm run lint`、`npm run lint:style` 均通过；浏览器最大帧间隔 16.9 ms且无长任务。MoveC 预设测试与构建并行时曾超过 15秒默认上限，单独复跑4/4通过（4.08秒），随后串行全量测试通过。
+
 ## 2026-08-27 — 执行收缩版 Motion/RAPID 架构方案并修正审查缺陷
 
 - 修改文件：`src/application/motion-coordinator.ts`、`src/application/motion-coordinator.test.ts`、`src/application/cartesian-control.ts`、`src/application/cartesian-control.test.ts`、`src/application/cartesian-jog-session.ts`、`src/application/cartesian-jog-session.test.ts`、`src/application/use-robot-controller.ts`、`src/App.vue`、`src/components/JointControlPanel.vue`、`src/components/JointControlPanel.test.ts`、`src/components/JogControlTabs.vue`、`src/rapid/language/parser/assignment-statement.ts`、`src/rapid/language/parser/mode-statement.ts`、`src/rapid/language/parser/data-declaration.ts`、`src/rapid/language/parser/target-expression.ts`、`src/rapid/language/parser/motion-statement.ts`、`src/rapid/language/parser/statement-parser.ts`、`src/rapid/language/parser/control-flow-parser.ts`、`src/rapid/language/parser/rapid-parser.ts`、`src/robotics/cartesian/worker/adapter.ts`、`src/robotics/cartesian/worker/adapter.test.ts`、`src/robotics/motion/runner.ts`、`src/robot-motion-core/planner.ts`、`src/robot-motion-core/internal/cartesian/**`、`src/rapid/planning/motion-input.ts`、`src/robotics/cartesian/*` 测试引用、`src/architecture/architecture-gates.test.ts`、`.gitignore`、`UPDATE_LOG.md`。
