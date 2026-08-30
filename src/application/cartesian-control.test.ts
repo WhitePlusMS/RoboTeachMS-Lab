@@ -222,6 +222,48 @@ describe('笛卡尔坐标增量', () => {
     expect(control.statusMessage.value).toContain('变化 8.80°')
   })
 
+  /**
+   * 特征化测试：面板状态文案（面向手动 Jog 操作员的场景化短文案）与 motion-errors.ts 的
+   * presentMotionError（面向 RAPID/末端拖拽提示）是两个刻意保持独立的呈现表面，对齐
+   * CONTEXT.md「运动错误呈现」——UI 分别提供场景化文案，不与机器契约或另一呈现表面同步。
+   * 这里锁定面板文案现状，防止今后继续静默分叉，不代表两处文案应当合并成同一份。
+   */
+  it('腕部奇异失败时面板展示手动 Jog 场景化文案', () => {
+    const joints = ref<JointAngles>([...DEFAULT_JOINTS])
+    const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
+    const control = createControl({
+      joints,
+      pose: poseRef,
+      profile: KUKA_PROFILE,
+      planTarget: () => ({ ok: false, failure: 'wrist-singularity' }),
+      moveToTrajectory: () => undefined,
+    })
+
+    control.setField('x', poseRef.value.positionMm[0] + 1)
+
+    expect(control.status.value).toBe('singularity')
+    expect(control.statusMessage.value).toBe(
+      '自动腕部插补仍无法连续通过奇异（J5≈0°）；请修改目标姿态，或先用关节 Jog 脱离',
+    )
+  })
+
+  it('关节限位失败时面板展示手动 Jog 场景化文案', () => {
+    const joints = ref<JointAngles>([...DEFAULT_JOINTS])
+    const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))
+    const control = createControl({
+      joints,
+      pose: poseRef,
+      profile: KUKA_PROFILE,
+      planTarget: () => ({ ok: false, failure: 'joint-limit' }),
+      moveToTrajectory: () => undefined,
+    })
+
+    control.setField('x', poseRef.value.positionMm[0] + 1)
+
+    expect(control.status.value).toBe('joint-limit')
+    expect(control.statusMessage.value).toBe('目标会触及关节限位，未执行目标')
+  })
+
   it('机械零位 Y 点动不再使用 SingArea\\Wrist，并提交轨迹', () => {
     const model = new AbbRobotModelAdapter()
     const joints = ref<JointAngles>([0, 0, 0, 0, 30, 0])
