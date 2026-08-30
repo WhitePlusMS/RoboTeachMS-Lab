@@ -1,12 +1,12 @@
 import {
-  isRobtargetProgramData,
   parseRapidProgram,
-  type RapidProgramDataTarget,
+  resolveEditInstruction,
+  resolveEditTarget,
 } from '../language/index.ts'
 import { NO_EXTERNAL_AXIS, type RobTarget } from '../data/index.ts'
-import { rotationMatrixToQuaternion } from '@/robotics/math/rotation3d.ts'
+import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
 import { internalQuatToRapid } from '../data/pose-transform.ts'
-import type { JointAngles, Pose } from '@/robotics/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
 import { abbConfigurationFromJoints } from '@/robot-models/abb-irb1200/index.ts'
 import { formatRobTarget, formatTargetDeclaration } from './formatting.ts'
 import type {
@@ -120,16 +120,6 @@ function guardEditedSource(nextSource: string): RapidEditError | null {
   return { code: 'source-error', message: '编辑后源程序将存在错误，已取消本次修改' }
 }
 
-/** 取 parsed.instructions 的第 index 条；越界时给出结构化错误。 */
-function instructionAt(
-  parsed: ReturnType<typeof parseRapidProgram>,
-  index: number,
-): RapidEditError | null {
-  if (index < 0 || index >= parsed.instructions.length) {
-    return { code: 'invalid-instruction', message: `指令下标 ${index} 不存在` }
-  }
-  return null
-}
 
 /** 对候选源码应用一组文本替换；替换按 offset 从大到小应用，避免前面插入影响后面位置。 */
 function applyReplacements(
@@ -202,26 +192,13 @@ function createTarget(
   }
 }
 
-function findTarget(
-  parsed: ReturnType<typeof parseRapidProgram>,
-  name: string,
-): RapidProgramDataTarget | null {
-  const key = normalizeName(name)
-  return (
-    parsed.data.find(
-      (entry): entry is RapidProgramDataTarget =>
-        isRobtargetProgramData(entry) && normalizeName(entry.name) === key,
-    ) ?? null
-  )
-}
-
 function modifyPosition(
   source: string,
   parsed: ReturnType<typeof parseRapidProgram>,
   name: string,
   target: RobTarget,
 ): RapidEditResult {
-  const entry = findTarget(parsed, name)
+  const entry = resolveEditTarget(parsed, name)
   if (!entry)
     return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
 
@@ -238,7 +215,7 @@ function renameTarget(
   name: string,
   newName: string,
 ): RapidEditResult {
-  const entry = findTarget(parsed, name)
+  const entry = resolveEditTarget(parsed, name)
   if (!entry)
     return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
 
@@ -264,7 +241,7 @@ function deleteTarget(
   parsed: ReturnType<typeof parseRapidProgram>,
   name: string,
 ): RapidEditResult {
-  const entry = findTarget(parsed, name)
+  const entry = resolveEditTarget(parsed, name)
   if (!entry)
     return { ok: false, error: { code: 'undefined-target', message: `未定义 robtarget ${name}` } }
   if (entry.referenceRanges.length > 0) {
@@ -344,9 +321,8 @@ function editMotionOperand(
   parsed: ReturnType<typeof parseRapidProgram>,
   command: Extract<RapidEditCommand, { type: 'edit-motion-operand' }>,
 ): RapidEditResult {
-  const indexError = instructionAt(parsed, command.index)
-  if (indexError) return { ok: false, error: indexError }
-  const instruction = parsed.instructions[command.index]
+  const instruction = resolveEditInstruction(parsed, command.index)
+  if (!instruction) return { ok: false, error: { code: 'invalid-instruction', message: `指令下标 ${command.index} 不存在` } }
   if (instruction.kind !== 'movej' && instruction.kind !== 'movel') {
     return {
       ok: false,
@@ -359,7 +335,7 @@ function editMotionOperand(
   if (command.operand === 'target') {
     const range = instruction.operandRanges.target
     if (command.value.source === 'existing') {
-      const entry = findTarget(parsed, command.value.name)
+      const entry = resolveEditTarget(parsed, command.value.name)
       if (!entry) {
         return {
           ok: false,
@@ -451,9 +427,8 @@ function deleteInstruction(
   parsed: ReturnType<typeof parseRapidProgram>,
   index: number,
 ): RapidEditResult {
-  const indexError = instructionAt(parsed, index)
-  if (indexError) return { ok: false, error: indexError }
-  const instruction = parsed.instructions[index]
+  const instruction = resolveEditInstruction(parsed, index)
+  if (!instruction) return { ok: false, error: { code: 'invalid-instruction', message: `指令下标 ${index} 不存在` } }
   const multiLine = singleLineError(instruction, index, '整行删除')
   if (multiLine) return { ok: false, error: multiLine }
 
@@ -478,11 +453,10 @@ function commentInstructions(
   const replacements: Array<{ offset: number; text: string }> = []
   const seen = new Set<number>()
   for (const index of indices) {
-    const indexError = instructionAt(parsed, index)
-    if (indexError) return { ok: false, error: indexError }
+    const instruction = resolveEditInstruction(parsed, index)
+    if (!instruction) return { ok: false, error: { code: 'invalid-instruction', message: `指令下标 ${index} 不存在` } }
     if (seen.has(index)) continue
     seen.add(index)
-    const instruction = parsed.instructions[index]
     const multiLine = singleLineError(instruction, index, '注释')
     if (multiLine) return { ok: false, error: multiLine }
     // 行首插入 `!`：整行变为注释，缩进保留在注释文本内。
@@ -563,9 +537,8 @@ function changeMotionKind(
   parsed: ReturnType<typeof parseRapidProgram>,
   index: number,
 ): RapidEditResult {
-  const indexError = instructionAt(parsed, index)
-  if (indexError) return { ok: false, error: indexError }
-  const instruction = parsed.instructions[index]
+  const instruction = resolveEditInstruction(parsed, index)
+  if (!instruction) return { ok: false, error: { code: 'invalid-instruction', message: `指令下标 ${index} 不存在` } }
   if (instruction.kind !== 'movej' && instruction.kind !== 'movel') {
     return {
       ok: false,

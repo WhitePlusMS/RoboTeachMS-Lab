@@ -3,6 +3,8 @@ export {
   isRapidMotionInstruction,
   isRobtargetProgramData,
   parseRapidProgram,
+  resolveEditInstruction,
+  resolveEditTarget,
 } from './rapid-parser.ts'
 export type {
   RapidAssignmentInstruction,
