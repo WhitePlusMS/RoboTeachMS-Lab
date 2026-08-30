@@ -54,9 +54,13 @@ describe('静态架构门禁', () => {
     for (const path of [
       'rapid/language/parser/data-declaration.ts',
       'rapid/language/parser/target-expression.ts',
-      'rapid/language/parser/motion-statement.ts',
+      'rapid/instructions/motion/motion-statement.ts',
       'rapid/language/parser/statement-parser.ts',
       'rapid/language/parser/control-flow-parser.ts',
+      'rapid/language/parser/control-flow.ts',
+      'rapid/instructions/mode/mode-statement.ts',
+      'rapid/instructions/assign/assignment-statement.ts',
+      'rapid/runtime/scalar-evaluation.ts',
     ]) {
       expect(paths.has(path)).toBe(true)
     }

@@ -11,6 +11,10 @@ import type {
   ConfigurationMonitoringMode,
 } from '../../data/index.ts'
 import {
+  cloneSpeed,
+  cloneTarget,
+  cloneTool,
+  cloneWobj,
   NO_EXTERNAL_AXIS,
   SYSTEM_LOADDATA,
   SYSTEM_SPEED,
@@ -50,13 +54,13 @@ import {
   parseWhile as parseWhileStatement,
   type ControlFlowParserContext,
 } from './control-flow-parser.ts'
-import { parseAssignment as parseAssignmentStatement } from './assignment-statement.ts'
-import { parseDataDeclaration as parseDataDeclarationStatement } from './data-declaration.ts'
-import { parseMotion as parseMotionStatement } from './motion-statement.ts'
 import {
+  parseAssignment as parseAssignmentStatement,
   parseConfiguration as parseConfigurationStatement,
+  parseMotion as parseMotionStatement,
   parseSingArea as parseSingAreaStatement,
-} from './mode-statement.ts'
+} from '../../instructions/index.ts'
+import { parseDataDeclaration as parseDataDeclarationStatement } from './data-declaration.ts'
 import { parseStatementList as parseStatementListStatement } from './statement-parser.ts'
 import type {
   PendingAssignment,
@@ -305,17 +309,29 @@ export function isRobtargetProgramData(data: RapidProgramData): data is RapidPro
   return data.kind === 'robtarget'
 }
 
-function cloneSpeed(speed: SpeedData): SpeedData {
-  return { ...speed }
+/**
+ * 按名称（RAPID 大小写不敏感）查找 robtarget 类型的 Program Data 条目；供受控编辑等
+ * 调用方按名字定位声明/引用范围，不需要自己遍历 `RapidParseResult.data` 或了解其内部形状。
+ */
+export function resolveEditTarget(
+  parsed: RapidParseResult,
+  name: string,
+): RapidProgramDataTarget | null {
+  const key = normalizeName(name)
+  return (
+    parsed.data.find(
+      (entry): entry is RapidProgramDataTarget =>
+        isRobtargetProgramData(entry) && normalizeName(entry.name) === key,
+    ) ?? null
+  )
 }
 
-function cloneTarget(target: RobTarget): RobTarget {
-  return {
-    trans: [...target.trans],
-    rot: [...target.rot],
-    robconf: [...target.robconf],
-    extax: [...target.extax],
-  }
+/** 按下标取 `RapidParseResult.instructions` 中的一条；下标越界返回 null，交由调用方决定拒绝理由。 */
+export function resolveEditInstruction(
+  parsed: RapidParseResult,
+  index: number,
+): RapidExecutableInstruction | null {
+  return index >= 0 && index < parsed.instructions.length ? parsed.instructions[index] : null
 }
 
 /**
@@ -623,31 +639,6 @@ export function parseRapidProgram(source: string): RapidParseResult {
     if (user) return cloneWobj(user)
     const sys = SYSTEM_WOBJDATA[key]
     return sys ? cloneWobj(sys) : null
-  }
-
-  function cloneTool(tool: ToolData): ToolData {
-    return {
-      robhold: tool.robhold,
-      tframe: { trans: [...tool.tframe.trans], rot: [...tool.tframe.rot] },
-      tload: {
-        mass: tool.tload.mass,
-        cog: [...tool.tload.cog],
-        aom: [...tool.tload.aom],
-        ix: tool.tload.ix,
-        iy: tool.tload.iy,
-        iz: tool.tload.iz,
-      },
-    }
-  }
-
-  function cloneWobj(wobj: WobjData): WobjData {
-    return {
-      robhold: wobj.robhold,
-      ufprog: wobj.ufprog,
-      ufmec: wobj.ufmec,
-      uframe: { trans: [...wobj.uframe.trans], rot: [...wobj.uframe.rot] },
-      oframe: { trans: [...wobj.oframe.trans], rot: [...wobj.oframe.rot] },
-    }
   }
 
   /**

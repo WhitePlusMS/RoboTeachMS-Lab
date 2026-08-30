@@ -78,3 +78,45 @@ export interface WobjData {
   uframe: RapidPose
   oframe: RapidPose
 }
+
+/** 深拷贝 speeddata；调用方持有的记录不应与符号表/系统预定义共享引用。 */
+export function cloneSpeed(speed: SpeedData): SpeedData {
+  return { ...speed }
+}
+
+/** 深拷贝 robtarget；trans/rot/robconf/extax 均为定长数组，逐一复制。 */
+export function cloneTarget(target: RobTarget): RobTarget {
+  return {
+    trans: [...target.trans],
+    rot: [...target.rot],
+    robconf: [...target.robconf],
+    extax: [...target.extax],
+  }
+}
+
+/** 深拷贝 tooldata；tframe/tload 均含数组字段，逐一复制。 */
+export function cloneTool(tool: ToolData): ToolData {
+  return {
+    robhold: tool.robhold,
+    tframe: { trans: [...tool.tframe.trans], rot: [...tool.tframe.rot] },
+    tload: {
+      mass: tool.tload.mass,
+      cog: [...tool.tload.cog],
+      aom: [...tool.tload.aom],
+      ix: tool.tload.ix,
+      iy: tool.tload.iy,
+      iz: tool.tload.iz,
+    },
+  }
+}
+
+/** 深拷贝 wobjdata；uframe/oframe 均含数组字段，逐一复制。 */
+export function cloneWobj(wobj: WobjData): WobjData {
+  return {
+    robhold: wobj.robhold,
+    ufprog: wobj.ufprog,
+    ufmec: wobj.ufmec,
+    uframe: { trans: [...wobj.uframe.trans], rot: [...wobj.uframe.rot] },
+    oframe: { trans: [...wobj.oframe.trans], rot: [...wobj.oframe.rot] },
+  }
+}

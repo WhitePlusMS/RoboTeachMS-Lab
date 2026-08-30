@@ -1,7 +1,10 @@
-import type { Token } from '../rapid-lexer.ts'
-import { rangeFromOffsets } from '../rapid-lexer.ts'
-import type { PendingStatement } from './pending-types.ts'
-import { parseScalarExpression, type ScalarExpressionContext } from './scalar-expression.ts'
+import type { Token } from '../../language/rapid-lexer.ts'
+import { rangeFromOffsets } from '../../language/rapid-lexer.ts'
+import type { PendingStatement } from '../../language/parser/pending-types.ts'
+import {
+  parseScalarExpression,
+  type ScalarExpressionContext,
+} from '../../language/parser/scalar-expression.ts'
 
 /** 赋值语句 parser 的最小上下文；表达式语义仍复用现有 scalar-expression 模块。 */
 export interface AssignmentStatementContext {

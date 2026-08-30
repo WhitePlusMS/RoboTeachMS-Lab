@@ -1,14 +1,17 @@
-import type { OperandKind } from '../rapid-symbols.ts'
-import { isSymbol, normalizeName } from '../rapid-symbols.ts'
-import type { Token } from '../rapid-lexer.ts'
-import { positionAt, rangeFromOffsets } from '../rapid-lexer.ts'
+import type { OperandKind } from '../../language/rapid-symbols.ts'
+import { isSymbol, normalizeName } from '../../language/rapid-symbols.ts'
+import type { Token } from '../../language/rapid-lexer.ts'
+import { positionAt, rangeFromOffsets } from '../../language/rapid-lexer.ts'
 import type {
   PendingMotion,
   PendingStatement,
   PendingTarget,
   PendingTargetExpressionKind,
-} from './pending-types.ts'
-import { parseTargetOperand, type TargetExpressionContext } from './target-expression.ts'
+} from '../../language/parser/pending-types.ts'
+import {
+  parseTargetOperand,
+  type TargetExpressionContext,
+} from '../../language/parser/target-expression.ts'
 
 /** 运动语句 parser 的上下文；运动锚点和 pending 引用仍由主 parser 统一收集。 */
 export interface MotionStatementContext extends TargetExpressionContext {

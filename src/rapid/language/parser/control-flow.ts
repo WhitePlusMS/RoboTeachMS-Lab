@@ -23,17 +23,29 @@ export interface ControlFlowContext {
   resolveLeaf(statement: PendingStatement): RapidExecutableInstruction | null
 }
 
+/**
+ * 结构语句体内最后一条语句若是叶子指令，需要显式接管其 nextPointer 跳出该结构。
+ * 分支/循环本身（conditional/while/for/exitdo）已经通过自身 trueTarget/falseTarget/target
+ * 完成跳转，不需要在这里处理；穷尽 switch 保证新增叶子指令类型时编译报错，而不是静默漏挂线。
+ */
 function setBranchExit(instruction: RapidExecutableInstruction, target: number): void {
-  if (
-    instruction.kind === 'movej' ||
-    instruction.kind === 'movel' ||
-    instruction.kind === 'movec' ||
-    instruction.kind === 'singarea' ||
-    instruction.kind === 'confj' ||
-    instruction.kind === 'confl' ||
-    instruction.kind === 'assign'
-  ) {
-    instruction.nextPointer = target
+  switch (instruction.kind) {
+    case 'movej':
+    case 'movel':
+    case 'movec':
+    case 'singarea':
+    case 'confj':
+    case 'confl':
+    case 'assign':
+      instruction.nextPointer = target
+      return
+    case 'if':
+    case 'while':
+    case 'for':
+    case 'exitdo':
+      return
+    default:
+      instruction satisfies never
   }
 }
 
