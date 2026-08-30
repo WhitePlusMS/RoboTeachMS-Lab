@@ -27,8 +27,10 @@ export type MotionCommand =
       readonly kind: 'continuous-update'
       readonly source: ContinuousMotionSource
       readonly request: MotionPlanningRequest
-      readonly playback: 'stream' | 'speed-limited'
+      readonly playback: 'immediate' | 'stream' | 'speed-limited'
       readonly durationMs?: number
+      /** 规划通过校验且 Runner 已接受目标时触发；不代表运动已经完成。 */
+      readonly onPlanAccepted?: (plan: MotionPlanningResult & { readonly ok: true }) => void
     }
   | {
       readonly kind: 'continuous-end'
@@ -190,7 +192,7 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
 
   async function runPlan(
     planned: MotionPlanningResult & { readonly ok: true },
-    command: Pick<Extract<MotionCommand, { readonly kind: 'move' | 'continuous-update' }>, 'source' | 'playback' | 'durationMs'>,
+    command: Extract<MotionCommand, { readonly kind: 'move' | 'continuous-update' }>,
     currentVersion: number,
     currentRequestId: number,
     startedAt: number,
@@ -260,6 +262,9 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
       if (currentVersion !== version) return invalidatedOutcome(currentVersion)
       return failRunner(error)
     }
+    // 连续输入需要在当前 stream 仍运行时继续规划并 retarget。这里只通知“目标已被接受”，
+    // 真实 completed/stopped 仍由 Runner Promise 结算，不能混淆运动结果语义。
+    if (command.kind === 'continuous-update') command.onPlanAccepted?.(planned)
 
     let result: MotionResult
     try {
@@ -308,7 +313,9 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
       settlePendingContinuous('cancelled')
       options.stopRunner()
     }
-    const currentVersion = ++version
+    // 同一连续会话内的每次 retarget 属于同一个运动执行，共享 generation；
+    // 离散命令仍通过递增版本取得唯一执行权。
+    const currentVersion = command.kind === 'continuous-update' ? version : ++version
     const currentRequestId = ++requestId
     const startedAt = Date.now()
     source = command.source
@@ -371,12 +378,36 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
   }
 
   async function processContinuous(entry: ContinuousEntry): Promise<void> {
+    let planningReleased = false
+    const releasePlanning = (): void => {
+      if (planningReleased) return
+      planningReleased = true
+      continuousProcessing = false
+      const next = pendingContinuous
+      pendingContinuous = null
+      if (next && continuousSession === next.command.source && !disposed) {
+        continuousProcessing = true
+        void processContinuous(next)
+      } else if (next) {
+        next.resolve({ ok: false, reason: 'cancelled' })
+      }
+    }
+    const originalOnPlanAccepted = entry.command.onPlanAccepted
+    const command: typeof entry.command = {
+      ...entry.command,
+      onPlanAccepted: (plan) => {
+        originalOnPlanAccepted?.(plan)
+        // 只串行化 Worker 规划，不等待活动 Runner 完成；Runner 自身保证单帧循环和最新目标替换。
+        releasePlanning()
+      },
+    }
     try {
-      const outcome = await submitMove(entry.command)
+      const outcome = await submitMove(command)
       entry.resolve(outcome)
-      if (!outcome.ok && outcome.reason === 'planning-failure' && continuousSession === entry.command.source) {
-        // 连续输入的规划或 Runner 失败后不再接受后续 tick；让上层重新 begin
-        // 才能建立新的会话，避免失败状态持续驱动旧目标。
+      if (isFatalContinuousFailure(outcome) && continuousSession === entry.command.source) {
+        // 只有硬错误（请求本身有问题、模型不匹配、规划器基础设施故障）才终止会话；
+        // "目标暂时不可达"类失败保留会话，让下一个 tick 用新目标继续尝试——否则
+        // 拖出工作空间再拖回来，机械臂会因为会话已关闭而永久停摆，需要松开重按才能恢复。
         continuousSession = null
         source = null
         settlePendingContinuous('cancelled')
@@ -397,15 +428,8 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
         version += 1
       }
     } finally {
-      continuousProcessing = false
-      const next = pendingContinuous
-      pendingContinuous = null
-      if (next && continuousSession === next.command.source && !disposed) {
-        continuousProcessing = true
-        void processContinuous(next)
-      } else if (next) {
-        next.resolve({ ok: false, reason: 'cancelled' })
-      }
+      // 规划/Runner 同步失败时不会触发 onPlanAccepted，仍需在这里释放 pending。
+      releasePlanning()
     }
   }
 

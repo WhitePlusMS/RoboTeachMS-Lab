@@ -198,6 +198,7 @@ export interface CartesianControlOptions {
     mode: MotionSubmissionMode,
     durationMs?: number,
     continuous?: boolean,
+    onPlanAccepted?: (plan: MotionPlanningResult & { readonly ok: true }) => void,
   ) => MotionCommandOutcome | Promise<MotionCommandOutcome>
   /** 将 Pose 转换为 Core request 的纯入口 adapter。 */
   buildRequest: (targetPose: Pose, initialJoints: JointAngles) => MotionPlanningRequest
@@ -340,6 +341,12 @@ export function useCartesianControl(options: CartesianControlOptions) {
       playback,
       context.isContinuous ? 140 : undefined,
       context.isContinuous,
+      context.isContinuous
+        ? (plan) => {
+            if (!jogSession.isActive()) return
+            applyCartesianResult(coreResultToPathResult(plan), true, target)
+          }
+        : undefined,
     )
     const applyOutcome = (outcome: MotionCommandOutcome): boolean => {
       // Coordinator 已经完成 stale/cancelled 结算；迟到结果不应覆盖当前状态或锚点。
@@ -351,6 +358,9 @@ export function useCartesianControl(options: CartesianControlOptions) {
         }
         return applyCartesianResult(coreResultToPathResult(outcome.result), context.isContinuous, target)
       }
+      // 连续目标已在 Runner 接受计划时提交锚点；最终 Promise 这里只保留真实运动结果，
+      // 不能再次推进锚点，否则会把同一个步进累计两次。
+      if (context.isContinuous) return true
       if (!outcome.plan) {
         status.value = 'unreachable'
         return false

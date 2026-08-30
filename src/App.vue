@@ -249,6 +249,18 @@ function prepareProgramRun(): void {
   motionCoordinator.stop('program-start')
 }
 
+/** 顶栏与程序工作区复用同一运行入口，避免模板内多语句被格式化后失去合法语法。 */
+function handleProgramRun(): void {
+  prepareProgramRun()
+  programControl.run()
+}
+
+/** 单步与连续运行共享相同的运动抢占准备，只在最终程序动作上区分。 */
+function handleProgramStep(): void {
+  prepareProgramRun()
+  programControl.step()
+}
+
 function handleGizmoDragEnd(): void {
   void motionCoordinator.submit({ kind: 'continuous-end', source: 'gizmo' })
   if (gizmoDragUnreachable.value) {
@@ -281,7 +293,7 @@ const {
   pose,
   profile,
   buildRequest: createCartesianTargetRequest,
-  submitMotion: (request, mode, durationMs, continuous = false) => {
+  submitMotion: (request, mode, durationMs, continuous = false, onPlanAccepted) => {
     if (continuous) {
       return motionCoordinator.submit({
         kind: 'continuous-update',
@@ -289,6 +301,7 @@ const {
         request,
         playback: mode === 'stream' ? 'stream' : 'speed-limited',
         durationMs,
+        onPlanAccepted,
       })
     }
     return motionCoordinator.submit({
@@ -421,14 +434,8 @@ provideProgramPanelController({
   redo: () => programControl.redo(),
   canUndo: programControl.canUndo,
   canRedo: programControl.canRedo,
-  run: () => {
-    prepareProgramRun()
-    programControl.run()
-  },
-  step: () => {
-    prepareProgramRun()
-    programControl.step()
-  },
+  run: handleProgramRun,
+  step: handleProgramStep,
   stop: () => programControl.stop(),
   ppToMain: handlePP,
   confirmClearToNext: () => programControl.confirmClearToNext(),
@@ -457,8 +464,8 @@ provideProgramPanelController({
         :source="rapidSource"
         :program="programControl.parsed.value.program"
         :pending-clear="pendingClearState"
-        @run="prepareProgramRun(); programControl.run()"
-        @step="prepareProgramRun(); programControl.step()"
+        @run="handleProgramRun"
+        @step="handleProgramStep"
         @stop="programControl.stop()"
         @pp="handlePP()"
         @confirm-clear="programControl.confirmClearToNext()"

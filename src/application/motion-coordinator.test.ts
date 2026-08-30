@@ -343,6 +343,48 @@ describe('MotionCoordinator', () => {
       .resolves.toMatchObject({ ok: true, result: 'stopped' })
   })
 
+  it('活动 stream 未完成时仍把最新连续目标追加到同一 Runner', async () => {
+    let finishRunner: (result: 'completed') => void = () => {}
+    const runnerResult = new Promise<'completed'>((resolve) => {
+      finishRunner = resolve
+    })
+    const appendTrajectory = vi.fn(() => runnerResult)
+    const coordinator = createMotionCoordinator({
+      plan: () => plan,
+      runImmediate: vi.fn(),
+      runEased: async () => 'completed',
+      runTrajectory: async () => 'completed',
+      appendTrajectory,
+      runSpeedLimited: async () => 'completed',
+      stopRunner: vi.fn(),
+    })
+
+    await coordinator.submit({ kind: 'continuous-begin', source: 'manual-cartesian' })
+    const first = coordinator.submit({
+      kind: 'continuous-update',
+      source: 'manual-cartesian',
+      request,
+      playback: 'stream',
+      durationMs: 140,
+    })
+    await vi.waitFor(() => expect(appendTrajectory).toHaveBeenCalledTimes(1))
+
+    const second = coordinator.submit({
+      kind: 'continuous-update',
+      source: 'manual-cartesian',
+      request,
+      playback: 'stream',
+      durationMs: 140,
+    })
+
+    // Runner 的 stream 模式本身支持活动中 retarget；Coordinator 不能等待首段完成后才追加。
+    await vi.waitFor(() => expect(appendTrajectory).toHaveBeenCalledTimes(2))
+    finishRunner('completed')
+
+    await expect(first).resolves.toMatchObject({ ok: true, result: 'completed' })
+    await expect(second).resolves.toMatchObject({ ok: true, result: 'completed' })
+  })
+
   it('连续会话 source 不匹配或 end 后不会再次规划', async () => {
     const planSpy = vi.fn(() => plan)
     const stopRunner = vi.fn()
@@ -373,7 +415,7 @@ describe('MotionCoordinator', () => {
       () => new Promise<'completed'>((resolve) => { releaseStream = () => resolve('completed') }),
     )
     const runImmediate = vi.fn()
-    const stopRunner = vi.fn()
+    const stopRunner = vi.fn(() => releaseStream())
     const coordinator = createMotionCoordinator({
       plan: () => plan,
       runImmediate,
@@ -400,9 +442,8 @@ describe('MotionCoordinator', () => {
     })
     const discrete = coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'immediate' })
 
-    await expect(pending).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    await expect(pending).resolves.toEqual({ ok: false, reason: 'stale' })
     await expect(discrete).resolves.toMatchObject({ ok: true, result: 'completed' })
-    releaseStream()
     await expect(first).resolves.toEqual({ ok: false, reason: 'stale' })
     expect(runImmediate).toHaveBeenCalledWith([1, 0, 0, 0, 30, 0])
     expect(stopRunner).toHaveBeenCalled()

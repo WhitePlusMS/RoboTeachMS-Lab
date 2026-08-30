@@ -46,12 +46,14 @@ type LegacyPlanTarget = (
 type TestControlOptions = Omit<CartesianControlOptions, 'submitMotion' | 'buildRequest'> & {
   planTarget?: LegacyPlanTarget
   moveToTrajectory?: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
+  deferMotionOutcome?: boolean
 }
 
 function createControl(options: TestControlOptions) {
   const {
     planTarget: suppliedPlanTarget,
     moveToTrajectory,
+    deferMotionOutcome,
     ...controlOptions
   } = options
   const planTarget: LegacyPlanTarget = suppliedPlanTarget ?? ((target, initial) =>
@@ -61,6 +63,9 @@ function createControl(options: TestControlOptions) {
   const submitMotion = (
     request: Parameters<CartesianControlOptions['submitMotion']>[0],
     mode: Parameters<CartesianControlOptions['submitMotion']>[1],
+    _durationMs?: number,
+    _continuous?: boolean,
+    onPlanAccepted?: Parameters<CartesianControlOptions['submitMotion']>[4],
   ): MotionCommandOutcome | Promise<MotionCommandOutcome> => {
     if (request.intent.kind !== 'cartesian-target') {
       throw new Error('测试 Cartesian 控制只接受 cartesian-target request')
@@ -77,7 +82,7 @@ function createControl(options: TestControlOptions) {
       ]),
     }
     const context = { isContinuous: mode === 'stream' }
-    const toOutcome = (path: CartesianPathResult | null): MotionCommandOutcome => {
+    const toOutcome = (path: CartesianPathResult | null): MotionCommandOutcome | Promise<MotionCommandOutcome> => {
       if (path === null || !path.ok) {
         const details: Readonly<Record<string, string | number | boolean | null>> = path?.diagnostic
           ? {
@@ -114,18 +119,26 @@ function createControl(options: TestControlOptions) {
         ...path.waypoints.map((joints, index) => ({ timeMs: index + 1, jointsDeg: joints })),
       ]
       moveToTrajectory?.(path.waypoints, context.isContinuous)
-      return {
-        ok: true,
-        result: 'completed',
-        plan: {
-          ok: true,
-          waypoints,
-          end: { jointsDeg: waypoints.at(-1)?.jointsDeg ?? request.state.jointsDeg },
-          validation: {
-            relaxedConstraints: path.appliedSingularityMode ? ['orientation'] : undefined,
-          },
+      const acceptedPlan = {
+        ok: true as const,
+        waypoints,
+        end: { jointsDeg: waypoints.at(-1)?.jointsDeg ?? request.state.jointsDeg },
+        validation: {
+          relaxedConstraints: path.appliedSingularityMode ? ['orientation'] : undefined,
         },
       }
+      const outcome: MotionCommandOutcome = {
+        ok: true,
+        result: 'completed',
+        plan: acceptedPlan,
+      }
+      if (deferMotionOutcome) {
+        // 模拟 Runner 仍在运动：计划先被接受，运动结果 Promise 暂不结算。
+        queueMicrotask(() => onPlanAccepted?.(acceptedPlan))
+        return new Promise<MotionCommandOutcome>(() => {})
+      }
+      onPlanAccepted?.(acceptedPlan)
+      return outcome
     }
     const planned = planTarget(target, [...request.state.jointsDeg] as JointAngles, context)
     return planned instanceof Promise ? planned.then(toOutcome) : toOutcome(planned)
@@ -433,6 +446,38 @@ describe('笛卡尔坐标增量', () => {
     expect(submittedX).toHaveLength(3)
     expect(submittedX[1] - submittedX[0]).toBeCloseTo(1, 8)
     expect(submittedX[2] - submittedX[1]).toBeCloseTo(1, 8)
+  })
+
+  it('连续计划被 Runner 接受后立即推进锚点，不等待运动完成结果', async () => {
+    const model = new AbbRobotModelAdapter()
+    const joints = ref<JointAngles>([0, -25, 45, 0, 20, 0])
+    const poseRef = computed<PoseDisplay>(() => {
+      const currentPose = model.forwardKinematics(joints.value)
+      return {
+        positionMm: [...currentPose.position] as PoseDisplay['positionMm'],
+        orientationDeg: currentPose.euler.map(radToDeg) as PoseDisplay['orientationDeg'],
+      }
+    })
+    const requestedX: number[] = []
+    const control = createControl({
+      joints,
+      pose: poseRef,
+      profile: ABB_IRB1200_PROFILE,
+      deferMotionOutcome: true,
+      planTarget: (target, initial) => {
+        requestedX.push(target.position[0])
+        return planCartesianPath(target, initial, model, ABB_IRB1200_PROFILE.jointRanges, {
+          preserveConfiguration: false,
+        })
+      },
+    })
+
+    control.move('x', 1, true)
+    await Promise.resolve()
+    control.move('x', 1, true)
+
+    expect(requestedX).toHaveLength(2)
+    expect(requestedX[1] - requestedX[0]).toBeCloseTo(1, 8)
   })
 
   it('连续点动结束时通知宿主停止当前运动', () => {
