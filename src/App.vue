@@ -30,15 +30,12 @@ import { provideToasts, useToasts } from '@/application/toast.ts'
 import { useStatusToasts } from '@/application/status-toasts.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
 import { useCartesianControl } from '@/application/cartesian-control.ts'
-import { createMotionPlannerAdapter } from '@/robotics/cartesian/worker/adapter.ts'
-import {
-  createCartesianTargetRequest,
-  createJointTargetRequest,
-} from '@/application/motion-requests.ts'
+import { createMotionPlannerAdapter, planCartesianTargetSync } from '@/infrastructure/motion-worker/adapter.ts'
+import { createCartesianTargetRequest } from '@/application/motion-requests.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 import { provideProgramPanelController } from '@/application/use-program-panel-controller.ts'
-import { provideRobotController } from '@/application/use-robot-controller.ts'
+import { preemptManualMotion, provideRobotController, useRobotController } from '@/application/use-robot-controller.ts'
 import { mapCoreFailure } from '@/rapid/planning/core-motion.ts'
 import type { InstructionOutcome } from '@/rapid/execution/index.ts'
 

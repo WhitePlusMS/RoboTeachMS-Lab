@@ -1,4 +1,5 @@
 import { planMotion, type MotionPlanningRequest, type MotionPlanningResult } from '@/robot-motion-core/index.ts'
+import type { MotionSource } from '@/application/motion-coordinator.ts'
 
 interface PlannerRequest {
   readonly requestId: number
@@ -6,8 +7,25 @@ interface PlannerRequest {
 }
 interface PlannerResponse { readonly requestId: number; readonly result: MotionPlanningResult }
 
+/** gizmo 拖拽和笛卡尔连续点动走主线程同步直调 planMotion（复刻旧版本 5391fad 的低延迟
+ *  路径，零 Worker 往返）；其余来源（RAPID、关节 Jog、离散笛卡尔目标）继续走常驻 Worker，
+ *  行为不变。两条路径调用同一个 planMotion，不存在第二套规划实现——这里只是 transport 选择。 */
+function isSyncTransportSource(source: MotionSource): boolean {
+  return source === 'gizmo' || source === 'manual-cartesian'
+}
+
+/**
+ * 同步预判笛卡尔目标可达性；供 gizmo 拖拽等下游 UI 需要在同一调用栈内判断"能不能到达"
+ * 的场景使用（如 TransformControls 的 objectChange 回调，同步返回 false 才能立即回弹，
+ * 不能等一次异步往返）。调用的是与 gizmo/笛卡尔点动 transport 完全相同的 planMotion，
+ * 不是第二套规划实现，只是把已经同步可用的规划结果提前暴露给需要同步判断的调用方。
+ */
+export function planCartesianTargetSync(request: MotionPlanningRequest): MotionPlanningResult {
+  return planMotion(request)
+}
+
 export interface MotionPlannerWorkerAdapter {
-  plan: (request: MotionPlanningRequest) => Promise<MotionPlanningResult | null>
+  plan: (request: MotionPlanningRequest, source: MotionSource) => Promise<MotionPlanningResult | null>
   cancel: () => void
   dispose: () => void
 }
@@ -83,7 +101,8 @@ export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
     worker = created
     return created
   }
-  function plan(request: MotionPlanningRequest): Promise<MotionPlanningResult | null> {
+  function plan(request: MotionPlanningRequest, source: MotionSource): Promise<MotionPlanningResult | null> {
+    if (isSyncTransportSource(source)) return Promise.resolve(planMotion(request))
     const id = ++nextId
     return new Promise((resolve) => {
       if (active) {

@@ -28,8 +28,8 @@ describe('静态架构门禁', () => {
   it('planMotion 生产调用只位于 Core 与 Worker adapter 边界', () => {
     const allowed = new Set([
       'robot-motion-core/planner.ts',
-      'robotics/cartesian/worker/worker.ts',
-      'robotics/cartesian/worker/adapter.ts',
+      'infrastructure/motion-worker/worker.ts',
+      'infrastructure/motion-worker/adapter.ts',
     ])
     const calls = productionSource().filter(({ content }) => /\bplanMotion\s*\(/.test(content))
     expect(calls.every(({ path }) => allowed.has(path))).toBe(true)
@@ -38,7 +38,7 @@ describe('静态架构门禁', () => {
   it('Core 不反向依赖旧 Cartesian 业务入口，宿主不直接规划', () => {
     const files = productionSource()
     const coreFiles = files.filter(({ path }) => path.startsWith('robot-motion-core/'))
-    expect(coreFiles.some(({ content }) => /robotics\/cartesian\/(?!worker)/.test(content))).toBe(false)
+    expect(coreFiles.some(({ content }) => /robotics\/cartesian/.test(content))).toBe(false)
     expect(files.some(({ content }) => /motionPlanner\.plan\s*\(/.test(content))).toBe(false)
   })
 
@@ -76,12 +76,12 @@ describe('静态架构门禁', () => {
   it('连续 latest-only 与 Runner transport 只由 Coordinator 承担', () => {
     const files = productionSource()
     const coordinator = files.find(({ path }) => path === 'application/motion-coordinator.ts')
-    const worker = files.find(({ path }) => path === 'robotics/cartesian/worker/adapter.ts')
+    const worker = files.find(({ path }) => path === 'infrastructure/motion-worker/adapter.ts')
     expect(coordinator?.content).toMatch(/continuous-begin/)
     expect(coordinator?.content).toMatch(/continuous-update/)
     expect(coordinator?.content).toMatch(/continuous-end/)
     expect(coordinator?.content).toMatch(/pendingContinuous/)
     expect(worker?.content).not.toMatch(/pending/)
-    expect(files.filter(({ path, content }) => path !== 'robotics/motion/runner.ts' && /\b(runEased|runTrajectory|appendTrajectory|runSpeedLimited)\s*\(/.test(content)).every(({ path }) => path === 'application/motion-coordinator.ts')).toBe(true)
+    expect(files.filter(({ path, content }) => path !== 'robot-geometry/motion/runner.ts' && /\b(runEased|runTrajectory|appendTrajectory|runSpeedLimited)\s*\(/.test(content)).every(({ path }) => path === 'application/motion-coordinator.ts')).toBe(true)
   })
 })

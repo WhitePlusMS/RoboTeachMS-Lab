@@ -28,7 +28,7 @@ describe('Core Worker adapter', () => {
   it('对同一请求保持 Core 直调与 Worker 结果一致', async () => {
     Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     const adapter = createMotionPlannerWorkerAdapter()
-    const pending = adapter.plan(request)
+    const pending = adapter.plan(request, 'rapid')
     FakeWorker.instances[0].complete(planMotion(request))
     await expect(pending).resolves.toEqual(planMotion(JSON.parse(JSON.stringify(request))))
     adapter.dispose()
@@ -37,10 +37,10 @@ describe('Core Worker adapter', () => {
   it('取消活动规划会终止旧 Worker，下一请求只进入新 transport', async () => {
     Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker })
     const adapter = createMotionPlannerWorkerAdapter()
-    const first = adapter.plan(request)
+    const first = adapter.plan(request, 'rapid')
     adapter.cancel()
     const secondRequest = { ...request, state: { jointsDeg: [1, 1, 1, 1, 30, 1] as MotionPlanningRequest['state']['jointsDeg'] } }
-    const second = adapter.plan(secondRequest)
+    const second = adapter.plan(secondRequest, 'rapid')
     await expect(first).resolves.toBeNull()
     expect(FakeWorker.instances[0].terminated).toBe(true)
     expect(FakeWorker.instances[0].request).toEqual(request)
