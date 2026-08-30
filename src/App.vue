@@ -9,13 +9,9 @@ import RunLogPanel from '@/components/RunLogPanel.vue'
 import SceneViewport from '@/components/SceneViewport.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
-import type { JointAngles, Pose } from '@/robotics/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import {
-  adjustJointAngle,
-  randomJointAngles,
-  useJointControl,
-} from '@/application/joint-control.ts'
+import { useJointControl } from '@/application/joint-control.ts'
 import { useMotion } from '@/application/motion-control.ts'
 import { createMotionCoordinator } from '@/application/motion-coordinator.ts'
 import {
@@ -92,29 +88,6 @@ const motionCoordinator = createMotionCoordinator({
 })
 onBeforeUnmount(() => motionCoordinator.dispose())
 
-/** 数值输入同样通过 Core 与 Coordinator 提交，使用 1ms 缓动保持近似即时的面板语义。 */
-function setJoint(index: number, value: number): void {
-  endCartesianContinuous()
-  programControl.stopActiveProgram()
-  motionCoordinator.stop('superseded')
-  const before = joints.value[index]
-  const target = [...joints.value] as JointAngles
-  target[index] = value
-  void motionCoordinator.submit({
-    kind: 'move',
-    source: 'manual-joint',
-    request: createJointTargetRequest(joints.value, target),
-    playback: 'immediate',
-  }).then((outcome) => {
-    if (!outcome.ok && outcome.reason === 'planning-failure') {
-      runLog.warn('运动', `J${index + 1} 目标被 Core 拒绝：${outcome.result?.ok === false ? outcome.result.error.code : outcome.reason}`)
-    }
-  })
-  runLog.info('运动', `J${index + 1} ${before.toFixed(1)}° → ${value.toFixed(1)}°`)
-}
-
-const JOINT_LABELS = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
-
 function syncRoute(): void {
   isLabRoute.value =
     window.location.pathname === labPath || window.location.pathname.endsWith('/lab')
@@ -128,87 +101,6 @@ function navigateTo(route: 'home' | 'lab'): void {
 
 onMounted(() => window.addEventListener('popstate', syncRoute))
 onBeforeUnmount(() => window.removeEventListener('popstate', syncRoute))
-
-function adjustJoint(index: number, direction: -1 | 1, isContinuous = false): void {
-  if (!isContinuous) endCartesianContinuous()
-  programControl.stopActiveProgram()
-  const next = adjustJointAngle(
-    joints.value,
-    index,
-    direction,
-    jointStep.value,
-    profile.jointRanges,
-  )
-  if (isContinuous) {
-    void motionCoordinator.submit({
-      kind: 'continuous-update',
-      source: 'manual-joint',
-      request: createJointTargetRequest(joints.value, next),
-      playback: 'speed-limited',
-    })
-  } else {
-    void motionCoordinator.submit({
-      kind: 'move',
-      source: 'manual-joint',
-      request: createJointTargetRequest(joints.value, next),
-      playback: 'eased',
-    })
-    // 只有离散单步才记日志；按住连续 Jog 的 80ms 高频 tick 不做逐条记录以免刷屏。
-    runLog.info(
-      '运动',
-      `${JOINT_LABELS[index] ?? `J${index + 1}`} 单步 ${
-        direction > 0 ? '+' : '−'
-      }${jointStep.value}° → ${next[index].toFixed(1)}°`,
-    )
-  }
-}
-
-function beginJointContinuous(index: number, direction: -1 | 1): void {
-  endCartesianContinuous()
-  programControl.stopActiveProgram()
-  void motionCoordinator.submit({ kind: 'continuous-begin', source: 'manual-joint' })
-  runLog.info('运动', `${JOINT_LABELS[index] ?? `J${index + 1}`} 开始连续 Jog（${direction > 0 ? '+' : '−'}）`)
-}
-
-function endJointContinuous(): void {
-  void motionCoordinator.submit({ kind: 'continuous-end', source: 'manual-joint' })
-}
-
-function reset(): void {
-  endCartesianContinuous()
-  programControl.stopActiveProgram()
-  void motionCoordinator.submit({
-    kind: 'move',
-    source: 'manual-joint',
-    request: createJointTargetRequest(joints.value, [...profile.homeJoints] as JointAngles),
-    playback: 'eased',
-  })
-  runLog.info('运动', '机器人回到教学 Home')
-}
-
-function resetMechanicalZero(): void {
-  endCartesianContinuous()
-  programControl.stopActiveProgram()
-  void motionCoordinator.submit({
-    kind: 'move',
-    source: 'manual-joint',
-    request: createJointTargetRequest(joints.value, [...profile.mechanicalZeroJoints] as JointAngles),
-    playback: 'eased',
-  })
-  runLog.info('运动', '机器人回到 ABB 机械零位')
-}
-
-function randomize(): void {
-  endCartesianContinuous()
-  programControl.stopActiveProgram()
-  void motionCoordinator.submit({
-    kind: 'move',
-    source: 'manual-joint',
-    request: createJointTargetRequest(joints.value, randomJointAngles(profile.jointRanges)),
-    playback: 'eased',
-  })
-  runLog.info('运动', '随机生成姿态')
-}
 
 /** RAPID 源码在 localStorage 的键名；用于跨刷新/重开浏览器保留用户编辑。 */
 const RAPID_SOURCE_STORAGE_KEY = 'abb-robot-lab:rapid-source'
@@ -348,8 +240,7 @@ function getGizmoPose(): Pose | null {
 function handleGizmoDragStart(): void {
   gizmoDragUnreachable.value = false
   gizmoDragError.value = null
-  endCartesianContinuous()
-  programControl.stopActiveProgram()
+  preemptManualMotion({ endCartesianContinuous, stopActiveProgram: programControl.stopActiveProgram })
   void motionCoordinator.submit({ kind: 'continuous-begin', source: 'gizmo' })
 }
 
@@ -477,32 +368,33 @@ function commandLabel(command: RapidEditCommand): string {
   }
 }
 
-/** Jog 工作区共享控制器：App 保持编排所有权（setJoint 先停程序/动画再运动）。 */
-provideRobotController({
-  joints,
-  jointRanges,
-  jointStep,
-  pose,
-  coordinateSystem,
-  positionStep,
-  orientationStep,
-  status: cartesianStatus,
-  statusMessage: cartesianStatusMessage,
-  setJoint,
-  adjustJoint,
-  beginJointContinuous,
-  endJointContinuous,
-  setStep,
-  reset,
-  resetMechanicalZero,
-  randomize,
-  moveCartesian,
-  beginCartesianContinuous,
-  endCartesianContinuous,
-  setCoordinateSystem,
-  setPositionStep,
-  setOrientationStep,
-})
+/** Jog 工作区共享控制器：运动抢占编排收在 useRobotController 深模块内，App 只负责装配依赖。 */
+provideRobotController(
+  useRobotController({
+    profile,
+    joints,
+    jointRanges,
+    jointStep,
+    pose,
+    setStep,
+    motionCoordinator,
+    stopActiveProgram: programControl.stopActiveProgram,
+    runLog,
+    cartesian: {
+      coordinateSystem,
+      positionStep,
+      orientationStep,
+      status: cartesianStatus,
+      statusMessage: cartesianStatusMessage,
+      move: moveCartesian,
+      beginContinuous: beginCartesianContinuous,
+      endContinuous: endCartesianContinuous,
+      setCoordinateSystem,
+      setPositionStep,
+      setOrientationStep,
+    },
+  }),
+)
 
 /** ProgramWorkspace 共享控制器：Program Data 全部派生自同一次 parseRapidProgram。 */
 provideProgramPanelController({
