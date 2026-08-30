@@ -1,10 +1,9 @@
 import { planStrictCandidateGraph } from '../candidate-path-planner.ts'
 import { MAX_CARTESIAN_JOINT_STEP_DEG } from '../step-policy.ts'
-import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
-import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
+import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robot-geometry/numerical-ik/types.ts'
 import {
-  buildJointStepDetail,
   getSinglePointWristEscapeDirection,
   isNearWristSingularity,
   isWristReconfiguration,
@@ -12,6 +11,7 @@ import {
   resolveJointSolution,
   withWaypointDiagnostic,
 } from './joint-solution.ts'
+import { buildStepFailureDetail } from './waypoint-diagnostics.ts'
 import type {
   AppliedSingularityMode,
   WaypointSolveOptions,
@@ -107,7 +107,7 @@ export function solvePoseWaypoints(
         wristFallbackPath && isWristReconfiguration(model, previousJoints, solved.joints)
       return withWaypointDiagnostic(
         wristReconfiguration ? 'wrist-reconfiguration' : 'joint-step',
-        buildJointStepDetail(
+        buildStepFailureDetail(
           previousJoints,
           solved.joints,
           jointRanges,

@@ -1,16 +1,16 @@
-import { DEFAULT_IK_CONFIG, solveIK } from '@/robotics/inverse-kinematics/numerical-ik.ts'
+import { DEFAULT_IK_CONFIG, solveIK } from '@/robot-geometry/numerical-ik/numerical-ik.ts'
 import {
   buildIKCandidateCatalog,
   isCandidateAtJointLimit,
-  JOINT_LIMIT_EPS_DEG,
   selectBestIKCandidate,
   type IKCandidateRecord,
-} from '@/robotics/inverse-kinematics/candidate-catalog.ts'
+} from '@/robot-geometry/numerical-ik/candidate-catalog.ts'
 import { MAX_CARTESIAN_JOINT_STEP_DEG } from '../step-policy.ts'
-import { rotationDistanceRad } from '@/robotics/math/rotation3d.ts'
-import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
-import type { IKSolverConfig } from '@/robotics/inverse-kinematics/types.ts'
+import { rotationDistanceRad } from '@/robot-geometry/math/rotation3d.ts'
+import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import type { IKSolverConfig } from '@/robot-geometry/numerical-ik/types.ts'
+import { buildJointLimitFailureDetail, buildStepFailureDetail } from './waypoint-diagnostics.ts'
 import type {
   JointFailureDetail,
   JointSolutionFailureReason,
@@ -29,55 +29,6 @@ const WRIST_ESCAPE_J5_DEG = 2
 const WRIST_ORIENTATION_TOLERANCE_RAD = (2 * Math.PI) / 180
 /** wrist 逃离精化中的 J4 连续性正则；避免 DLS 在位置冗余下跳到另一腕部构型。 */
 const WRIST_J4_CONTINUITY_WEIGHT = 100
-/** 找出最能解释失败的关节轴；优先选择最大步长，避免把 J1 的小误差误报为腕部故障。 */
-export function buildJointStepDetail(
-  previous: JointAngles,
-  attempted: JointAngles,
-  jointRanges: readonly (readonly [number, number])[],
-  preferredAxes?: readonly number[],
-): JointFailureDetail {
-  const axes =
-    preferredAxes && preferredAxes.length > 0
-      ? preferredAxes
-      : attempted.map((_value, index) => index)
-  let axisIndex = axes[0]
-  let deltaDeg = Math.abs(attempted[axisIndex] - previous[axisIndex])
-  for (const index of axes.slice(1)) {
-    const candidateDelta = Math.abs(attempted[index] - previous[index])
-    if (candidateDelta > deltaDeg) {
-      axisIndex = index
-      deltaDeg = candidateDelta
-    }
-  }
-
-  return {
-    axisIndex,
-    previousAngleDeg: previous[axisIndex],
-    attemptedAngleDeg: attempted[axisIndex],
-    deltaDeg,
-    limitRangeDeg: jointRanges[axisIndex],
-  }
-}
-
-/** 从贴近范围边界的候选中指出实际触及限位的轴。 */
-function buildJointLimitDetail(
-  previous: JointAngles,
-  attempted: JointAngles,
-  jointRanges: readonly (readonly [number, number])[],
-): JointFailureDetail {
-  const axisIndex = attempted.findIndex((value, index) => {
-    const [min, max] = jointRanges[index]
-    return value <= min + JOINT_LIMIT_EPS_DEG || value >= max - JOINT_LIMIT_EPS_DEG
-  })
-  const selectedAxis = axisIndex >= 0 ? axisIndex : 0
-  return {
-    axisIndex: selectedAxis,
-    previousAngleDeg: previous[selectedAxis],
-    attemptedAngleDeg: attempted[selectedAxis],
-    deltaDeg: Math.abs(attempted[selectedAxis] - previous[selectedAxis]),
-    limitRangeDeg: jointRanges[selectedAxis],
-  }
-}
 
 function resolveAnalyticJointSolution(
   targetPose: Pose,
@@ -138,7 +89,7 @@ function resolveAnalyticJointSolution(
     if (continuousCandidate) {
       return {
         failure: 'joint-step',
-        detail: buildJointStepDetail(
+        detail: buildStepFailureDetail(
           referenceJoints,
           continuousCandidate,
           jointRanges,
@@ -152,7 +103,7 @@ function resolveAnalyticJointSolution(
     return limitedCandidate
       ? {
           failure: 'joint-limit',
-          detail: buildJointLimitDetail(referenceJoints, limitedCandidate, jointRanges),
+          detail: buildJointLimitFailureDetail(referenceJoints, limitedCandidate, jointRanges),
         }
       : { failure: 'joint-limit' }
   }
@@ -586,13 +537,13 @@ function resolveJointSolutionStrict(
     ) {
       return {
         failure: 'joint-step',
-        detail: buildJointStepDetail(referenceJoints, primary, jointRanges),
+        detail: buildStepFailureDetail(referenceJoints, primary, jointRanges),
       }
     }
     if (primary) {
       return {
         failure: 'joint-limit',
-        detail: buildJointLimitDetail(referenceJoints, primary, jointRanges),
+        detail: buildJointLimitFailureDetail(referenceJoints, primary, jointRanges),
       }
     }
     return { failure: 'unreachable' }

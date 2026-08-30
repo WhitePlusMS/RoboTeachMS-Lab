@@ -1,12 +1,13 @@
-import { DEFAULT_IK_CONFIG } from '@/robotics/inverse-kinematics/numerical-ik.ts'
+import { DEFAULT_IK_CONFIG } from '@/robot-geometry/numerical-ik/numerical-ik.ts'
 import {
   buildIKCandidateCatalog,
   type IKCandidateRecord,
-} from '@/robotics/inverse-kinematics/candidate-catalog.ts'
-import type { RobotModel } from '@/robotics/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robotics/model/joint-pose.ts'
-import type { IKSolverConfig, RobotConfiguration } from '@/robotics/inverse-kinematics/types.ts'
+} from '@/robot-geometry/numerical-ik/candidate-catalog.ts'
+import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import type { IKSolverConfig, RobotConfiguration } from '@/robot-geometry/numerical-ik/types.ts'
 import type { WaypointFailureDiagnostic } from './solution/waypoint-types.ts'
+import { buildCandidateLimitFailureDetail, buildStepFailureDetail } from './solution/waypoint-diagnostics.ts'
 import { MAX_CARTESIAN_JOINT_STEP_DEG } from './step-policy.ts'
 
 export interface CandidateGraphOptions {
@@ -48,76 +49,6 @@ function exceedsJointStep(
 ): boolean {
   if (maxJointStepDeg === null) return false
   return next.some((value, index) => Math.abs(value - previous[index]) > maxJointStepDeg)
-}
-
-function buildStepDiagnostic(
-  previous: JointAngles,
-  attempted: JointAngles,
-  jointRanges: readonly (readonly [number, number])[],
-  waypointIndex: number,
-): WaypointFailureDiagnostic {
-  let axisIndex = 0
-  let deltaDeg = Math.abs(attempted[0] - previous[0])
-  for (let index = 1; index < attempted.length; index += 1) {
-    const candidateDelta = Math.abs(attempted[index] - previous[index])
-    if (candidateDelta > deltaDeg) {
-      axisIndex = index
-      deltaDeg = candidateDelta
-    }
-  }
-  return {
-    waypointIndex,
-    axisIndex,
-    previousAngleDeg: previous[axisIndex],
-    attemptedAngleDeg: attempted[axisIndex],
-    deltaDeg,
-    limitRangeDeg: jointRanges[axisIndex],
-  }
-}
-
-function buildLimitDiagnostic(
-  catalog: readonly IKCandidateRecord[],
-  previousJoints: JointAngles,
-  jointRanges: readonly (readonly [number, number])[],
-  waypointIndex: number,
-): WaypointFailureDiagnostic | undefined {
-  const candidate = catalog
-    .filter((entry) => entry.normalizedJoints !== null)
-    .sort((left, right) => {
-      if (left.atJointLimit !== right.atJointLimit) return left.atJointLimit ? -1 : 1
-      return left.maxJointDeltaDeg - right.maxJointDeltaDeg
-    })[0]
-  if (!candidate) return undefined
-
-  const attempted = candidate.normalizedJoints ?? candidate.joints
-  let axisIndex = 0
-  let severity = Number.NEGATIVE_INFINITY
-  for (let index = 0; index < attempted.length; index += 1) {
-    const range = jointRanges[index]
-    const value = attempted[index]
-    const currentSeverity = range
-      ? value < range[0]
-        ? range[0] - value
-        : value > range[1]
-          ? value - range[1]
-          : Math.min(value - range[0], range[1] - value) < 0.5
-            ? 0.5
-            : 0
-      : 0
-    if (currentSeverity > severity) {
-      severity = currentSeverity
-      axisIndex = index
-    }
-  }
-  const deltaDeg = Math.abs(attempted[axisIndex] - previousJoints[axisIndex])
-  return {
-    waypointIndex,
-    axisIndex,
-    previousAngleDeg: previousJoints[axisIndex],
-    attemptedAngleDeg: attempted[axisIndex],
-    deltaDeg,
-    limitRangeDeg: jointRanges[axisIndex],
-  }
 }
 
 function validCandidates(
@@ -198,7 +129,7 @@ export function planStrictCandidateGraph(
         diagnostic: hasOutOfRangeCandidate
           ? hasSameGeometryOnAnotherConfiguration
             ? undefined
-            : buildLimitDiagnostic(
+            : buildCandidateLimitFailureDetail(
                 catalog,
                 poseIndex === 0 ? initialJoints : layers[poseIndex - 1][0],
                 jointRanges,
@@ -230,7 +161,7 @@ export function planStrictCandidateGraph(
     return {
       ok: false,
       failure: 'joint-step',
-      diagnostic: buildStepDiagnostic(initialJoints, attempted, jointRanges, 1),
+      diagnostic: { ...buildStepFailureDetail(initialJoints, attempted, jointRanges), waypointIndex: 1 },
     }
   }
 
@@ -271,7 +202,7 @@ export function planStrictCandidateGraph(
       return {
         ok: false,
         failure: 'joint-step',
-        diagnostic: buildStepDiagnostic(previous, candidate, jointRanges, layerIndex + 1),
+        diagnostic: { ...buildStepFailureDetail(previous, candidate, jointRanges), waypointIndex: layerIndex + 1 },
       }
     }
   }
