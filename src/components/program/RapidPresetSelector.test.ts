@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import RapidPresetSelector from './RapidPresetSelector.vue'
-import { RAPID_PRESET_PROGRAMS } from '@/application/preset-programs.ts'
+import { RAPID_PRESET_PROGRAMS } from '@/application/program/preset-programs.ts'
 
 const BUILTIN = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];

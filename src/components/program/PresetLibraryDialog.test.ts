@@ -3,7 +3,7 @@ import { defineComponent, ref } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import PresetLibraryDialog from './PresetLibraryDialog.vue'
-import { RAPID_PRESET_PROGRAMS } from '@/application/preset-programs.ts'
+import { RAPID_PRESET_PROGRAMS } from '@/application/program/preset-programs.ts'
 
 /**
  * 宿主：复现 RapidPresetSelector 对 PresetLibraryDialog 的真实绑定——

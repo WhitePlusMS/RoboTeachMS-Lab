@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramControlPanel from './ProgramControlPanel.vue'
 import type { EditorView } from '@codemirror/view'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 
 /** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */
 function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {

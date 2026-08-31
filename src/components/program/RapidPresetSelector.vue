@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Library } from '@lucide/vue'
 import PresetLibraryDialog from './PresetLibraryDialog.vue'
-import type { RapidPresetProgram } from '@/application/preset-programs.ts'
+import type { RapidPresetProgram } from '@/application/program/preset-programs.ts'
 
 interface Props {
   /** 当前 RAPID 源程序；用于判断加载预设是否会覆盖当前内容。 */

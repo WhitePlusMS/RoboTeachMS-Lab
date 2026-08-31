@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Play, Rewind, Square, StepForward } from '@lucide/vue'
 import RapidSourceEditor from './RapidSourceEditor.vue'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 import {
   isRapidMotionInstruction,
   type RapidExecutableInstruction,

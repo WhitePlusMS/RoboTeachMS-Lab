@@ -6,7 +6,7 @@ import type {
   RapidProgramDataTarget,
 } from '@/rapid/language/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
-import type { ProgramPanelController } from '@/application/use-program-panel-controller.ts'
+import type { ProgramPanelController } from '@/application/program/use-program-panel-controller.ts'
 
 /**
  * FlexPendant 参数编辑器（3HAC050941 5.4.2「参数编辑」对齐）：

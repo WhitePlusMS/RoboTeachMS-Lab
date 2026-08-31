@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/language/index.ts'
 import type { EditorView } from '@codemirror/view'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 import type { Pose } from '@/robot-geometry/model/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 

@@ -5,8 +5,8 @@ import ProgramDataPanel from './ProgramDataPanel.vue'
 import ProgramEditorToolbar from './ProgramEditorToolbar.vue'
 import MotionArgumentPanel from './MotionArgumentPanel.vue'
 import RapidPresetSelector from './RapidPresetSelector.vue'
-import type { RapidPresetProgram } from '@/application/preset-programs.ts'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { RapidPresetProgram } from '@/application/program/preset-programs.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 import type { RapidProgramDataTarget } from '@/rapid/language/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
@@ -21,7 +21,7 @@ import type { RapidScalarVariable } from '@/rapid/data/index.ts'
 import {
   injectProgramPanelController,
   type ProgramPanelController,
-} from '@/application/use-program-panel-controller.ts'
+} from '@/application/program/use-program-panel-controller.ts'
 
 /** 工作区视图：由右侧窄图标边栏驱动（受控），RAPID 与 Program Data 二选一。 */
 type WorkspaceView = 'rapid' | 'data'

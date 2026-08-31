@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { X } from '@lucide/vue'
-import ConfirmDialog from './ConfirmDialog.vue'
-import { RAPID_PRESET_PROGRAMS, type RapidPresetProgram } from '@/application/preset-programs.ts'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { RAPID_PRESET_PROGRAMS, type RapidPresetProgram } from '@/application/program/preset-programs.ts'
 
 interface Props {
   /** 是否显示全屏预设库。 */

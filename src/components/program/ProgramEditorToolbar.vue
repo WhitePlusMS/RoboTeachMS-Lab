@@ -7,7 +7,7 @@ import type {
   RapidMotionInsertionPoint,
 } from '@/rapid/language/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
-import type { ProgramPanelController } from '@/application/use-program-panel-controller.ts'
+import type { ProgramPanelController } from '@/application/program/use-program-panel-controller.ts'
 
 /**
  * FlexPendant 程序编辑器工具栏（3HAC050941 5.3.4 对齐）：
