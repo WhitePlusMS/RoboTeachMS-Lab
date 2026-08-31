@@ -6,15 +6,15 @@ import type {
   JointAngles,
   PoseDisplay,
 } from '@/robot-geometry/model/index.ts'
-import type { CartesianAxis, CoordinateSystem } from '@/application/cartesian-types.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-types.ts'
 import type { JointRange } from '@/robot-geometry/model/robot-profile.ts'
-import type { JointDirection, JointStep } from '@/application/joint-control.ts'
+import type { JointDirection, JointStep } from '@/application/motion/joint-math.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '@/application/cartesian-control.ts'
+} from '@/application/motion/cartesian-math.ts'
 import {
   injectRobotController,
   type RobotController,
@@ -201,6 +201,9 @@ function handleTabKeydown(event: KeyboardEvent, tab: JogTab): void {
         @coordinate-change="controller.setCoordinateSystem"
         @position-step-change="controller.setPositionStep"
         @orientation-step-change="controller.setOrientationStep"
+        @reset="controller.reset"
+        @mechanical-zero="controller.resetMechanicalZero"
+        @random="controller.randomize"
       />
     </div>
   </section>

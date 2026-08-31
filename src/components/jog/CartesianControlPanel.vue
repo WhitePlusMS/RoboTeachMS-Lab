@@ -11,14 +11,15 @@ import {
   RotateCcw,
   RotateCw,
 } from '@lucide/vue'
-import type { CartesianAxis, CoordinateSystem } from '@/application/cartesian-types.ts'
+import PoseQuickActions from './PoseQuickActions.vue'
+import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-types.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '@/application/cartesian-control.ts'
-import { ORIENTATION_STEPS, POSITION_STEPS } from '@/application/cartesian-control.ts'
+} from '@/application/motion/cartesian-math.ts'
+import { ORIENTATION_STEPS, POSITION_STEPS } from '@/application/motion/cartesian-math.ts'
 
 interface Props {
   coordinateSystem: CoordinateSystem
@@ -37,6 +38,9 @@ const emit = defineEmits<{
   'coordinate-change': [value: CoordinateSystem]
   'position-step-change': [value: number]
   'orientation-step-change': [value: number]
+  reset: []
+  'mechanical-zero': []
+  random: []
 }>()
 
 const coordinateSystems = ['World', 'Tool'] as const
@@ -127,6 +131,15 @@ function finishPress(): void {
   stopPress()
 }
 
+/**
+ * 键盘激活（Enter/Space）产生的 click 其 detail 为 0，此时发单次移动；
+ * 鼠标/触摸走 pointer 事件的按住连续逻辑，不处理 click，避免双重触发。
+ */
+function handleKeyClick(event: MouseEvent, key: DpadKey): void {
+  if (event.detail !== 0) return
+  emit('move', key.axis, key.direction, false)
+}
+
 onBeforeUnmount(() => {
   // 面板切换/卸载时不能只清理 DOM 定时器；控制器还需要结束自己的点动会话。
   if (activePress.value?.repeated) emit('continuous-end')
@@ -137,17 +150,21 @@ onBeforeUnmount(() => {
 <template>
   <section class="cartesian-panel" aria-labelledby="cartesian-panel-title">
     <div class="panel-title-row">
-      <div>
-        <h2 id="cartesian-panel-title">笛卡尔位姿控制</h2>
-      </div>
-      <span class="control-status" :class="`cartesian-status-${props.status}`">
+      <h2 id="cartesian-panel-title">笛卡尔位姿控制</h2>
+      <span class="control-status" role="status" :class="`cartesian-status-${props.status}`">
         {{ props.status === 'solved' ? 'PATH OK' : props.status.toUpperCase() }}
       </span>
     </div>
 
+    <PoseQuickActions
+      @reset="emit('reset')"
+      @mechanical-zero="emit('mechanical-zero')"
+      @random="emit('random')"
+    />
+
     <div>
       <span class="field-label">坐标系</span>
-      <div class="seg" aria-label="坐标系选择">
+      <div class="seg" role="group" aria-label="坐标系选择">
         <button
           v-for="frame in coordinateSystems"
           :key="frame"
@@ -164,7 +181,7 @@ onBeforeUnmount(() => {
 
     <div>
       <span class="field-label">动作模式</span>
-      <div class="seg" aria-label="动作模式">
+      <div class="seg" role="group" aria-label="动作模式">
         <button
           type="button"
           :class="{ on: mode === 'trans' }"
@@ -187,9 +204,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div>
-      <span class="field-label">{{ dpad.hint }}</span>
+      <span class="field-label field-hint">{{ dpad.hint }}</span>
       <div class="dpad-wrap">
-        <div class="dpad" aria-label="方向键">
+        <div class="dpad" role="group" aria-label="方向键">
           <span></span>
           <button
             type="button"
@@ -199,8 +216,9 @@ onBeforeUnmount(() => {
             @pointerup="finishPress"
             @pointerleave="finishPress"
             @pointercancel="finishPress"
+            @click="handleKeyClick($event, dpad.up)"
           >
-            <component :is="dpad.up.icon" :size="16" />
+            <component :is="dpad.up.icon" :size="16" aria-hidden="true" />
           </button>
           <span></span>
           <button
@@ -211,8 +229,9 @@ onBeforeUnmount(() => {
             @pointerup="finishPress"
             @pointerleave="finishPress"
             @pointercancel="finishPress"
+            @click="handleKeyClick($event, dpad.left)"
           >
-            <component :is="dpad.left.icon" :size="16" />
+            <component :is="dpad.left.icon" :size="16" aria-hidden="true" />
           </button>
           <span class="dpad-tag">{{ dpad.tag }}</span>
           <button
@@ -223,8 +242,9 @@ onBeforeUnmount(() => {
             @pointerup="finishPress"
             @pointerleave="finishPress"
             @pointercancel="finishPress"
+            @click="handleKeyClick($event, dpad.right)"
           >
-            <component :is="dpad.right.icon" :size="16" />
+            <component :is="dpad.right.icon" :size="16" aria-hidden="true" />
           </button>
           <span></span>
           <button
@@ -235,12 +255,13 @@ onBeforeUnmount(() => {
             @pointerup="finishPress"
             @pointerleave="finishPress"
             @pointercancel="finishPress"
+            @click="handleKeyClick($event, dpad.down)"
           >
-            <component :is="dpad.down.icon" :size="16" />
+            <component :is="dpad.down.icon" :size="16" aria-hidden="true" />
           </button>
           <span></span>
         </div>
-        <div class="zpad" aria-label="第三轴">
+        <div class="zpad" role="group" aria-label="第三轴">
           <button
             type="button"
             :aria-label="dpad.zUp.name"
@@ -249,8 +270,9 @@ onBeforeUnmount(() => {
             @pointerup="finishPress"
             @pointerleave="finishPress"
             @pointercancel="finishPress"
+            @click="handleKeyClick($event, dpad.zUp)"
           >
-            <component :is="dpad.zUp.icon" :size="16" />
+            <component :is="dpad.zUp.icon" :size="16" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -260,20 +282,22 @@ onBeforeUnmount(() => {
             @pointerup="finishPress"
             @pointerleave="finishPress"
             @pointercancel="finishPress"
+            @click="handleKeyClick($event, dpad.zDown)"
           >
-            <component :is="dpad.zDown.icon" :size="16" />
+            <component :is="dpad.zDown.icon" :size="16" aria-hidden="true" />
           </button>
         </div>
       </div>
     </div>
 
-    <div class="step-selector" aria-label="位置步进选择">
+    <div class="step-selector" role="group" aria-label="位置步进选择">
       <span>位置步进</span>
       <button
         v-for="step in POSITION_STEPS"
         :key="`position-${step}`"
         type="button"
         :class="['step-choice', { active: props.positionStep === step }]"
+        :aria-pressed="props.positionStep === step"
         :title="`设为位置步进 ${step} mm`"
         @click="emit('position-step-change', step)"
       >
@@ -281,13 +305,14 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="step-selector" aria-label="姿态步进选择">
+    <div class="step-selector" role="group" aria-label="姿态步进选择">
       <span>姿态步进</span>
       <button
         v-for="step in ORIENTATION_STEPS"
         :key="`orientation-${step}`"
         type="button"
         :class="['step-choice', { active: props.orientationStep === step }]"
+        :aria-pressed="props.orientationStep === step"
         :title="`设为姿态步进 ${step}°`"
         @click="emit('orientation-step-change', step)"
       >
@@ -295,8 +320,9 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="pose-card" aria-label="笛卡尔控制状态">
-      <div class="pose-card-title">{{ props.statusMessage }}</div>
+    <!-- ready 为静止默认态，由标题行状态徽章表达；卡片只在有实际消息（规划中/失败诊断等）时出现。 -->
+    <div v-if="props.status !== 'ready'" class="pose-card" role="group" aria-label="笛卡尔控制状态">
+      <div class="pose-card-title" role="status">{{ props.statusMessage }}</div>
     </div>
   </section>
 </template>
@@ -313,6 +339,15 @@ onBeforeUnmount(() => {
   color: var(--color-text-strong);
   font-size: var(--text-2xl);
   letter-spacing: -0.02em;
+}
+
+/* 分组标签与操作提示分级：标签略强，提示文案保持弱化。 */
+.cartesian-panel .field-label {
+  color: var(--color-text-dim);
+}
+
+.cartesian-panel .field-hint {
+  color: var(--color-text-faint);
 }
 
 .cartesian-status-solved {
@@ -394,15 +429,20 @@ onBeforeUnmount(() => {
 .dpad-tag {
   display: grid;
   place-items: center;
-  color: var(--color-text-faint);
+  color: var(--color-text-dim);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
 }
 
-/* Compact layout override when nested inside the jog tab panel. */
+/* Compact layout override when nested inside the jog tab panel.
+   外层 .jog-control-tabs 已有横向 padding，内层归零避免双层内边距；
+   border-top 是旧版上下堆叠布局的分隔线，页签布局下不需要。 */
 .jog-tabpanel > .cartesian-panel {
   height: 100%;
   min-height: 0;
   gap: 12px;
+  padding: 0;
+  border-top: none;
+  align-content: start;
 }
 </style>

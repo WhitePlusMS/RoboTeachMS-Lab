@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import { Home } from '@lucide/vue'
+import PoseQuickActions from './PoseQuickActions.vue'
 import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import type { JointRange } from '@/robot-geometry/model/robot-profile.ts'
-import type { JointDirection, JointStep } from '@/application/joint-control.ts'
-import { JOINT_STEPS } from '@/application/joint-control.ts'
+import type { JointDirection, JointStep } from '@/application/motion/joint-math.ts'
+import { JOINT_STEPS } from '@/application/motion/joint-math.ts'
 
 interface Props {
   joints: JointAngles
@@ -71,6 +71,13 @@ function finishPress(): void {
   stopPress(false)
 }
 
+function handleStepClick(index: number, direction: JointDirection, event: MouseEvent): void {
+  // 键盘激活（Enter/Space）产生的 click detail 为 0，此时发一次单次调整；
+  // 鼠标点击已由 pointerdown/pointerup 流程处理，避免双重触发。
+  if (event.detail !== 0) return
+  emit('adjust-joint', index, direction, false)
+}
+
 function handleAngleChange(index: number, event: Event): void {
   const input = event.target as HTMLInputElement | null
   if (!input) return
@@ -89,32 +96,11 @@ onBeforeUnmount(stopPress)
       <span class="control-status">FK READY</span>
     </div>
 
-    <div class="panel-actions">
-      <button
-        type="button"
-        class="secondary-action home-action"
-        title="机器人回到教学 Home（避开腕部奇异）"
-        @click="emit('reset')"
-      >
-        <Home :size="14" />教学 Home
-      </button>
-      <button
-        type="button"
-        class="secondary-action"
-        title="回到 ABB 六轴机械/同步零位（J5=+30°，避开腕部奇异）"
-        @click="emit('mechanical-zero')"
-      >
-        机械零位
-      </button>
-      <button
-        type="button"
-        class="secondary-action"
-        title="随机生成一组关节姿态"
-        @click="emit('random')"
-      >
-        随机姿态
-      </button>
-    </div>
+    <PoseQuickActions
+      @reset="emit('reset')"
+      @mechanical-zero="emit('mechanical-zero')"
+      @random="emit('random')"
+    />
 
     <div class="joint-list">
       <article v-for="(angle, index) in props.joints" :key="index" class="joint-row">
@@ -128,6 +114,7 @@ onBeforeUnmount(stopPress)
           @pointerup="finishPress"
           @pointerleave="finishPress"
           @pointercancel="finishPress"
+          @click="handleStepClick(index, -1, $event)"
         >
           −
         </button>
@@ -135,6 +122,8 @@ onBeforeUnmount(stopPress)
           class="angle-input"
           type="number"
           step="0.1"
+          :name="`joint-${index + 1}-angle`"
+          autocomplete="off"
           :min="props.jointRanges[index][0]"
           :max="props.jointRanges[index][1]"
           :value="angle.toFixed(1)"
@@ -150,6 +139,7 @@ onBeforeUnmount(stopPress)
           @pointerup="finishPress"
           @pointerleave="finishPress"
           @pointercancel="finishPress"
+          @click="handleStepClick(index, 1, $event)"
         >
           +
         </button>
@@ -159,7 +149,7 @@ onBeforeUnmount(stopPress)
       </article>
     </div>
 
-    <div class="step-selector" aria-label="关节步进选择">
+    <div class="step-selector" role="group" aria-label="关节步进选择">
       <span>步进</span>
       <button
         v-for="step in JOINT_STEPS"
@@ -209,12 +199,6 @@ onBeforeUnmount(stopPress)
   font-weight: 700;
 }
 
-.step-button {
-  width: 30px;
-  height: 30px;
-  font-size: var(--text-2xl);
-}
-
 .angle-input {
   width: 100%;
   min-width: 0;
@@ -230,30 +214,20 @@ onBeforeUnmount(stopPress)
   text-align: center;
 }
 
-.angle-input:focus {
+.angle-input:focus-visible {
   border-color: var(--color-brand);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 18%, transparent);
 }
 
 .joint-range {
-  color: var(--color-text-faint);
+  width: 9ch;
+  flex-shrink: 0;
+  color: var(--color-text-dim);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   letter-spacing: -0.02em;
+  text-align: right;
   white-space: nowrap;
-}
-
-.panel-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.home-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
 }
 
 /* Compact layout overrides applied when nested inside the jog tab panel.
@@ -264,5 +238,10 @@ onBeforeUnmount(stopPress)
   gap: 10px;
   padding: 0;
   align-content: start;
+}
+
+/* 嵌入 jog 面板时标题降一档，与嵌入布局的密度匹配。 */
+.jog-tabpanel > .joint-panel h2 {
+  font-size: var(--text-xl);
 }
 </style>
