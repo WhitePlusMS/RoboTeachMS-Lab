@@ -1,3 +1,13 @@
+## 2026-08-30 — 精简状态展示：pose-card 仅非 ready 渲染；ProgramControlPanel 删除未使用的 all/actions 布局
+
+- 问题：笛卡尔面板 ready 状态下「就绪」大卡（pose-card）与标题行 READY 徽章同源重复；程序面板的「空闲」状态徽章在源码中写了 3 处（transport / all 标题行 / actions 底栏），其中 all 与 actions 两种 display 布局在生产环境无任何调用方（App.vue 用 transport、ProgramWorkspace.vue 用 content），属于死代码。
+- 修改文件：
+  - `src/components/CartesianControlPanel.vue`：`pose-card` 加 `v-if="props.status !== 'ready'"`——ready 静止态由标题行徽章表达，卡片只在有实际消息（规划中/失败诊断等）时出现。
+  - `src/components/ProgramControlPanel.vue`：`display` prop 收缩为必传的 `'transport' | 'content'`；删除 actions 底栏片段（含第三处徽章与重复的运行/单步/停止/PP 按钮组、off-path 确认副本，约 74 行）与 content 标题行（`display === 'all'` 才渲染，生产不可达）；删除 `.program-panel h2` 与 `.program-control-footer` 系列样式；section 的 aria-labelledby 随标题行移除，transport/content 均改用 aria-label。顶栏 transport 徽章保留（e2e 定位符 `.program-panel .control-status` 依赖它）。
+  - `src/components/ProgramControlPanel.test.ts`：`mountPanel` 新增 display 参数（默认 transport）；按钮选择器从 `.program-control-footer > .program-actions > button` 改为 `.tgroup > .tkey`（8 处）；编辑器/诊断/摘要条相关用例显式传 `display: 'content'`。
+- 修改影响：生产界面行为唯一可见变化是笛卡尔面板 ready 时不再显示「就绪」大卡（徽章仍在），其余布局与交互不变；程序面板三个徽章在生产环境本来就只渲染顶栏一处，删除的两处是不可达代码。
+- 验证：`npm run check`（vue-tsc）通过；`npm run test`（vitest run src）70 个测试文件 / 593 个测试全部通过；`npm run build` 成功；`git diff --check` 无空白错误。e2e 未实跑，但已静态核对 `abb-program.spec.ts` 依赖的定位符（顶栏 transport 按钮与 `.control-status` 徽章）均保留。
+
 ## 2026-08-30 — 修复 gizmo 拖拽误报"目标不可达"：gizmoDragUnreachable 改为反映最近一次求解结果
 
 - 问题：用户实测发现，gizmo 拖拽运动本身已经是正确的（不会移到不可达位置），但松开鼠标后几乎总是弹出"目标不可达"提示。
