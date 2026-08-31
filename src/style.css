@@ -123,7 +123,7 @@ button:disabled {
   font-size: var(--text-2xl);
   line-height: 1;
   user-select: none;
-  touch-action: none;
+  touch-action: manipulation;
 }
 
 .step-button:hover,
@@ -247,6 +247,7 @@ button:disabled {
   color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .pose-grid strong {
@@ -293,6 +294,9 @@ button:disabled {
   cursor: pointer;
   font-size: var(--text-md);
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workbench-tab:hover,
@@ -320,12 +324,15 @@ button:disabled {
   gap: 7px;
   box-sizing: border-box;
   height: 30px;
+  max-width: 100%;
   padding: 0 11px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
   color: var(--color-text-faint);
   background: var(--color-surface);
   font-size: var(--text-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -378,6 +385,7 @@ button:disabled {
 .tkey:hover:not(:disabled) {
   border-color: var(--color-brand);
   color: var(--color-brand-soft);
+  background: var(--color-surface-hover);
 }
 
 .tkey-run {
@@ -423,6 +431,9 @@ button:disabled {
   cursor: pointer;
   font-size: var(--text-md);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition:
     background 0.15s ease,
     color 0.15s ease;
@@ -450,6 +461,7 @@ button:disabled {
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
   transition:
     border-color 0.15s ease,
     color 0.15s ease,
@@ -499,4 +511,37 @@ button:disabled {
   margin-bottom: 6px;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
+}
+
+/* ==========================================================================
+   统一键盘焦点环：只作用于 :focus-visible（键盘导航），鼠标点击不显示。
+   放在文件末尾以保证覆盖前文各原语上的 outline:none 复位。
+   ========================================================================== */
+.step-button:focus-visible,
+.secondary-action:focus-visible,
+.primary-action:focus-visible,
+.danger-action:focus-visible,
+.step-choice:focus-visible,
+.frame-choice:focus-visible,
+.workbench-tab:focus-visible,
+.tkey:focus-visible,
+.seg button:focus-visible,
+.choice:focus-visible,
+.icon-btn:focus-visible,
+.pill:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   全局减弱动效兜底：尊重系统 prefers-reduced-motion 设置。
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
