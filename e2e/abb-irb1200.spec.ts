@@ -17,10 +17,7 @@ import {
   findNode,
   prepareAbbModel,
 } from '@/scene/abb-scene.ts'
-import {
-  abbBaseFrameToSceneFrame,
-  ABB_FLANGE_TO_FBX_TOOL,
-} from '@/scene/abb-scene-transform.ts'
+import { abbBaseFrameToSceneFrame, ABB_FLANGE_TO_FBX_TOOL } from '@/scene/abb-scene-transform.ts'
 import { extractAbbFbxCalibration } from '@/scene/abb-fbx-calibration.ts'
 
 async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Promise<{
@@ -36,9 +33,9 @@ async function readDisplayedPose(page: Parameters<typeof test>[0]['page']): Prom
 
 /** 新边栏语义：Jog 控件在最右窄边栏的 Jog 功能面板里，先展开再操作。 */
 async function openJogPanel(page: Parameters<typeof test>[0]['page']): Promise<void> {
-  // 功能边栏 Jog tab：当前命名「手动控制」（兼容历史「手动 Jog」）。
-  const jogTab = page.getByRole('tab', { name: /手动/ })
-  if ((await jogTab.getAttribute('aria-selected')) !== 'true') await jogTab.click()
+  // 功能边栏 Jog 开关按钮：当前命名「手动控制」（兼容历史「手动 Jog」）。
+  const jogTab = page.getByRole('button', { name: /手动/ })
+  if ((await jogTab.getAttribute('aria-pressed')) !== 'true') await jogTab.click()
 }
 
 async function setJoints(

@@ -24,9 +24,9 @@ function positionsClose(left: number[], right: number[], tolerance = 0.5): boole
 }
 
 async function openJogPanel(page: Parameters<typeof test>[0]['page']): Promise<void> {
-  // 功能边栏 Jog tab：当前命名「手动控制」（兼容历史「手动 Jog」）。
-  const jogTab = page.getByRole('tab', { name: /手动/ })
-  if ((await jogTab.getAttribute('aria-selected')) !== 'true') await jogTab.click()
+  // 功能边栏 Jog 开关按钮：当前命名「手动控制」（兼容历史「手动 Jog」）。
+  const jogTab = page.getByRole('button', { name: /手动/ })
+  if ((await jogTab.getAttribute('aria-pressed')) !== 'true') await jogTab.click()
 }
 
 test.describe('RAPID 文本 ABB 程序（运行/单步/停止/PP to Main）', () => {
@@ -172,7 +172,7 @@ test.describe('教学闭环：真机式 FlexPendant 示教流', () => {
     await j1.press('Tab')
     await expect(j1).toHaveValue('10.0')
 
-    await page.getByRole('tab', { name: /程序数据/ }).click()
+    await page.getByRole('button', { name: /程序数据/ }).click()
     await page.getByRole('button', { name: '选择点位 p10' }).click()
     await page.getByRole('button', { name: 'Modify Position（更新位置）' }).click()
     await expect(page.locator('.program-data-panel')).not.toContainText('不能删除') // 无错误
@@ -274,7 +274,7 @@ test.describe('教学闭环：真机式 FlexPendant 示教流', () => {
 ENDMODULE`)
 
     const stepButton = page.getByRole('button', { name: '单步' })
-    const dataTab = page.getByRole('tab', { name: /程序数据/ })
+    const dataTab = page.getByRole('button', { name: /程序数据/ })
     await dataTab.click()
     await page.getByRole('tab', { name: 'num' }).click()
     await expect(page.locator('[aria-label="选择 num count"]')).toContainText('初值 0 · 当前 0')
@@ -292,7 +292,7 @@ ENDMODULE`)
     await stepButton.click()
     await expect(programStats(page).locator('dd').nth(0)).toHaveText('3')
     await expect(programStats(page).locator('dd').nth(1)).toHaveText('—')
-    await page.getByRole('tab', { name: /RAPID/ }).click()
+    await page.getByRole('button', { name: 'RAPID 程序' }).click()
     await expect(page.locator('.program-panel').getByText('等待下一步')).toBeVisible()
 
     // 命中 MoveJ 后完成整个教学任务。
