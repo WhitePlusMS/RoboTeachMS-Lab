@@ -70,6 +70,15 @@ RoboTeachMS Lab 是一个纯前端工业机器人示教编程仿真项目。
 
 ## 架构概览
 
+### 分层架构图
+
+![ABB IRB1200 前端架构](docs/architecture/abb-irb1200.svg)
+
+关节 Jog、笛卡尔 Jog、末端 Gizmo 拖拽、RAPID 程序四条输入路径统一转换为 `MotionCommand`
+提交给唯一的 Motion Coordinator，再经 Transport 层（按来源选择同步直调或常驻 Worker）
+进入单一的 `robot-motion-core` 规划函数。交互版见
+[`docs/architecture/abb-frontend-architecture.html`](docs/architecture/abb-frontend-architecture.html)。
+
 ### 从 RAPID 源码到机器人运动
 
 ```text

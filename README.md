@@ -78,6 +78,16 @@ program execution. The editor diagnostics are the source of truth for the exact 
 
 ## Architecture
 
+### Layered architecture diagram
+
+![ABB IRB1200 frontend architecture](docs/architecture/abb-irb1200.svg)
+
+Four motion-input sources (Joint Jog, Cartesian Jog, end-effector gizmo, and RAPID) all
+translate into the same `MotionCommand` submitted to a single `Motion Coordinator`, which
+dispatches through a `Transport` layer (per-source synchronous call or a resident Worker)
+into the single `robot-motion-core` planning function. See the interactive version at
+[`docs/architecture/abb-frontend-architecture.html`](docs/architecture/abb-frontend-architecture.html).
+
 ### From RAPID source to robot motion
 
 ```text
