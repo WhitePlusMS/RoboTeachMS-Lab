@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import RunLogPanel from './RunLogPanel.vue'
-import type { RunLogEntry } from '@/application/run-log.ts'
+import type { RunLogEntry } from '@/application/notifications/run-log.ts'
 
 function makeEntry(overrides: Partial<RunLogEntry> = {}): RunLogEntry {
   return {

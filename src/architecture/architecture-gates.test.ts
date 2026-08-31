@@ -79,13 +79,13 @@ describe('静态架构门禁', () => {
 
   it('连续 latest-only 与 Runner transport 只由 Coordinator 承担', () => {
     const files = productionSource()
-    const coordinator = files.find(({ path }) => path === 'application/motion-coordinator.ts')
+    const coordinator = files.find(({ path }) => path === 'application/motion/motion-coordinator.ts')
     const worker = files.find(({ path }) => path === 'infrastructure/motion-worker/adapter.ts')
     expect(coordinator?.content).toMatch(/continuous-begin/)
     expect(coordinator?.content).toMatch(/continuous-update/)
     expect(coordinator?.content).toMatch(/continuous-end/)
     expect(coordinator?.content).toMatch(/pendingContinuous/)
     expect(worker?.content).not.toMatch(/pending/)
-    expect(files.filter(({ path, content }) => path !== 'robot-geometry/motion/runner.ts' && /\b(runEased|runTrajectory|appendTrajectory|runSpeedLimited)\s*\(/.test(content)).every(({ path }) => path === 'application/motion-coordinator.ts')).toBe(true)
+    expect(files.filter(({ path, content }) => path !== 'robot-geometry/motion/runner.ts' && /\b(runEased|runTrajectory|appendTrajectory|runSpeedLimited)\s*\(/.test(content)).every(({ path }) => path === 'application/motion/motion-coordinator.ts')).toBe(true)
   })
 })

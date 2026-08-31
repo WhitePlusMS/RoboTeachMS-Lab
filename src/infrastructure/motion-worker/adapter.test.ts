@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { planMotion, type MotionPlanningRequest, type MotionPlanningResult } from '@/robot-motion-core/index.ts'
-import { createCartesianTargetRequest } from '@/application/motion-requests.ts'
+import { createCartesianTargetRequest } from '@/application/motion/motion-requests.ts'
 import { createMotionPlannerWorkerAdapter } from './adapter.ts'
 
 const request = createCartesianTargetRequest(

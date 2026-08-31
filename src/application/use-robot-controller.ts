@@ -1,18 +1,18 @@
 import { inject, provide, type InjectionKey, type Ref } from 'vue'
 import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
 import type { JointRange, RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
-import type { JointDirection, JointStep } from '@/application/joint-control.ts'
-import { adjustJointAngle, randomJointAngles } from '@/application/joint-control.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-types.ts'
+import type { JointDirection, JointStep } from '@/application/motion/joint-math.ts'
+import { adjustJointAngle, randomJointAngles } from '@/application/motion/joint-math.ts'
 import type {
   CartesianDirection,
   CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '@/application/cartesian-control.ts'
-import type { MotionCoordinator } from '@/application/motion-coordinator.ts'
-import type { RunLogController } from '@/application/run-log.ts'
-import { createJointTargetRequest } from '@/application/motion-requests.ts'
+} from '@/application/motion/cartesian-math.ts'
+import type { MotionCoordinator } from '@/application/motion/motion-coordinator.ts'
+import type { RunLogController } from '@/application/notifications/run-log.ts'
+import { createJointTargetRequest } from '@/application/motion/motion-requests.ts'
 
 /**
  * 只读 ref：面板只读展示控制器提供的状态切片，因此只要求可读的 .value。

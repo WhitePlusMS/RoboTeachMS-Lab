@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBuiltinRapidSource } from './builtin-program.ts'
+import { createBuiltinRapidSource } from './preset-programs.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { planMotion } from '@/robot-motion-core/index.ts'
 import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'

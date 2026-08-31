@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { nextTick, ref } from 'vue'
 import { useStatusToasts } from './status-toasts.ts'
 import { useToasts } from './toast.ts'
-import type { ProgramControllerSnapshot } from './program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 
 function makeSnapshot(
   overrides: Partial<ProgramControllerSnapshot> = {},

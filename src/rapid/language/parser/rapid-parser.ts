@@ -75,7 +75,7 @@ import type {
  * RAPID 文本解析模块的公共入口。
  *
  * 本文件保持整个模块的稳定外部接口：所有调用方（program-executor、
- * application/program-control、各组件）从这里导入的结构化类型与 parseRapidProgram
+ * application/program/program-control、各组件）从这里导入的结构化类型与 parseRapidProgram
  * 均不变。实现本身按职责拆分到同目录下的内部模块：
  *
  * - rapid-lexer.ts：词法分析与源码位置换算；

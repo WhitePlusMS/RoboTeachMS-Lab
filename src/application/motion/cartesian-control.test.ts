@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import { poseFromJoints } from '@/robot-models/kuka-like/kinematics/legacy-forward-kinematics.ts'
 import { radToDeg } from '@/robot-geometry/math/angle.ts'
 import {
-  applyCartesianDelta,
   useCartesianControl,
   type CartesianControlOptions,
   type CartesianPathResult,
@@ -31,11 +30,6 @@ const KUKA_PROFILE: RobotProfile = {
   jointRanges: KUKA_JOINT_RANGES as SixAxisJointRanges,
   homeJoints: DEFAULT_JOINTS,
   mechanicalZeroJoints: DEFAULT_JOINTS,
-}
-
-const pose: PoseDisplay = {
-  positionMm: [100, 200, 300],
-  orientationDeg: [0, 0, 90],
 }
 
 type LegacyPlanTarget = (
@@ -151,20 +145,6 @@ function createControl(options: TestControlOptions) {
 }
 
 describe('笛卡尔坐标增量', () => {
-  it('World 坐标沿世界 X 轴移动', () => {
-    const next = applyCartesianDelta(pose, 'x', 1, 10, 'World')
-
-    expect(next.positionMm).toEqual([110, 200, 300])
-  })
-
-  it('Tool 坐标会把局部 X 轴转换为当前工具朝向', () => {
-    const next = applyCartesianDelta(pose, 'x', 1, 10, 'Tool')
-
-    expect(next.positionMm[0]).toBeCloseTo(100)
-    expect(next.positionMm[1]).toBeCloseTo(210)
-    expect(next.positionMm[2]).toBeCloseTo(300)
-  })
-
   it('非法输入只更新失败状态，不覆盖当前关节', () => {
     const joints = ref<JointAngles>([...DEFAULT_JOINTS])
     const poseRef = computed(() => poseFromJoints(joints.value, KUKA_LIKE))

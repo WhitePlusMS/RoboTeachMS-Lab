@@ -1,6 +1,6 @@
 import { watch, type Ref } from 'vue'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
-import type { ToastController } from '@/application/toast.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ToastController } from './toast.ts'
 
 /**
  * 把程序状态切换映射为瞬态 toast 通知（显示数秒后自动消失），作为运行日志的视觉补充：

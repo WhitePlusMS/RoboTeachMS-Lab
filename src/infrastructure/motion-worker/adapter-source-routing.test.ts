@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createMotionPlannerAdapter, createMotionPlannerWorkerAdapter } from './adapter.ts'
 import { planMotion } from '@/robot-motion-core/index.ts'
-import { createCartesianTargetRequest } from '@/application/motion-requests.ts'
+import { createCartesianTargetRequest } from '@/application/motion/motion-requests.ts'
 
 const request = createCartesianTargetRequest(
   { position: [10, 0, 0], euler: [0, 0, 0], rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },

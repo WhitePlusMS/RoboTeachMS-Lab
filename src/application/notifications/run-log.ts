@@ -1,5 +1,5 @@
 import { inject, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 
 export type RunLogLevel = 'info' | 'ok' | 'warn' | 'err'
 

@@ -1,5 +1,5 @@
 import { inject, provide, type InjectionKey } from 'vue'
-import type { ProgramControllerSnapshot } from '@/application/program-control.ts'
+import type { ProgramControllerSnapshot } from './program-control.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 import type {
   RapidExecutableInstruction,

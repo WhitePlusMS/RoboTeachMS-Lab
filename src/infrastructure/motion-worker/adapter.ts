@@ -1,5 +1,5 @@
 import { planMotion, type MotionPlanningRequest, type MotionPlanningResult } from '@/robot-motion-core/index.ts'
-import type { MotionSource } from '@/application/motion-coordinator.ts'
+import type { MotionSource } from '@/application/motion/motion-coordinator.ts'
 
 interface PlannerRequest {
   readonly requestId: number

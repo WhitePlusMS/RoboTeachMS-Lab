@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import type { RunLogEntry, RunLogLevel } from '@/application/run-log.ts'
+import type { RunLogEntry, RunLogLevel } from '@/application/notifications/run-log.ts'
 
 interface Props {
   entries: readonly RunLogEntry[]

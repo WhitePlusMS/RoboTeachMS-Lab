@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { injectRunLog, provideRunLog, RUN_LOG_CAP, useRunLog } from './run-log.ts'
-import type { ProgramControllerSnapshot } from './program-control.ts'
+import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
 
 function makeSnapshot(
   overrides: Partial<ProgramControllerSnapshot> = {},

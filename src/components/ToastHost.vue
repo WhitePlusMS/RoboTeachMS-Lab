@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { injectToasts, type ToastLevel } from '@/application/toast.ts'
+import { injectToasts, type ToastLevel } from '@/application/notifications/toast.ts'
 import { AlertTriangle, CheckCircle2, X, XCircle } from '@lucide/vue'
 
 const toasts = injectToasts()

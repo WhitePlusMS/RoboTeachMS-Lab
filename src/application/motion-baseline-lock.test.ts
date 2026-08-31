@@ -12,7 +12,7 @@ import { planMotion } from '@/robot-motion-core/index.ts'
 import type { JointAngles } from '@/robot-geometry/model/index.ts'
 import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
 import { parseRapidProgram, isRapidMotionInstruction } from '@/rapid/language/index.ts'
-import { createJointTargetRequest } from '@/application/motion-requests.ts'
+import { createJointTargetRequest } from '@/application/motion/motion-requests.ts'
 
 const homeJoints: JointAngles = [0, -25, 45, 0, 20, 0]
 
