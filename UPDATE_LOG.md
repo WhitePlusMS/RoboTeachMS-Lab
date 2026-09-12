@@ -1,3 +1,273 @@
+## 2026-09-12 — 修复运动时位姿角标左右跳动
+
+- 修改文件：`src/components/PoseReadout.vue`。
+- 原因：紧凑角标及读数列采用内容自适应宽度，数值位数或负号变化会改变卡片宽度和后续列位置；原有等宽字体不足以稳定布局。
+- 修改：紧凑卡片固定为 264px（包含边框和内边距）；XYZ、欧拉角和关节采用三列等宽网格，四元数采用四列等宽网格；每格标签固定在左侧、数值右对齐且不换行；删除重复的关节网格覆盖样式，并补充防抖动注释。
+- 影响：仅调整紧凑角标排版，保留一位小数、实时数据刷新、三种表示方式、复制功能和非紧凑卡片样式；未修改运动算法。
+- 验证：TypeScript 检查、生产构建、PoseReadout 的 6 项组件测试通过。1920×1080 真实浏览器点击运行及三种模式，每种采集 12 次 DOM 几何和读数：数值持续变化（包括负号变化），卡片宽度均为 264px，卡片位置、标签横坐标、数值右边界及列宽均不变，无文本溢出；截图检查正常，浏览器无 error。构建保留原有大包体积提示。
+- 测试收尾：停止测试程序，关闭测试标签和本次预览服务。
+
+## 2026-09-12 — Web 目录、命名与职责优化完成
+
+## 结果
+
+| 指标 | 优化前 | 优化后 |
+| --- | --- | --- |
+| src 文件总数 | 224 | 222 |
+| 含文件的目录 | 43 | 31 |
+| 非测试 TS/Vue 文件 | 143 | 141 |
+| 测试文件 | 76 | 76 |
+| src 下最深文件目录层级 | 4 | 3 |
+| 统一规划主文件行数（含注释和空行） | 759 | 381 |
+
+减少无效层级，保留算法文件分工。计数不含 Unity、构建产物、外部工具与评测目录；文件行数只是结果描述，不是拆分目标。
+
+## 实际改变
+
+1. 语句解析集中到 rapid/language/parser；删除 instructions 下三个单文件子目录。关键词表只维护关键词，不再转发 parser。语法扩展说明集中到 rapid/README.md。
+2. RAPID execution 并入 runtime，保留解释器与执行状态机的独立文件；planning 改为 motion，明确这里只校验参数和构造请求。CodeMirror 高亮归入 components/program。
+3. Cartesian 的 internal/solution 层压平为 cartesian/；直线规划、候选路径搜索、位姿路径求解、单点 IK 使用明确文件名。
+4. geometry 的 numerical-ik 与 ik 合并，transform 的通用数学并入 math，Jacobian 放到 ik；四份基础模型类型收为 robot-types.ts。删除无使用者的 IK 转发入口。
+5. ABB 解析运动学和单个验证测试移到机型目录同层。profile、parameters 等跨机型对称命名保留。
+6. 运动播放迁入 robot-motion-core/playback；浏览器只在 use-motion-runner 中注入 RAF/卸载生命周期。独立核心现在公开 createMotionRunner，可在无浏览器环境使用。
+7. 主规划器抽出 request-validation、pose-frames、plan-output，分别负责入参校验、刚体换算、计划结果/残差/教学时间；四种运动的分派留在 motion-planner。未改变 IK 策略、构型策略或路径采样规则。
+8. cartesian-jog-input 集中轴/坐标系/步进类型与输入几何；cartesian-result-presentation 负责结果和诊断提示映射。场景轨迹记录使用 tcp-trace-buffer，按时间采样使用 joint-trajectory-sampler。
+9. use-robot-state 删除未使用的直接单轴修改、调整、回零和随机姿态命令；这些用户动作仍经 RobotController/Coordinator。joint-math 必须显式传入机型限位，消除默认 KUKA 限位。
+10. ABB 场景换算移回 scene/abb-coordinate-conversion，并从既有 ABB_BASE_TO_SCENE 派生双向旋转，删除手工矩阵副本。
+11. use-program-session / ProgramSession、motion-planner-client / MotionPlannerClient 等文件与符号名称同步；不提供旧路径或旧名称兼容层。
+12. 删除已无调用方的 cloneCoreFrameToPose、cartesianPathFailureToMotionError、RAPID 旧法兰转换函数及 poseToFrameData/fromPose 的纯转发。仍用于 Offs 语义验证的工件目标世界位姿转换保留为 rapid/data/workobject-pose.ts。
+13. 更新所有 Web 消费者、相邻测试和架构检查的引用；额外新增依赖方向、Runner 创建位置和唯一关节写入的门禁。新增 src/README.md 作为后续目录与命名导航。
+
+Worker、theme、testing 和共享 path-limits 等小模块有真实职责，保留。KUKA-like 仍用于独立场景及数值算法验证。未按文件行数继续拆 parser、编辑器和面板，也未新增机型选择 UI。
+
+## 自动验证
+
+- 第一、二批：各 626/626 src 测试通过，类型检查、lint、核心构建、Web 构建通过。
+- 最终：76 个测试文件，628/628 测试通过；新增 2 项架构检查，原有行为测试未删除。
+- 最终 npm run check、npm run lint、npm run build:core、npm run build 均通过；git diff --check 通过。
+- 独立产物在 Node 中直接导入：规划 J1 0→1°，注入手动时钟，400ms 为 0.5°，800ms 到达 1°并返回 completed，帧已释放；FK 输出 [311.60141543595347,5.439022938159086,637.6333100312546] mm。
+- 最终自动报告：.scratch/directory-final-tests.json；各批次报告在 .scratch/directory-stage*-tests.json。
+
+## 真实网页验收
+
+使用本轮生产构建，127.0.0.1:4173/lab，1920×1080。直接点击按钮和鼠标按住/拖动，没有直接修改 Vue 状态或调用内部运动方法。
+
+| 操作 | 实际观察 |
+| --- | --- |
+| J1 +1° | 输入读数到 1.0° |
+| 机械零位 | [0,0,0,0,30,0] |
+| 教学 Home | [0,-25,45,0,20,0] |
+| World X、Y、Z 各 +10mm | [311.6,0,637.6] → [321.6,0,637.6] → [321.6,10,637.6] → [321.6,10,647.6]；姿态不变 |
+| World RZ +5° | 180° 到 -175°，位置不变；±180°是同一姿态表示 |
+| Tool X +1mm | [321.6,10,647.6] → [321.0,9.9,646.9]，沿当前工具方向 |
+| World X 长按 850ms 后松开 | X 321.0→327.1mm；后续读数保持 327.1，Y/Z 不变 |
+| Home 下实际拖动竖直操作轴 | Z 637.6→683.1mm，XY 与姿态不变 |
+| MoveJ 单步 | 到达 [451,0,807]，PP=1 |
+| MoveL 单步 v10 | 到达 [471,0,807]，PP=2；日志耗时约 2s |
+| MoveC 单步 v10 | 经 [471,20,807] 定义的圆弧到达 [451,20,807]，PP=3；观察到起步位置 [472.3,2.0,807]，符合该三点圆弧向外弯曲 |
+| 继续运行最后 MoveL | 返回 [451,0,807]，程序已完成 |
+| 程序运行时按 Z+ 接管 | 程序正常已停止，PP=1/MP清空，Z 到 808.0；无 stale 错误 |
+| 恢复与停止 | 出现原有偏离路径确认；确认后恢复，停止后 [458.4,0,807.8] 持续稳定 |
+
+浏览器没有 error 日志；有 Three.js PCFSoftShadowMap 弃用警告。截图保存在 .scratch/directory-validation/stopped-program.png 和 final-home.png。验收后原程序已恢复并逐字比对一致，回到教学 Home、PP=0，临时 tab 关闭、viewport 复原。本轮只启动 Vite preview，已经终止并确认 4173 无监听；没有启动 dev 服务或结束用户其他服务。
+
+## 验证边界
+
+- Web 构建仍有既有主包超过 500kB 的体积提示，本轮没有为了压警告改变加载架构。
+- 历史 e2e 套件仍含旧 UI/默认程序假设，本轮修正其中陈旧模块导入，但没有把该整套自动 E2E 声称为通过。上述网页验收是本轮真实操作结果。
+- Unity DLL、Unity Editor、RobotStudio 和真机未验证或修改。Unity 交付目录内的旧 Web reference 生成脚本仍引用历史路径，后续重生成其基准时需单独迁移；本轮不更改该独立交付目录。
+- docs 目录在现有忽略规则内；源码导航 src/README.md 与根 UPDATE_LOG.md 是可纳入版本控制的说明入口。未提交或推送。
+
+
+完整迁移表见 `docs/architecture/directory-optimization-2026-09-12.md`，本日志末尾保留各批次逐文件映射。
+
+---
+
+## 2026-09-12 — 目录粒度与命名架构审查（仅分析）
+
+- 新增 `docs/architecture/directory-review-2026-09-12.md`，更新本日志；当前不移动、合并、重命名任何源码。
+- 原因：用户反馈目录嵌套、单文件子目录与近似命名导致理解成本高。按当前文件清单、导出职责和实际引用判断，而非按文件数机械合并。
+- 发现：src 含 224 文件、143 个非测试 TS/Vue、76 测试、43 个含文件目录；指令解析单文件目录、占位 features、cartesian/solution、runtime/execution 及 planning 命名可收缩；numerical-ik 入口实际也分派解析候选。
+- 产物：目录合并表、具体命名映射、保留项、目标结构和三批实施顺序；单独记录播放/场景转换归属、KUKA 引用及大文件职责风险。
+- 影响与验证：仅分析文档；无运行行为变更，未重新运行编译/测试，不把上一轮 626 测试结果视作本建议实施验收。
+
+## 2026-09-12 — Web 运动架构优化完成与真实网页验收
+
+- 完成范围：Web 的运动合同、规划语义、时间播放、机型装配和单一控制权。当前仍只有 IRB1200，未增加机型选择 UI；未修改既有 Unity 交付目录。分支为 `codex/web-motion-core-architecture`，未提交、未推送；既有未提交日志与 Unity 文件保留。
+- 新增 `src/robot-motion-core/README.md`，记录各层依赖、四类意图、时间合同、Gizmo 行为、增加机型位置与独立构建方式。以下旧批次的“实施中”描述是过程记录，本条为最终状态。
+
+### 最终验证
+
+- `npm run check`、`npm run lint` 通过；`npm test` 通过 **626/626**，结果为 `.scratch/web-test-final.json`。
+- `npm run build:core` 与 `npm run build` 通过；独立 Core 在 Node 中成功导入、规划并执行 FK 查询，没有浏览器环境依赖。
+- `git diff --check` 通过。Web 构建仍有大于 500kB 的 chunk 提示，属于体积优化事项，不影响本次构建通过；本次未扩展到资源拆包。
+- 浏览器在 1920×1080 下打开本次生产构建，实际点击、鼠标长按与拖拽，并观察中途/终点读数及机械臂画面，非只调用业务函数。最后一轮浏览器错误日志为空；早先复现的错误已修复后复验。
+
+| 实际操作 | 观察结果 |
+| --- | --- |
+| J1 +1°；J2 +1°；J6 −1° | 对应关节达到目标；J2 接管运行中 RAPID 后程序正常停止，J6 负向到 −1° |
+| 教学 Home、机械零位 | Home 回到 `[0,-25,45,0,20,0]` 对应位姿；机械零位六轴为 `[0,0,0,0,30,0]` |
+| World X/Y/Z 各 +10mm | 从 `[311.6,0,637.6]` 依次到 `[321.6,0,637.6]`、`[321.6,10,637.6]`、`[321.6,10,647.6]`（页面保留一位小数） |
+| World RZ +5° | TCP 位置保持，RZ 从 180° 等价地变为 −175° |
+| Tool X +1mm | 按工具姿态改变世界坐标，观察约 `[-0.6,-0.1,-0.7]mm` 位移，符合当时工具 X 方向 |
+| 连续长按、松手、快速重按 | 实际持续移动；最终两次 550ms 长按使 X 从 311.6 到 317.9mm；松手后再次读取保持不变 |
+| 开启操作轴并拖动垂直手柄 | Z 从 637.6 到 694.9mm，XY 与姿态读数保持；未出现无响应或手柄与姿态脱离 |
+| 单步 MoveJ | 到达 `[451,0,807]`，PP 前进到 1 |
+| 单步 MoveL，20mm、v10 | 到达 `[471,0,807]`；日志 19:43:35 至 19:43:37，约 2 秒 |
+| 单步 MoveC | 经过 `[471,20,807]` 所定义圆弧，到达 `[451,20,807]`；PP 前进到 3 |
+| 运行剩余指令 | 返回 `[451,0,807]`，显示“已完成”、PP 4 |
+| 笛卡尔接管运行程序 | 正常“已停止”，手动目标执行；再运行进入既有偏离路径确认流程，确认后从当前姿态规划 |
+| 点击停止 | 圆弧停止在当前姿态，后续读取保持不变 |
+
+- 截图：`.scratch/web-validation/stopped-program.png`、`.scratch/web-validation/final-cartesian.png`。验证完成后恢复预览页面默认预设和 Home，关闭临时标签、重置视口；已终止本次启动的 Vite preview，4173 无监听。未启动 npm dev/start:dev，也未停止用户的其他服务。
+- 验证边界：以上为 Web 仿真，不代表真实 ABB 伺服动力学或真实机器人验收；本次未运行 Unity Editor/RobotStudio。MoveJ 时间仍为教学估算，fly-by 等未支持能力继续显式拒绝。
+
+### 变更文件与影响归并
+
+- 核心合同/规划：`src/robot-motion-core/{contracts.ts,index.ts,planner.ts,kinematics.ts,README.md,contracts.test.ts,web-motion.test.ts}`；分离可移植数据合同，校正 MoveJ 与直线/圆弧职责、工具残差与时间口径。
+- 路径内核：`src/robot-motion-core/internal/cartesian/{candidate-path-planner.ts,path-planner.ts,path-planner.test.ts,jog-baseline.test.ts}`、`solution/{joint-solution.ts,waypoint-diagnostics.ts,waypoint-diagnostics.test.ts,waypoint-solver.ts}`；统一候选筛选、约束与诊断，迁移新运动合同和测试。
+- 通用几何：`src/robot-geometry/ik/{types.ts,candidate-catalog.ts,candidate-catalog.test.ts}` 从 numerical-ik 迁出；更新 `numerical-ik/{index.ts,numerical-ik.ts}` 引用，删除原位置三个文件；`model/{robot-model.ts,robot-profile.ts}` 收紧模型职责和身份；`motion/{runner.ts,runner.test.ts,trajectory.ts,trajectory.test.ts}` 消费实际时间点、保留完整连续路径及暂停/停止行为。
+- 机型与显示：`src/robot-models/registry.ts`、`abb-irb1200/{profile.ts,profile.test.ts,parameters.ts,index.ts,visual-profile.ts}`、`analytic-kinematics/{abb-robot-model-adapter.ts,analytic-inverse-kinematics.ts,configuration.ts}`；统一模型装配、清除未使用邻域接口、迁移 IK 引用。`src/scene/{robot-visual.ts,abb-scene.ts,abb-dh-debug-chain.ts}` 从视觉配置读取节点和坐标映射，保持既有界面。
+- 应用与传输：`src/App.vue`、`src/application/{use-robot-controller.ts,use-robot-controller.test.ts}`、`motion/{motion-requests.ts,cartesian-control.ts,cartesian-control.test.ts,cartesian-math.ts,motion-coordinator.ts,motion-coordinator.test.ts}`、`program/{program-control.ts,program-control.test.ts}`、`src/infrastructure/motion-worker/{adapter.ts,adapter.test.ts}`；统一身份传递、单次预判消费、实际状态规划、时间验收与手动接管程序状态。
+- RAPID：`src/rapid/planning/{core-motion.ts,motion-requests.ts,motion-requests.test.ts}`、`execution/motion-execution.ts`、`runtime/rapid-runtime.ts`、`editing/controlled-rapid-edit.ts`；MoveJ/L/C 使用同一核心、传递速度/机型、去除示教对具体机型的直接依赖。
+- 构建与门禁：`vite.core.config.ts`、`package.json`、`tsconfig.node.json`、`.gitignore`、`src/architecture/architecture-gates.test.ts`；可独立构建 Core，限制核心对 UI 的反向依赖。所有本次触及的 TS/Vue 文件按项目格式规范整理。
+
+## 2026-09-12 — 独立构建与机型传递
+
+- `motion-requests.ts`、RAPID planning/execution/runtime 与 ProgramController 显式传递宿主 profile，默认机型只作为独立调用的装配入口；`use-robot-controller.ts` 使用当前 profile 构造关节请求。
+- `vite.core.config.ts`、`package.json`、`tsconfig.node.json`、`.gitignore`：增加 `build:core`，生成不含前端 UI 的 `dist-core/motion-core.js`；公开规划、FK、IK 候选与时间采样接口。
+- 新增 `web-motion.test.ts`、`trajectory.test.ts`：覆盖 MoveJ 不求中间直线路径、速度时间、纯旋转、工具/工件坐标、注入机型限位、刷新频率与暂停。
+- 针对性验证：67/67 通过；完整回归与浏览器点击验收继续进行。
+
+## 2026-09-12 — 机型视觉配置与共同筛选规则
+
+- `robot-models/abb-irb1200/visual-profile.ts`、`scene/robot-visual.ts`：集中 FBX 文件、节点、轴、偏置、调试 FK 映射，场景仍固定使用当前模型，不增加选择 UI。
+- `robot-geometry/ik/candidate-catalog.ts` 与路径候选图共享候选合法性筛选，补构型长度比较；失败归因不再受到前面路径点越界候选污染。
+- 删除无生产用途的机械零位邻域接口、常量与对应旧断言；保留腕部奇异判定和显式回退策略。
+- 对小于 1e-9 度的 FK/IK 数值回环差异按无运动处理，避免相同目标生成无效重复时间点。
+- 测试迁移：RAPID 测试替身使用 trajectory 合同；接管时停止旧 Runner 的断言区分正常接管与迟到结果。
+
+## 2026-09-12 — 时间合同测试迁移
+
+- 修改 `runner.test.ts`、`program-control.test.ts`、`jog-baseline.test.ts`：用带起点和时间的完整计划代替旧数组加 duration 接口；保留暂停/抢占/停止验证，连续计划验证改为保留新计划中间点。
+- 修改 `cartesian-control.test.ts`、`profile.test.ts`：跟随直线意图及模型 revision 合同，不保留旧入口兼容。
+- 状态：继续编译和回归测试。
+
+## 2026-09-12 — Web 执行与候选职责收口（实施中）
+
+- `robot-geometry/motion/trajectory.ts`：新增纯时间采样与计划校验；Runner 直接消费完整带时间点列，不再重新分配笛卡尔路径缓动时间。
+- `application/motion/motion-coordinator.ts`：保留时间点传递；离散命令接管时停止旧执行器。`cartesian-control.ts` 连续点动从真实当前关节规划，并在请求速度中明确 140ms 节拍。
+- `infrastructure/motion-worker/adapter.ts`、`App.vue`：同步预判结果以完整请求匹配消费一次，避免 Gizmo 成功目标重复规划。
+- `robot-geometry/ik/`：通用 IK 类型和候选目录从 numerical-ik 迁出，更新所有引用。`cartesian-math.ts` 补限位诊断读取；RAPID 示教从统一机型装配取得构型。
+- 验证：类型与测试正在迁移到新合同；尚未宣称浏览器验收通过。
+
+## 2026-09-12 — Web 运动核心架构优化（实施中）
+
+- 范围：Web；保留单机型界面，不修改 Unity DLL。原有未提交日志与 Unity 目录保留。
+- 批次 1：`robot-motion-core/contracts.ts` 独立请求/结果合同；MoveJ 使用 `pose-joint-target`，只对终点做 IK 后规划关节路径；手动笛卡尔入口使用 `linear-path`。避免 MoveJ 先验证直线再播放关节路径。
+- 机型：增加 `robot-models/registry.ts` 与 profile revision；Core 按身份解析模型，应用与 RAPID 使用同一默认装配，不增加选择控件。
+- 时间与结果：规划根据 TCP 距离与姿态速度分配时间；修复非默认工具的 TCP 残差口径、圆弧姿态放宽标记与诊断丢失。
+- 待完成：执行器消费时间、连续点动与 Gizmo、候选职责收口、测试、真实浏览器点击验收。
+
+## 2026-09-03 — 按 Web 源码重新实施 Unity JOG 面板与初始状态
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`；同步修改/新增 `Assets\AbbRobotMotion\AbbJogControllerExample.cs`、`AbbJogButton.cs`、`AbbJogActionButton.cs`、`AbbJointAngleInput.cs`、`AbbJogStateReadout.cs`、`AbbUnitySelfTest.cs`、`AbbFbxJointDriver.cs`、`AbbUnityCoordinateFrame.cs`；同步更新仓库 `unity-abb-jog-dll` 对应源码和文档。
+- 修改原因：旧 Unity 场景只提供固定 1°/10 mm 按钮，缺少 Web 的回教学 Home、回机械零位、逐轴数值输入、三套独立步长和 World/Tool 切换；同时启动自测会在 Controller 设置 Home 后直接改写模型，造成画面姿态与控制状态不一致。
+- 修改内容：Controller 成为唯一运行时状态源；默认教学 Home 固定为 `[0,-25,45,0,20,0]`，机械零位严格复用 Web 的 `[0,0,0,0,30,0]`；增加关节 `0.1/1/5/10°`、位置 `0.1/1/10/50 mm`、姿态 `0.1/1/5/10°` 和 World/Tool 选项；短按/长按语义改为接近 Web 的 180 ms 阈值和 80 ms 连续节拍；自测默认关闭且完成后恢复姿态。
+- 场景层级：新增世界坐标为零的外层 `ABB_IRB1200_5_90`，FBX 实例作为 `ABB_Model_Scale` 子节点承担 X 手性补偿和底座几何对齐；不再移动机器人逻辑根对象。
+- 场景迁移：`AbbMigrationSetup` 增加 `ABB_MigrationLayout_WebParity_v3` 标记，只对旧版自动生成场景重建一次，之后不覆盖；当前打开工程已完成 v3 场景刷新。
+- 界面装配：六个角度输入改为带 J1～J6 标签的独立行，避免网格中无法判断输入所属轴；状态读数同时显示六轴真值、坐标系和三类步长。
+- 验证状态：按用户要求未主动执行编译、构建或 Play Mode；Unity 资源刷新已完成，当前场景已静态写入 v3 布局，运行时仍待用户允许后再验收。
+
+## 2026-09-02 — 尝试创建 Unity 移植验收工程
+
+- 后续状态修正：Unity Hub 已成功创建并打开 `D:\UnityProjects\My project`；移植包 DLL、C# 组件和网页同源 FBX 已复制到该工程。当前继续补充 Editor 自动生成入口，原始失败记录保留作历史证据。
+
+## 2026-09-02 — 继续执行 Unity 完整移植场景生成
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`；本文件不属于网页 Git 工程，仅写入 D 盘 Unity 工程。同步更新本文件 `UPDATE_LOG.md`。
+- 修改原因：当前 Unity Editor 已由 Hub 正常打开，但工程仍停留在 `SampleScene`，需要让 Editor 自动执行场景装配，减少界面操作依赖。
+- 修改内容：脚本编译后通过 `InitializeOnLoadMethod` 延迟执行；检测到 `ABB_IRB1200_5_90.fbx` 且目标场景不存在时，自动调用已有的完整场景生成逻辑；目标场景已存在时跳过，不覆盖用户调整。
+- 影响：不修改 `AbbRobotMotion.dll`、运行时运动算法或网页工程；预期生成包含 ABB 模型、关节驱动器、JOG 控制器、自测组件、相机、灯光和 24 个 JOG 按钮的 `Assets/Scenes/ABBMigrationTest.unity`。
+- 验证状态：待 Unity Editor 完成重新编译和自动入口执行后，继续检查 `Assembly-CSharp`、场景文件、Console 日志及 Play Mode 自测结果。
+
+## 2026-09-02 — 修复 Unity 场景生成脚本编译错误
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`、临时验证副本同路径脚本，以及本日志文件。
+- 修改原因：同一 Unity 2021.3.10f1 临时副本的真实编译日志报 `CS0246`，确认 `CartesianAxis` 定义在 DLL 的 `AbbRobotMotion` 命名空间，而生成脚本只引用了 `AbbRobotMotion.Unity`。
+- 修改内容：补充 `using AbbRobotMotion;`，让 Editor 辅助脚本能够解析笛卡尔轴枚举。
+- 修改影响：只修复 Editor 场景装配脚本的类型引用，不改变 DLL、运动算法和运行时组件行为。
+- 验证状态：首次编译因该引用失败；已修复，等待重新执行 Unity batch 编译和场景生成。
+
+## 2026-09-02 — Unity 临时副本编译并生成完整移植场景
+
+- 验证工程：`D:\UnityProjects\My project-autotest`，使用与当前打开工程相同的 Unity `2021.3.10f1`。
+- 验证结果：Unity batch 日志以返回码 `0` 结束；无 C# 编译错误；日志出现 `[ABB Migration Setup] 已生成完整验收场景`。
+- 生成内容：`Assets/Scenes/ABBMigrationTest.unity`，文件约 168 KB；场景中统计到 56 个 GameObject 和 24 个 JOG 按钮。同步生成了脚本、FBX、DLL 与场景所需的 Unity `.meta` 引用文件。
+- 修改原因：先在不锁定用户当前窗口的独立副本中完成真实 Unity 编译和资源装配，确认场景序列化成功后再回写当前工程。
+- 影响：为当前工程补入可打开的 ABB 移植验收场景及稳定 GUID；不改运动 DLL、运动算法和网页代码。下一步是检查当前 Editor 识别资源，并进行 Play Mode 自测日志。
+
+## 2026-09-02 — 增加 Unity Play Mode 自动验收入口
+
+- 修改文件：新增 `D:\UnityProjects\My project\Assets\Editor\AbbMigrationPlayModeValidation.cs`；同步放入临时验证副本；更新本日志。
+- 修改原因：场景静态生成和 Editor 编译已经通过，还需要进入真实 Play Mode，验证 `Start` 生命周期、ABB 自测组件和 JOG 场景是否能运行并输出日志。
+- 修改内容：增加菜单命令 `ABB Migration/Run Play Mode Validation`；打开 `ABBMigrationTest`，进入 Play Mode 等待 6 秒，退出前保留 Editor.log，结束后自动退出 batch Editor。
+- 影响：只增加 Editor-only 验收工具，不进入运行时构建，不改变运动算法、DLL 或网页实现。
+- 验证状态：待在临时副本执行 Play Mode，确认 `AbbUnitySelfTest` 的 PASS/FAIL 结果及无运行时异常。
+
+## 2026-09-02 — Unity Play Mode 自测完成
+
+- 验证日志：`D:\UnityProjects\My project-autotest\Logs\AbbMigrationPlayModeValidation-rerun.log`。
+- 验证结果：真实 Play Mode 输出 `PASS: 10/10`，并分别通过 DLL managed assembly、Unity 坐标与 FBX 角度映射、`joint1..joint6` 驱动、正运动学、逆运动学回环、J1+ 规划、World Z+10 mm、Tool X+5 mm、连续 JOG 状态串联、结构化不可达失败处理。
+- 运行结果：随后输出“可视化播放完成”；日志中未发现 C# 编译错误、`NullReferenceException`、`MissingReferenceException` 或断言失败。
+- 收尾：自动退出回调在 batch Play Mode 中未执行，已仅结束本次由验证命令启动的 Unity 进程 `21612`；用户当前打开的 Unity 进程未操作。验证日志已复制到当前工程 `Logs` 目录作为调试记录。
+- 边界：J1+ 鼠标真实按下/长按仍需在当前 Unity 窗口中人工操作确认；Play Mode 的程序化自测已通过。
+
+## 2026-09-02 — Windows 64 位构建与播放器冒烟验证
+
+- 验证工程：`D:\UnityProjects\My project-autotest`；构建目标：`D:\UnityProjects\My project-autotest-build\ABBMigrationTest.exe`。
+- 构建结果：Unity 日志出现 `Build Finished, Result: Success.`，生成 Windows 64 位播放器，文件约 639 KB；说明当前场景、`Assembly-CSharp.dll` 与 `AbbRobotMotion.dll` 已进入构建产物。
+- 运行结果：实际启动构建后的播放器 8 秒，`StandaloneRun.log` 再次输出 `PASS: 10/10` 及完整 10 项 PASS；未出现 C# 异常、空引用或断言失败。
+- 已知边界：本次播放器冒烟使用 `-nographics`，因此日志中的 `Shader UI/Default is not supported on this GPU` 属于无图形设备模式的预期提示，不代表带窗口运行的渲染失败；需要在有图形窗口时再做最终视觉验收。
+- 收尾：已结束本次由验证命令启动的播放器进程；未结束用户当前打开的 Unity Editor。构建和运行日志同步复制到当前工程 `Logs` 目录。
+
+## 2026-09-02 — Unity 图形窗口视觉冒烟通过
+
+- 验证产物：`D:\UnityProjects\My project-autotest-build\ABBMigrationTest-window-rerun.png`、`StandaloneVisualRun-rerun.log`。
+- 验证结果：带图形窗口的实际 Windows 播放器成功显示 ABB 模型、天空/地面背景和左侧 24 个 JOG 按钮；图形运行日志同时输出 `PASS: 10/10` 以及可视化播放完成。
+- 调整过程：第一次截屏发生在场景加载完成前，得到空黑窗口；未改代码，延长等待到自测完成后重新截屏，第二次画面正常。
+- 影响：确认 Unity 端的基础可视化效果已经建立，包含模型、相机、灯光、Canvas、EventSystem 和 JOG 按钮事件组件；不声称与 Web 像素级一致，因为当前 Unity 场景是功能移植验收 UI，而不是复刻 Web CSS。
+- 边界：尚未通过真实鼠标在当前窗口长按 `J1+` 做人工验收；程序化 Play Mode 自测和构建后运行自测均已通过。
+
+## 2026-09-02 — 按 Web 行为修正 Unity 视角、原点、JOG 分组和轨迹
+
+- 对照依据：Web `src/scene/scene-factory.ts` 的 `OrbitControls`（旋转/平移/缩放）、`src/scene/abb-scene.ts` 的 `prepareAbbModel`（按 `dizuo` 对齐安装面）、`src/components/jog/JogControlTabs.vue`（关节/笛卡尔页签）以及 Web 端 TCP 轨迹采样逻辑。
+- 修改文件：D 盘 Unity 工程新增 `Assets/AbbRobotMotion/AbbOrbitCameraController.cs`、`AbbJogModeTabs.cs`、`AbbTcpTrajectoryRenderer.cs`；更新 `Assets/Editor/AbbMigrationSetup.cs`；临时验证副本同步同样文件；更新本日志。
+- 修改原因：旧 Unity 场景没有轨道相机，所以鼠标无法转视角；FBX 根对象在世界零点但 `dizuo` 安装面没有对齐世界原点；24 个按钮平铺，未区分关节 JOG 与笛卡尔 JOG；场景没有 TCP 轨迹显示。
+- 修改内容：增加非 UI 区域左键旋转/滚轮缩放相机；按 `dizuo` Renderer 包围盒将基座中心置于世界 X/Z=0、底面置于 Y=0；JOG 面板改为“关节 JOG/笛卡尔 JOG”两个页签；增加 `joint7` TCP 橙色轨迹线。
+- 设计边界：不改 DLL、FK/IK、关节轴映射或 Web 运动算法；相机和 UI 是 Unity 运行时消费层，原点校准只改变 FBX 显示根节点位置，不改变 ABB/DH 运动学坐标。
+- 验证状态：待重新生成 Unity 场景、编译、构建，并用图形窗口点击页签/JOG、拖拽相机和截取前后画面检查运动轨迹。
+
+## 2026-09-02 — Web 对照版 Unity 场景 Play Mode 复验
+
+- 复验工程：`D:\UnityProjects\My project-autotest`，Unity `2021.3.10f1`。
+- 原点证据：生成日志记录 `dizuo center=(-1.97, 0.35, 1.50)`、`minY≈0`，实际施加 correction `(1.97, 0, -1.50)`；因此 FBX 安装面将落在 Unity 世界 Y=0，基座中心落在 X/Z=0。
+- Play Mode 结果：新场景仍输出 `PASS: 10/10`，并完成 World Z+10 mm 可视化播放；没有新增 `AbbOrbitCamera`、`AbbTcpTrajectory` 空引用或异常。
+- 待完成：把新场景同步回当前工程，重新构建带页签和轨迹线的播放器，执行图形窗口点击与截图验证。
+
+- 修改文件：`UPDATE_LOG.md`；创建了 `D:\UnityProjects` 目录和 Unity 创建日志。
+- 修改原因：准备在 D 盘建立独立 Unity 工程并导入 `unity-abb-jog-dll/package/Assets`。
+- 当前状态：Unity Editor `2021.3.0f1` 启动检查发现旧许可证机器绑定不一致；旧缓存已改名为 `C:\ProgramData\Unity\Unity_lic.ulf.stale-20260902.bak` 保留备份。后续重试仍报 `Access token is unavailable` 及账号授权缺失，目标工程尚未生成，移植文件尚未复制。
+- 后续条件：在 Unity Hub 中退出并重新登录 Unity 账号，重新激活 Unity Personal 后，继续创建工程和完整 Play Mode/Windows 构建验收。
+
+## 2026-09-02 — 清理不完整 Unity 安装残留
+
+- 修改文件：`UPDATE_LOG.md`；系统目录 `C:\Program Files\Unity`。
+- 修改原因：本机检查确认 Unity Hub 与 Unity Editor 可执行文件均不存在，但该目录仍残留 `2020.3.48f1`、`2022.3.62f1` 的不完整文件和 DLL。
+- 修改内容：在管理员权限下删除已核验的 `C:\Program Files\Unity` 目录及其全部残留内容。
+- 修改影响：移除 Unity 残留文件；不修改项目源代码，不影响当前项目文件。
+- 验证：删除后确认 `C:\Program Files\Unity` 不存在。
+
 ## 2026-08-30 — 精简状态展示：pose-card 仅非 ready 渲染；ProgramControlPanel 删除未使用的 all/actions 布局
 
 - 问题：笛卡尔面板 ready 状态下「就绪」大卡（pose-card）与标题行 READY 徽章同源重复；程序面板的「空闲」状态徽章在源码中写了 3 处（transport / all 标题行 / actions 底栏），其中 all 与 actions 两种 display 布局在生产环境无任何调用方（App.vue 用 transport、ProgramWorkspace.vue 用 content），属于死代码。
@@ -3576,3 +3846,187 @@
   6. 新增静态架构门禁，锁定生产代码无旧双轨入口、`planMotion` 调用边界、RapidRuntime 无 Vue 依赖和 Core barrel 公开面。
 - 修改影响：程序运动规划失败、Worker 异常和 Runner 异常均回到可观察的失败/停止态；空轨迹不再触发 `startTrajectory` 异常卡死；运行语义可脱离 Vue 单独测试；现有 ABB/KUKA 数值算法保持不变。
 - 验证：`npm run check` 通过；`npm test -- --run` 通过（67 files / 534 tests）；`npm run build` 通过（仅保留既有大 chunk 提示）；新增架构门禁 4/4、RapidRuntime/request 测试 2/2、RobotStudio 既有普通工作区对照 7/7 通过。RobotStudio 只执行了只读 Inspect，确认 `Controller1/T_ROB1` 为虚拟控制器、RobotWare 6.16.0.3、Auto、MotorsOn、RAPID Stopped、Task Ready；本轮未在未获得当前请求明确变更授权时上传或运行控制器程序。
+## 2026-09-03 — 迁移已有 Unity 场景到 Web 对齐布局 v3
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`；删除仓库内临时 `src/scene/.tmp-abb-fbx-coordinate-probe.test.ts`。
+- 修改原因：当前打开场景虽已带 v2 标记，但仍保存着上一版无 J1～J6 行标签的输入框；生成器的“已有场景跳过”规则使最新 UI 代码没有写入该场景。
+- 修改内容：将布局标记提升为 `ABB_MigrationLayout_WebParity_v3`，让 Unity 仅重建一次现有移植场景，写入带轴标签的数值输入行。
+- 影响：只更新 Editor 场景装配和临时文件状态，不改变 DLL、Web 源码、运动学或坐标适配；仍不执行编译、构建或 Play Mode 验证。
+## 2026-09-03 — 补齐 Web OrbitControls 平移语义
+
+- 修改文件：`D:\UnityProjects\My project\Assets\AbbRobotMotion\AbbOrbitCameraController.cs`、`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`。
+- 修改原因：Web `scene-factory.ts` 明确开启 `enablePan`，Unity 版此前只有旋转/滚轮缩放；笛卡尔按钮还把 “World” 固定写进名称，切换 Tool 后会造成语义误导。
+- 修改内容：增加非 UI 区域右键拖拽平移，按相机视场和距离换算像素到场景单位；笛卡尔轴按钮名称改为 X/Y/Z/Rx/Ry/Rz 加方向，坐标系由共享 World/Tool 选项控制。
+- 影响：只增强相机和 UI 显示层，不改变 Web、DLL、FBX、坐标映射、初始姿态或 JOG 规划；未主动执行编译、构建或 Play Mode 验证。
+
+## 2026-09-03 — 同步完整场景交互脚本到 Unity 交付包
+
+- 修改文件：新增 `package/Assets/AbbRobotMotion/AbbOrbitCameraController.cs`、`AbbJogModeTabs.cs`、`AbbTcpTrajectoryRenderer.cs`；更新 `package/README_先看我.md`、`docs/UNITY_INTEGRATION.md`。
+- 修改原因：当前 D 盘工程已经使用视角、页签和 TCP 轨迹组件，但交付包目录尚未包含这三个运行时脚本，存在现场工程与包内容分叉。
+- 修改内容：同步完整脚本和使用说明；相机能力明确为旋转、右键平移、缩放，轴按钮不再固定标注 World。
+- 影响：补齐交付包的显示/交互层，不改 DLL、Web、FBX、运动学或控制器状态；未主动执行编译、构建或 Play Mode 验证。
+## 2026-09-03 — 重排 Unity JOG 面板，消除输入框与按钮遮挡
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`。
+- 修改原因：截图显示旧布局用一个两列网格混排快捷动作、六轴输入和 JOG 按钮，输入行高度与后续按钮发生覆盖，J1～J6 也不形成连续可读的角度区块。
+- 修改内容：将关节页拆为快捷动作网格、J1～J6 垂直输入列表和关节按钮网格；笛卡尔页拆为快捷动作网格和笛卡尔按钮网格；增加区块标题、固定行高和独立布局高度；布局版本提升为 v4。
+- 影响：只调整 Unity Canvas 的层级、尺寸和排列，不改变 Controller、步长、Home/机械零位、FBX 坐标映射或 JOG 事件；未主动执行编译、构建或 Play Mode。
+
+## 2026-09-03 — 修正面板布局脚本的命名空间错误
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`。
+- 问题：布局高度计算首次使用了未限定的 `Math.Max`，Unity Editor 日志报告 `CS0103`。
+- 修正：改为 `System.Math.Max`，避免依赖隐式命名空间；不改变布局数值或运行时逻辑。
+- 当前边界：源码已修正，但不主动重新运行编译/构建/Play Mode；等待 Unity 自动刷新后再确认 v4 场景序列化。
+
+## 2026-09-03 — 修正页签尺寸和间距异常
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`。
+- 修改原因：静态场景显示页签 `HorizontalLayoutGroup` 的 `childControlWidth/Height` 为关闭状态，两个页签保留默认 `100x100`，造成截图中的窄方块和中间空隙。
+- 修改内容：开启页签宽高控制，布局版本提升为 `ABB_MigrationLayout_WebParity_v5`，由 Unity 重新生成页签布局。
+- 影响：只修正顶部页签的排版，不改变运动逻辑；未主动执行编译、构建或 Play Mode。
+
+## 2026-09-03 — 修复迁移脚本在 Play Mode 调用 NewScene 的异常
+
+- 修改文件：`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`。
+- 问题：`InitializeOnLoadMethod`/`DidReloadScripts` 注册的延迟回调可能在 Play Mode 执行，进而调用仅允许编辑模式使用的 `EditorSceneManager.NewScene`，Unity 报 `InvalidOperationException`。
+- 修正：增加幂等的迁移回调排队；检测到 `isPlayingOrWillChangePlaymode` 时延期，并在 `EnteredEditMode` 后重新排队；手动菜单入口同样安全返回并等待编辑模式。
+- 影响：只修正 Editor 场景迁移的生命周期，不改变机器人运动、坐标适配或 UI 排版；本轮未主动执行编译、构建或 Play Mode 验证。
+
+## 2026-09-03 — 增加清除 TCP 轨迹线按钮
+
+- 修改文件：`D:\UnityProjects\My project\Assets\AbbRobotMotion\AbbJogActionButton.cs`、`D:\UnityProjects\My project\Assets\AbbRobotMotion\AbbTcpTrajectoryRenderer.cs`、`D:\UnityProjects\My project\Assets\Editor\AbbMigrationSetup.cs`；同步交付包中的同名运行时脚本和 Unity 接入说明。
+- 修改原因：Unity 版已有 `AbbTcpTrajectoryRenderer.ClearTrajectory()`，但没有面板入口；Web 端已有独立的清空轨迹操作。
+- 修改内容：新增 `ClearTrajectory` 动作并绑定轨迹组件；在两种 JOG 页签共用的顶部区域生成一个“清除轨迹线”按钮，无轨迹点时置灰；布局版本提升为 v6。
+- 影响：只增加轨迹线清空操作，不改变轨迹采样、机器人运动、坐标映射或页签逻辑；本轮未主动执行编译、构建或 Play Mode 验证。
+## 2026-09-12 — 浏览器发现并修复小数时间契约遗漏
+
+- `application/motion/motion-coordinator.ts`：移除时间必须为整数的旧校验，保留有限数值与严格递增要求；精确路径时间可合法进入播放器。
+- `motion-coordinator.test.ts`：使用 1200.125ms 验证计划时间原样传递且不被宿主 duration 覆盖。
+- 原因与影响：实际点击 World X +10mm 被误报参数错误，定位为新规划小数时间与旧验收条件冲突；修复覆盖笛卡尔及 RAPID 时间计划。
+## 2026-09-12 — 浏览器接管回归修复
+
+- `application/use-robot-controller.ts`：笛卡尔单步和长按开始先停止活动 RAPID 程序，再提交新运动；复用已有抢占流程，避免正常切换被报告为 stale 错误。
+- 同文件 Home/机械零位请求补传当前 profile，避免后续替换机型时回零请求身份与关节目标不一致。
+- 新增控制器入口回归测试；浏览器将复验程序停止态与松手后姿态稳定。
+## 2026-09-12 — 快速重按的异步隔离与代码整理
+
+- `motion-coordinator.ts`、对应测试：复现旧连续会话规划迟到会关闭同来源新会话的问题；stale/cancelled 不再视作硬故障，清理动作同时检查会话 generation。
+- 回归覆盖松手、重新按住、旧请求迟到、新请求继续执行的顺序；保持最新会话单一控制权。
+- 本次修改的 TypeScript/Vue 文件按项目 Prettier 规范整理，改善合同与规划函数可读性，不格式化既有 Unity 文件。
+
+## 2026-09-12 目录优化第 1 批
+
+按实际职责移动文件并更新所有源码导入及架构门禁路径；不提供兼容转发，不更改算法策略。文件映射：
+
+- `src/rapid/instructions/assign/assignment-statement.ts` → `src/rapid/language/parser/assignment-parser.ts`
+- `src/rapid/instructions/mode/mode-statement.ts` → `src/rapid/language/parser/mode-parser.ts`
+- `src/rapid/instructions/motion/motion-statement.ts` → `src/rapid/language/parser/motion-parser.ts`
+- `src/rapid/instructions/index.ts` → `src/rapid/language/parser/instruction-keywords.ts`
+- `src/rapid/planning/core-motion.ts` → `src/rapid/motion/motion-core-mapping.ts`
+- `src/rapid/planning/motion-input.ts` → `src/rapid/motion/rapid-motion-validation.ts`
+- `src/rapid/planning/motion-requests.test.ts` → `src/rapid/motion/rapid-motion-request.test.ts`
+- `src/rapid/planning/motion-requests.ts` → `src/rapid/motion/rapid-motion-request.ts`
+- `src/rapid/execution/program-executor.ts` → `src/rapid/runtime/program-executor.ts`
+- `src/rapid/execution/program-executor.test.ts` → `src/rapid/runtime/program-executor.test.ts`
+- `src/rapid/execution/motion-execution.ts` → `src/rapid/runtime/submit-motion-instruction.ts`
+- `src/rapid/execution/index.ts` → `src/rapid/runtime/index.ts`
+- `src/rapid/editor/rapid-highlight.ts` → `src/components/program/rapid-syntax-highlight.ts`
+- `src/robot-motion-core/internal/cartesian/abb-wrist-interpolation.test.ts` → `src/robot-motion-core/cartesian/abb-wrist-interpolation.test.ts`
+- `src/robot-motion-core/internal/cartesian/abb-wrist-singularity.integration.test.ts` → `src/robot-motion-core/cartesian/abb-wrist-singularity.integration.test.ts`
+- `src/robot-motion-core/internal/cartesian/candidate-path-planner.test.ts` → `src/robot-motion-core/cartesian/ik-path-search.test.ts`
+- `src/robot-motion-core/internal/cartesian/candidate-path-planner.ts` → `src/robot-motion-core/cartesian/ik-path-search.ts`
+- `src/robot-motion-core/internal/cartesian/jog-baseline.test.ts` → `src/robot-motion-core/cartesian/jog-baseline.test.ts`
+- `src/robot-motion-core/internal/cartesian/path-planner.test.ts` → `src/robot-motion-core/cartesian/linear-path-planner.test.ts`
+- `src/robot-motion-core/internal/cartesian/path-planner.ts` → `src/robot-motion-core/cartesian/linear-path-planner.ts`
+- `src/robot-motion-core/internal/cartesian/solution/joint-solution.ts` → `src/robot-motion-core/cartesian/waypoint-ik.ts`
+- `src/robot-motion-core/internal/cartesian/solution/waypoint-diagnostics.test.ts` → `src/robot-motion-core/cartesian/waypoint-diagnostics.test.ts`
+- `src/robot-motion-core/internal/cartesian/solution/waypoint-diagnostics.ts` → `src/robot-motion-core/cartesian/waypoint-diagnostics.ts`
+- `src/robot-motion-core/internal/cartesian/solution/waypoint-solver.ts` → `src/robot-motion-core/cartesian/pose-path-solver.ts`
+- `src/robot-motion-core/internal/cartesian/solution/waypoint-types.ts` → `src/robot-motion-core/cartesian/waypoint-types.ts`
+- `src/robot-motion-core/internal/cartesian/step-policy.ts` → `src/robot-motion-core/cartesian/path-limits.ts`
+- `src/robot-motion-core/planner.ts` → `src/robot-motion-core/motion-planner.ts`
+- `src/application/motion/motion-control.ts` → `src/application/motion/use-motion-runner.ts`
+- `src/application/motion/joint-control.ts` → `src/application/motion/use-robot-state.ts`
+- `src/application/motion/cartesian-control.ts` → `src/application/motion/use-cartesian-jog.ts`
+- `src/application/motion/cartesian-control.test.ts` → `src/application/motion/use-cartesian-jog.test.ts`
+- `src/application/motion/motion-requests.ts` → `src/application/motion/manual-motion-request.ts`
+- `src/application/program/program-control.ts` → `src/application/program/use-program-session.ts`
+- `src/application/program/program-control.test.ts` → `src/application/program/use-program-session.test.ts`
+- `src/application/program/use-program-panel-controller.ts` → `src/application/program/program-panel-context.ts`
+- `src/infrastructure/motion-worker/adapter.ts` → `src/infrastructure/motion-worker/motion-planner-client.ts`
+- `src/infrastructure/motion-worker/adapter.test.ts` → `src/infrastructure/motion-worker/motion-planner-client.test.ts`
+- `src/scene/trajectory.ts` → `src/scene/tcp-trace-buffer.ts`
+- `src/rapid/data/target-expression.ts` → `src/rapid/data/target-operations.ts`
+- `src/rapid/data/pose-transform.ts` → `src/rapid/data/rapid-pose-conversion.ts`
+- `src/rapid/data/pose-transform.test.ts` → `src/rapid/data/rapid-pose-conversion.test.ts`
+- `src/rapid/data/coordinate-transform.ts` → `src/rapid/data/tool-workobject-transform.ts`
+- `src/rapid/language/parser/target-expression.ts` → `src/rapid/language/parser/target-operand-parser.ts`
+- `src/rapid/language/parser/control-flow.ts` → `src/rapid/language/parser/control-flow-lowering.ts`
+
+验证：迁移后立即进行类型检查，随后运行回归测试与构建。
+
+## 2026-09-12 目录优化第 2 批
+
+按实际职责移动文件并更新所有源码导入及架构门禁路径；不提供兼容转发，不更改算法策略。文件映射：
+
+- `src/robot-geometry/numerical-ik/numerical-ik.ts` → `src/robot-geometry/ik/ik-solver.ts`
+- `src/robot-geometry/numerical-ik/numerical-ik.test.ts` → `src/robot-geometry/ik/ik-solver.test.ts`
+- `src/robot-geometry/numerical-ik/index.ts` → `src/robot-geometry/ik/index.ts`
+- `src/robot-geometry/ik/types.ts` → `src/robot-geometry/ik/ik-types.ts`
+- `src/robot-geometry/transform/dh-types.ts` → `src/robot-geometry/math/dh-types.ts`
+- `src/robot-geometry/transform/numerical-jacobian.ts` → `src/robot-geometry/ik/numerical-jacobian.ts`
+- `src/robot-geometry/transform/pose-conversion.ts` → `src/robot-geometry/math/pose-conversion.ts`
+- `src/robot-geometry/transform/transform-matrix.ts` → `src/robot-geometry/math/transform-matrix.ts`
+- `src/robot-models/abb-irb1200/analytic-kinematics/abb-robot-model-adapter.ts` → `src/robot-models/abb-irb1200/abb-robot-model-adapter.ts`
+- `src/robot-models/abb-irb1200/analytic-kinematics/analytic-inverse-kinematics.test.ts` → `src/robot-models/abb-irb1200/analytic-inverse-kinematics.test.ts`
+- `src/robot-models/abb-irb1200/analytic-kinematics/analytic-inverse-kinematics.ts` → `src/robot-models/abb-irb1200/analytic-inverse-kinematics.ts`
+- `src/robot-models/abb-irb1200/analytic-kinematics/configuration.ts` → `src/robot-models/abb-irb1200/configuration.ts`
+- `src/robot-models/abb-irb1200/analytic-kinematics/forward-kinematics.test.ts` → `src/robot-models/abb-irb1200/forward-kinematics.test.ts`
+- `src/robot-models/abb-irb1200/analytic-kinematics/forward-kinematics.ts` → `src/robot-models/abb-irb1200/forward-kinematics.ts`
+- `src/robot-models/abb-irb1200/validation/real-data-validation.test.ts` → `src/robot-models/abb-irb1200/real-data-validation.test.ts`
+- `src/robot-geometry/model/index.ts` → `src/robot-geometry/robot-types.ts`
+- `src/robot-geometry/model/joint-pose.ts` → `src/robot-geometry/robot-types.ts`
+- `src/robot-geometry/model/robot-model.ts` → `src/robot-geometry/robot-types.ts`
+- `src/robot-geometry/model/robot-profile.ts` → `src/robot-geometry/robot-types.ts`
+
+验证：迁移后立即进行类型检查，随后运行回归测试与构建。
+
+## 2026-09-12 目录优化第 3 批
+
+按实际职责移动文件并更新所有源码导入及架构门禁路径；不提供兼容转发，不更改算法策略。文件映射：
+
+- `src/robot-geometry/motion/runner.test.ts` → `src/robot-motion-core/playback/runner.test.ts`
+- `src/robot-geometry/motion/runner.ts` → `src/robot-motion-core/playback/runner.ts`
+- `src/robot-geometry/motion/smoothing.test.ts` → `src/robot-motion-core/playback/smoothing.test.ts`
+- `src/robot-geometry/motion/smoothing.ts` → `src/robot-motion-core/playback/smoothing.ts`
+- `src/robot-geometry/motion/trajectory.test.ts` → `src/robot-motion-core/playback/joint-trajectory-sampler.test.ts`
+- `src/robot-geometry/motion/trajectory.ts` → `src/robot-motion-core/playback/joint-trajectory-sampler.ts`
+- `src/robot-geometry/motion/types.ts` → `src/robot-motion-core/playback/playback-config.ts`
+- `src/robot-geometry/math/scene-pose-transform.ts` → `src/scene/abb-coordinate-conversion.ts`
+- `src/robot-geometry/math/scene-pose-transform.test.ts` → `src/scene/abb-coordinate-conversion.test.ts`
+
+验证：迁移后立即进行类型检查，随后运行回归测试与构建。
+
+### 第三批职责细化
+
+- `motion-planner.ts` 抽取 `request-validation.ts`、`pose-frames.ts`、`plan-output.ts`，保持请求校验、刚体乘法顺序、残差与教学时间语义。
+- `cartesian-math.ts` / `cartesian-types.ts` 整理为 `cartesian-jog-input.ts` 与 `cartesian-result-presentation.ts`，同步测试和消费者。
+- 程序组合函数命名统一为 `useProgramSession`。
+- 播放器和时间采样已迁入 Core/playback，测试时钟更新为显式新路径；编译通过后继续回归。
+
+### 单一写入与显示换算收口
+
+- `use-robot-state.ts` 删除未使用的直接单轴写入、调整、回零、随机姿态命令，保留唯一底层 setJoints 供协调器/播放器接入。
+- `scene/abb-coordinate-conversion.ts` 从已有 ABB_BASE_TO_SCENE 派生双向旋转，删除手工副本。
+- Core 公开注入时钟的 createMotionRunner，独立构建同时支持规划和播放。
+- ProgramSession、MotionPlannerClient 类型与函数同步命名；更新 README、源码说明，删除 src 内已空旧目录。
+
+### 最终引用审计
+
+- 删除无调用方的 IK barrel、cloneCoreFrameToPose、旧 cartesianPathFailureToMotionError 和 RAPID 法兰转换入口；保留使用中的工件目标世界位姿换算，文件改为 `rapid/data/workobject-pose.ts`。
+- 合并 poseToFrameData/fromPose 的纯转发，缩小内部公开函数集。
+- joint-math 的限位参数改为必填，删除默认 KUKA 隐式依赖；对应测试显式注入测试机型范围。
+- 增加依赖方向和 Runner/状态写入唯一性的架构检查。
+- 修正 e2e/abb-irb1200.spec.ts 的陈旧模块导入；该历史 E2E 套件还含旧 UI 假设，最终浏览器验收通过真实页面操作进行，不将该套件算作已通过。
+- 新增 `src/README.md`，说明目录、调用链、命名和新增文件放置规则。
