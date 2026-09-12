@@ -3,7 +3,7 @@ import { defineComponent, h } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 
 /**
  * 占位场景组件：不启动真实 WebGL、不加载 FBX，只转发 App 传入的 gizmo 回调 props，
@@ -36,7 +36,9 @@ function mountApp(): VueWrapper {
 /** 打开左侧 Jog 面板，JointControlPanel 才会挂载到 DOM。 */
 async function openJogPanel(wrapper: VueWrapper): Promise<void> {
   const buttons = wrapper.findAll('button')
-  const jogButton = buttons.find((button) => button.text().includes('Jog') || button.text().includes('关节'))
+  const jogButton = buttons.find(
+    (button) => button.text().includes('Jog') || button.text().includes('关节'),
+  )
   if (jogButton) await jogButton.trigger('click')
   await wrapper.vm.$nextTick()
 }
@@ -180,9 +182,9 @@ describe('App.vue 运动抢占入口 — 七处调用点的现状特征化', () 
       ).callGetGizmoPose()
       expect(pose).not.toBeNull()
 
-      const solved = (scene.vm as unknown as { callGizmoSolve: (pose: Pose) => boolean }).callGizmoSolve(
-        pose as Pose,
-      )
+      const solved = (
+        scene.vm as unknown as { callGizmoSolve: (pose: Pose) => boolean }
+      ).callGizmoSolve(pose as Pose)
       // 拖到当前位姿本身（零位移）必然可达。
       expect(solved).toBe(true)
       await wrapper.vm.$nextTick()
@@ -207,9 +209,9 @@ describe('App.vue 运动抢占入口 — 七处调用点的现状特征化', () 
           [0, 0, 1],
         ],
       }
-      const solved = (scene.vm as unknown as { callGizmoSolve: (pose: Pose) => boolean }).callGizmoSolve(
-        unreachablePose,
-      )
+      const solved = (
+        scene.vm as unknown as { callGizmoSolve: (pose: Pose) => boolean }
+      ).callGizmoSolve(unreachablePose)
 
       // 关键锁定点：预判在同一次调用内同步返回 false，不是异步 then 之后才知道结果。
       expect(solved).toBe(false)

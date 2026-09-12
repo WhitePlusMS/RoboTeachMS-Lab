@@ -3,8 +3,8 @@ import type {
   MotionPlanningResult,
   MotionPlanWaypoint,
 } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
-import type { MotionResult } from '@/robot-geometry/motion/runner.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import type { MotionResult } from '@/robot-motion-core/playback/runner.ts'
 
 export type MotionSource = 'manual-joint' | 'manual-cartesian' | 'gizmo' | 'rapid'
 export type ContinuousMotionSource = Exclude<MotionSource, 'rapid'>
@@ -17,6 +17,7 @@ export type ContinuousMotionSource = Exclude<MotionSource, 'rapid'>
  */
 function isFatalContinuousFailure(outcome: MotionCommandOutcome): boolean {
   if (outcome.ok) return false
+  if (outcome.reason !== 'planning-failure') return false
   if (!outcome.result || outcome.result.ok) return true
   return (
     outcome.result.error.code === 'invalid-request' ||
@@ -79,14 +80,8 @@ export interface MotionCoordinatorOptions {
   readonly runEased: (target: JointAngles, durationMs?: number) => Promise<MotionResult>
   /** 由 Coordinator 统一承接需要同步反映到面板的已验证关节目标。 */
   readonly runImmediate: (target: JointAngles) => void
-  readonly runTrajectory: (
-    waypoints: readonly JointAngles[],
-    durationMs?: number,
-  ) => Promise<MotionResult>
-  readonly appendTrajectory: (
-    waypoints: readonly JointAngles[],
-    durationMs?: number,
-  ) => Promise<MotionResult>
+  readonly runTrajectory: (waypoints: readonly MotionPlanWaypoint[]) => Promise<MotionResult>
+  readonly appendTrajectory: (waypoints: readonly MotionPlanWaypoint[]) => Promise<MotionResult>
   readonly runSpeedLimited: (target: JointAngles) => Promise<MotionResult>
   /** Coordinator 独占规划 transport 的取消；宿主不得直接操作 Worker。 */
   readonly cancelPlan?: () => void
@@ -111,7 +106,10 @@ export interface MotionCoordinator {
 }
 
 /** Worker 是进程边界；Coordinator 在把结果交给 Runner 前做最小结构校验。 */
-function validatePlan(plan: MotionPlanningResult, request: MotionPlanningRequest): MotionPlanningResult {
+function validatePlan(
+  plan: MotionPlanningResult,
+  request: MotionPlanningRequest,
+): MotionPlanningResult {
   if (!plan.ok) return plan
   if (plan.waypoints.length === 0) {
     return {
@@ -129,7 +127,9 @@ function validatePlan(plan: MotionPlanningResult, request: MotionPlanningRequest
     !first ||
     first.timeMs !== 0 ||
     first.jointsDeg.length !== 6 ||
-    first.jointsDeg.some((value, index) => !Number.isFinite(value) || value !== request.state.jointsDeg[index])
+    first.jointsDeg.some(
+      (value, index) => !Number.isFinite(value) || value !== request.state.jointsDeg[index],
+    )
   ) {
     return {
       ok: false,
@@ -143,7 +143,9 @@ function validatePlan(plan: MotionPlanningResult, request: MotionPlanningRequest
   if (
     !last ||
     plan.end.jointsDeg.length !== 6 ||
-    plan.end.jointsDeg.some((value, index) => !Number.isFinite(value) || value !== last.jointsDeg[index])
+    plan.end.jointsDeg.some(
+      (value, index) => !Number.isFinite(value) || value !== last.jointsDeg[index],
+    )
   ) {
     return {
       ok: false,
@@ -157,7 +159,6 @@ function validatePlan(plan: MotionPlanningResult, request: MotionPlanningRequest
   for (let index = 1; index < plan.waypoints.length; index += 1) {
     const waypoint = plan.waypoints[index]
     if (
-      !Number.isInteger(waypoint.timeMs) ||
       !Number.isFinite(waypoint.timeMs) ||
       waypoint.jointsDeg.length !== 6 ||
       waypoint.jointsDeg.some((value) => !Number.isFinite(value)) ||
@@ -278,8 +279,8 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
             : command.playback === 'speed-limited'
               ? options.runSpeedLimited(planned.end.jointsDeg as JointAngles)
               : command.playback === 'stream'
-                ? options.appendTrajectory(waypoints, command.durationMs)
-                : options.runTrajectory(waypoints, command.durationMs)
+                ? options.appendTrajectory(planned.waypoints)
+                : options.runTrajectory(planned.waypoints)
     } catch (error) {
       if (disposed) return { ok: false, reason: 'stale' }
       if (currentVersion !== version) return invalidatedOutcome(currentVersion)
@@ -329,7 +330,7 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
     command: Extract<MotionCommand, { readonly kind: 'move' | 'continuous-update' }>,
   ): Promise<MotionCommandOutcome> {
     if (disposed) return { ok: false, reason: 'cancelled' }
-    if (command.kind === 'move' && (continuousSession !== null || pendingContinuous !== null)) {
+    if (command.kind === 'move') {
       // 离散/RAPID 运动取得唯一执行权；旧连续会话的活动 Runner 与 pending
       // 更新必须同时失效，否则旧 tick 可能在新运动之后再次抢占 Runner。
       continuousSession = null
@@ -401,6 +402,8 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
   }
 
   async function processContinuous(entry: ContinuousEntry): Promise<void> {
+    // 同来源也可能已松手重按；迟到结果只能清理所属 generation。
+    const sessionVersion = version
     let planningReleased = false
     const releasePlanning = (): void => {
       if (planningReleased) return
@@ -427,7 +430,11 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
     try {
       const outcome = await submitMove(command)
       entry.resolve(outcome)
-      if (isFatalContinuousFailure(outcome) && continuousSession === entry.command.source) {
+      if (
+        sessionVersion === version &&
+        isFatalContinuousFailure(outcome) &&
+        continuousSession === entry.command.source
+      ) {
         // 只有硬错误（请求本身有问题、模型不匹配、规划器基础设施故障）才终止会话；
         // "目标暂时不可达"类失败保留会话，让下一个 tick 用新目标继续尝试——否则
         // 拖出工作空间再拖回来，机械臂会因为会话已关闭而永久停摆，需要松开重按才能恢复。
@@ -443,7 +450,7 @@ export function createMotionCoordinator(options: MotionCoordinatorOptions): Moti
       // 避免 UI 的 fire-and-forget tick 形成未处理 Promise rejection。规划器/Runner
       // 直接抛异常属于基础设施故障（无 result），恒为硬错误，必须终止会话。
       entry.resolve({ ok: false, reason: 'planning-failure' })
-      if (continuousSession === entry.command.source) {
+      if (sessionVersion === version && continuousSession === entry.command.source) {
         continuousSession = null
         source = null
         settlePendingContinuous('cancelled')

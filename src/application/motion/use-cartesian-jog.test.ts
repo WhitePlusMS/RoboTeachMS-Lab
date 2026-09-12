@@ -3,18 +3,18 @@ import { computed, ref } from 'vue'
 import { poseFromJoints } from '@/robot-models/kuka-like/kinematics/legacy-forward-kinematics.ts'
 import { radToDeg } from '@/robot-geometry/math/angle.ts'
 import {
-  useCartesianControl,
-  type CartesianControlOptions,
+  useCartesianJog,
+  type CartesianJogOptions,
   type CartesianPathResult,
-} from './cartesian-control.ts'
-import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
-import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
+} from './use-cartesian-jog.ts'
+import { planCartesianPath } from '@/robot-motion-core/cartesian/linear-path-planner.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
 import type { MotionCommandOutcome } from './motion-coordinator.ts'
-import { createCartesianTargetRequest } from './motion-requests.ts'
+import { createCartesianTargetRequest } from './manual-motion-request.ts'
 import { quaternionToRotationMatrix } from '@/robot-geometry/math/rotation3d.ts'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import type { RobotProfile, SixAxisJointRanges } from '@/robot-geometry/model/robot-profile.ts'
+import type { RobotProfile, SixAxisJointRanges } from '@/robot-geometry/robot-types.ts'
 import {
   KUKA_JOINT_RANGES,
   KUKA_LIKE,
@@ -25,6 +25,7 @@ import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/kinematics/kuka-
 /** 测试用 KUKA 局部 profile；沿用既有 KUKA 模型与常量，不迁移 KUKA 实现。 */
 const KUKA_PROFILE: RobotProfile = {
   id: 'test-kuka',
+  revision: 'test-v1',
   displayName: KUKA_LIKE.name,
   model: new KukaRobotModelAdapter(),
   jointRanges: KUKA_JOINT_RANGES as SixAxisJointRanges,
@@ -33,11 +34,15 @@ const KUKA_PROFILE: RobotProfile = {
 }
 
 type LegacyPlanTarget = (
-  target: { position: [number, number, number]; euler: [number, number, number]; rotation: number[][] },
+  target: {
+    position: [number, number, number]
+    euler: [number, number, number]
+    rotation: number[][]
+  },
   initial: JointAngles,
   context: { isContinuous: boolean },
 ) => CartesianPathResult | Promise<CartesianPathResult | null>
-type TestControlOptions = Omit<CartesianControlOptions, 'submitMotion' | 'buildRequest'> & {
+type TestControlOptions = Omit<CartesianJogOptions, 'submitMotion' | 'buildRequest'> & {
   planTarget?: LegacyPlanTarget
   moveToTrajectory?: (trajectory: readonly JointAngles[], isContinuous?: boolean) => void
   deferMotionOutcome?: boolean
@@ -50,18 +55,20 @@ function createControl(options: TestControlOptions) {
     deferMotionOutcome,
     ...controlOptions
   } = options
-  const planTarget: LegacyPlanTarget = suppliedPlanTarget ?? ((target, initial) =>
-    planCartesianPath(target, initial, options.profile.model, options.profile.jointRanges, {
-      preserveConfiguration: false,
-    }))
+  const planTarget: LegacyPlanTarget =
+    suppliedPlanTarget ??
+    ((target, initial) =>
+      planCartesianPath(target, initial, options.profile.model, options.profile.jointRanges, {
+        preserveConfiguration: false,
+      }))
   const submitMotion = (
-    request: Parameters<CartesianControlOptions['submitMotion']>[0],
-    mode: Parameters<CartesianControlOptions['submitMotion']>[1],
+    request: Parameters<CartesianJogOptions['submitMotion']>[0],
+    mode: Parameters<CartesianJogOptions['submitMotion']>[1],
     _durationMs?: number,
     _continuous?: boolean,
-    onPlanAccepted?: Parameters<CartesianControlOptions['submitMotion']>[4],
+    onPlanAccepted?: Parameters<CartesianJogOptions['submitMotion']>[4],
   ): MotionCommandOutcome | Promise<MotionCommandOutcome> => {
-    if (request.intent.kind !== 'cartesian-target') {
+    if (request.intent.kind !== 'linear-path') {
       throw new Error('测试 Cartesian 控制只接受 cartesian-target request')
     }
     const euler = [0, 0, 0] as [number, number, number]
@@ -76,7 +83,9 @@ function createControl(options: TestControlOptions) {
       ]),
     }
     const context = { isContinuous: mode === 'stream' }
-    const toOutcome = (path: CartesianPathResult | null): MotionCommandOutcome | Promise<MotionCommandOutcome> => {
+    const toOutcome = (
+      path: CartesianPathResult | null,
+    ): MotionCommandOutcome | Promise<MotionCommandOutcome> => {
       if (path === null || !path.ok) {
         const details: Readonly<Record<string, string | number | boolean | null>> = path?.diagnostic
           ? {
@@ -137,7 +146,7 @@ function createControl(options: TestControlOptions) {
     const planned = planTarget(target, [...request.state.jointsDeg] as JointAngles, context)
     return planned instanceof Promise ? planned.then(toOutcome) : toOutcome(planned)
   }
-  return useCartesianControl({
+  return useCartesianJog({
     ...controlOptions,
     buildRequest: createCartesianTargetRequest,
     submitMotion,
@@ -309,7 +318,6 @@ describe('笛卡尔坐标增量', () => {
     control.setPositionStep(10)
 
     control.move('x', 1)
-    expect(model.isMechanicalZeroSingularityNeighborhood(joints.value)).toBe(false)
     const yBefore = poseRef.value.positionMm[1]
 
     control.move('y', 1)

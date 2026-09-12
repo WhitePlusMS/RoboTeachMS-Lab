@@ -4,8 +4,8 @@ import {
   quaternionToRotationMatrix,
   rotationMatrixToEulerZYX,
 } from '@/robot-geometry/math/rotation3d.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 
 type ApplyJointAngles = (root: THREE.Group, joints: JointAngles) => void
 

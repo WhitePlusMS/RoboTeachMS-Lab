@@ -1,11 +1,11 @@
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import { DEFAULT_ROBOT, robotIdentity } from '@/robot-models/registry.ts'
 import {
-  ABB_IRB1200_MODEL_ID,
-  ABB_IRB1200_MODEL_REVISION,
   type MotionPlanningRequest,
   type PoseData,
   type JointVector6,
 } from '@/robot-motion-core/index.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
 
 const IDENTITY_FRAME: PoseData = {
@@ -24,10 +24,11 @@ function poseDataFromPose(pose: Pose): PoseData {
 export function createJointTargetRequest(
   currentJoints: JointAngles,
   targetJoints: JointAngles,
+  profile: RobotProfile = DEFAULT_ROBOT,
 ): MotionPlanningRequest {
   return {
     schemaVersion: 1,
-    robot: { modelId: ABB_IRB1200_MODEL_ID, modelRevision: ABB_IRB1200_MODEL_REVISION },
+    robot: robotIdentity(profile),
     state: { jointsDeg: [...currentJoints] as JointVector6 },
     intent: { kind: 'joint-target', targetJointsDeg: [...targetJoints] as JointVector6 },
   }
@@ -36,13 +37,16 @@ export function createJointTargetRequest(
 export function createCartesianTargetRequest(
   targetPose: Pose,
   currentJoints: JointAngles,
+  profile: RobotProfile = DEFAULT_ROBOT,
 ): MotionPlanningRequest {
   return {
     schemaVersion: 1,
-    robot: { modelId: ABB_IRB1200_MODEL_ID, modelRevision: ABB_IRB1200_MODEL_REVISION },
+    robot: robotIdentity(profile),
     state: { jointsDeg: [...currentJoints] as JointVector6 },
     intent: {
-      kind: 'cartesian-target',
+      kind: 'linear-path',
+      speedMmPerSec: 50,
+      speedOriDegPerSec: 30,
       targetTcpPose: poseDataFromPose(targetPose),
       tool: { robhold: true, tcpInFlange: IDENTITY_FRAME },
       workObject: {

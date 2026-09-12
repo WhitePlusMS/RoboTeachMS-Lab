@@ -34,11 +34,15 @@ describe('宿主运动错误呈现', () => {
   /**
    * 特征化测试：补齐剩余 MotionErrorCode 分支的文案锁定，防止今后修改 switch 时
    * 静默改变某个分支的呈现文字。这是 RAPID/末端拖拽提示表面自己的文案，与
-   * cartesian-control.ts 面板的场景化短文案是两个刻意分开维护的呈现表面。
+   * use-cartesian-jog.ts 面板的场景化短文案是两个刻意分开维护的呈现表面。
    */
   it('把 configuration-unreachable 映射为场景化中文文案和恢复建议', () => {
     expect(
-      presentMotionError({ code: 'configuration-unreachable', category: 'planning-failure', details: {} }),
+      presentMotionError({
+        code: 'configuration-unreachable',
+        category: 'planning-failure',
+        details: {},
+      }),
     ).toEqual({
       title: '目标构型不可达',
       message: '目标 robconf 无法沿当前路径连续到达。',

@@ -1,13 +1,13 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
 import {
   appendTrajectoryPoint,
   DEFAULT_TRAJECTORY_DISTANCE,
   DEFAULT_TRAJECTORY_LIMIT,
   type ScenePoint,
-} from './trajectory.ts'
+} from './tcp-trace-buffer.ts'
 import { sceneEnvironment } from '@/theme/scene.ts'
 
 export type SceneStatus = 'loading' | 'ready' | 'error'

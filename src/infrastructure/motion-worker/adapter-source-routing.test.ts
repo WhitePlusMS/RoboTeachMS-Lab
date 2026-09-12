@@ -8,16 +8,27 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { createMotionPlannerAdapter, createMotionPlannerWorkerAdapter } from './adapter.ts'
+import {
+  createMotionPlannerClient,
+  createWorkerMotionPlannerClient,
+} from './motion-planner-client.ts'
 import { planMotion } from '@/robot-motion-core/index.ts'
-import { createCartesianTargetRequest } from '@/application/motion/motion-requests.ts'
+import { createCartesianTargetRequest } from '@/application/motion/manual-motion-request.ts'
 
 const request = createCartesianTargetRequest(
-  { position: [10, 0, 0], euler: [0, 0, 0], rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },
+  {
+    position: [10, 0, 0],
+    euler: [0, 0, 0],
+    rotation: [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    ],
+  },
   [0, -25, 45, 0, 20, 0],
 )
 
-describe('MotionPlannerWorkerAdapter 按 source 路由 transport', () => {
+describe('MotionPlannerClient 按 source 路由 transport', () => {
   it('gizmo 来源同步直调 planMotion，不创建 Worker', () => {
     const workerSpy = vi.fn()
     Object.defineProperty(globalThis, 'Worker', {
@@ -31,7 +42,7 @@ describe('MotionPlannerWorkerAdapter 按 source 路由 transport', () => {
       },
     })
     try {
-      const adapter = createMotionPlannerWorkerAdapter()
+      const adapter = createWorkerMotionPlannerClient()
       const result = adapter.plan(request, 'gizmo')
       // 同步直调场景下，Promise 应已经用 planMotion 的结果 resolve，不等待任何 Worker 消息。
       expect(workerSpy).not.toHaveBeenCalled()
@@ -54,7 +65,7 @@ describe('MotionPlannerWorkerAdapter 按 source 路由 transport', () => {
       },
     })
     try {
-      const adapter = createMotionPlannerWorkerAdapter()
+      const adapter = createWorkerMotionPlannerClient()
       const result = adapter.plan(request, 'manual-cartesian')
       expect(workerSpy).not.toHaveBeenCalled()
       return expect(result).resolves.toEqual(planMotion(request))
@@ -77,7 +88,7 @@ describe('MotionPlannerWorkerAdapter 按 source 路由 transport', () => {
       },
     })
     try {
-      const adapter = createMotionPlannerWorkerAdapter()
+      const adapter = createWorkerMotionPlannerClient()
       void adapter.plan(request, 'rapid')
       expect(workerSpy).toHaveBeenCalledTimes(1)
       adapter.dispose()
@@ -100,7 +111,7 @@ describe('MotionPlannerWorkerAdapter 按 source 路由 transport', () => {
       },
     })
     try {
-      const adapter = createMotionPlannerWorkerAdapter()
+      const adapter = createWorkerMotionPlannerClient()
       void adapter.plan(request, 'manual-joint')
       expect(workerSpy).toHaveBeenCalledTimes(1)
       adapter.dispose()
@@ -111,7 +122,7 @@ describe('MotionPlannerWorkerAdapter 按 source 路由 transport', () => {
 
   it('非浏览器 fallback adapter 对所有来源都同步直调 planMotion（现状不变）', async () => {
     delete (globalThis as { Worker?: unknown }).Worker
-    const adapter = createMotionPlannerAdapter()
+    const adapter = createMotionPlannerClient()
     await expect(adapter.plan(request, 'rapid')).resolves.toEqual(planMotion(request))
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
+import { Matrix4x4 } from '@/robot-geometry/math/transform-matrix.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
 import { forwardAbbKinematicsDegrees } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_FLANGE_TO_FBX_TOOL, abbBaseFrameToSceneFrame } from './abb-scene-transform.ts'
 

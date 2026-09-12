@@ -1,5 +1,5 @@
 import { inject, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 
 export type RunLogLevel = 'info' | 'ok' | 'warn' | 'err'
 
@@ -49,7 +49,7 @@ function timestamp(): string {
  * 底部日志栏数据流：观察程序快照的 state 迁移 / 运行时错误 / 静态诊断 自动生成条目，
  * 同时暴露 append / info / ok / warn / error 供用户操作时直接记录。不持有程序状态。
  */
-export function useRunLog(snapshot: Ref<ProgramControllerSnapshot>): RunLogController {
+export function useRunLog(snapshot: Ref<ProgramSessionSnapshot>): RunLogController {
   const entries = ref<RunLogEntry[]>([])
   let nextId = 1
 

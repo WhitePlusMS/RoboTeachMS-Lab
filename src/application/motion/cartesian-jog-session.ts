@@ -1,4 +1,4 @@
-import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
 
 function clonePose(pose: PoseDisplay): PoseDisplay {
   return {

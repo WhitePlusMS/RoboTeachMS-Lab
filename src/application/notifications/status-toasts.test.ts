@@ -3,11 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { nextTick, ref } from 'vue'
 import { useStatusToasts } from './status-toasts.ts'
 import { useToasts } from './toast.ts'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 
-function makeSnapshot(
-  overrides: Partial<ProgramControllerSnapshot> = {},
-): ProgramControllerSnapshot {
+function makeSnapshot(overrides: Partial<ProgramSessionSnapshot> = {}): ProgramSessionSnapshot {
   return {
     state: 'idle',
     programPointer: 0,
@@ -23,7 +21,7 @@ function makeSnapshot(
 }
 
 /** 触发快照切换并让 watcher 刷新。 */
-async function apply(snapshot: { value: ProgramControllerSnapshot }, patch: object): Promise<void> {
+async function apply(snapshot: { value: ProgramSessionSnapshot }, patch: object): Promise<void> {
   snapshot.value = makeSnapshot(patch)
   await nextTick()
 }

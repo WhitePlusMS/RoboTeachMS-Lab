@@ -9,7 +9,7 @@ import {
   KUKA_MODEL_SCALE,
 } from './kuka-scene.ts'
 import { createBaseAxes, createToolAxes } from './scene-helpers.ts'
-import { appendTrajectoryPoint, DEFAULT_TRAJECTORY_LIMIT } from './trajectory.ts'
+import { appendTrajectoryPoint, DEFAULT_TRAJECTORY_LIMIT } from './tcp-trace-buffer.ts'
 
 describe('KUKA 场景适配器', () => {
   it('公开六个 KUKA 关节节点名称和独立模型缩放', () => {

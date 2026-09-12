@@ -9,10 +9,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { planMotion } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
-import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import { buildRapidMotionRequest } from '@/rapid/motion/rapid-motion-request.ts'
 import { parseRapidProgram, isRapidMotionInstruction } from '@/rapid/language/index.ts'
-import { createJointTargetRequest } from '@/application/motion/motion-requests.ts'
+import { createJointTargetRequest } from '@/application/motion/manual-motion-request.ts'
 
 const homeJoints: JointAngles = [0, -25, 45, 0, 20, 0]
 

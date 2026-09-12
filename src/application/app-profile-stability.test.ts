@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import type { AbbSceneStatus } from '@/scene/abb-scene.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 
 /**
  * 占位场景组件：不启动真实 WebGL、不加载 FBX，只转发页面可能收到的场景状态。

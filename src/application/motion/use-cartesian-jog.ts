@@ -1,32 +1,35 @@
+import { rotationDistanceRad } from '@/robot-geometry/math/rotation3d.ts'
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { radToDeg } from '@/robot-geometry/math/angle.ts'
 import { createCartesianJogSession } from './cartesian-jog-session.ts'
-import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import type { JointAngles, Pose, PoseDisplay } from '@/robot-geometry/model/index.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose, PoseDisplay } from '@/robot-geometry/robot-types.ts'
 import type { MotionPlanningRequest, MotionPlanningResult } from '@/robot-motion-core/index.ts'
 import { presentMotionError } from './motion-errors.ts'
-import type { CartesianAxis, CoordinateSystem } from './cartesian-types.ts'
+import type { CartesianAxis, CoordinateSystem } from './cartesian-jog-input.ts'
 import type { MotionCommandOutcome, MotionSubmissionMode } from './motion-coordinator.ts'
 import {
   AXIS_INDEX,
   applyCartesianDelta,
-  coreResultToPathResult,
-  formatFailureDiagnostic,
   isOrientationStep,
   isPositionStep,
-  mapPathFailureToStatus,
   toRobotPose,
   type CartesianDirection,
-  type CartesianPathResult,
-  type CartesianStatus,
   type OrientationStep,
   type PositionStep,
+} from './cartesian-jog-input.ts'
+import {
+  coreResultToPathResult,
+  formatFailureDiagnostic,
+  mapPathFailureToStatus,
+  type CartesianPathResult,
+  type CartesianStatus,
   type WaypointFailureDiagnostic,
-} from './cartesian-math.ts'
+} from './cartesian-result-presentation.ts'
 
-export type { CartesianPathResult } from './cartesian-math.ts'
+export type { CartesianPathResult } from './cartesian-result-presentation.ts'
 
-export interface CartesianControlOptions {
+export interface CartesianJogOptions {
   joints: Ref<JointAngles>
   pose: ComputedRef<PoseDisplay>
   profile: RobotProfile
@@ -52,7 +55,7 @@ export interface CartesianPlanningContext {
 }
 
 /** 笛卡尔控制编排：失败只更新状态，不覆盖最近一次有效关节。 */
-export function useCartesianControl(options: CartesianControlOptions) {
+export function useCartesianJog(options: CartesianJogOptions) {
   const coordinateSystem = ref<CoordinateSystem>('World')
   const positionStep = ref<PositionStep>(1)
   const orientationStep = ref<OrientationStep>(1)
@@ -94,7 +97,11 @@ export function useCartesianControl(options: CartesianControlOptions) {
     return '就绪'
   })
 
-  function applyCartesianResult(result: CartesianPathResult, isContinuous: boolean, target: PoseDisplay): boolean {
+  function applyCartesianResult(
+    result: CartesianPathResult,
+    isContinuous: boolean,
+    target: PoseDisplay,
+  ): boolean {
     failureDiagnostic.value = null
     failurePresentation.value = null
     if (result.ok) {
@@ -127,10 +134,27 @@ export function useCartesianControl(options: CartesianControlOptions) {
 
   function solveTarget(target: PoseDisplay, context: CartesianPlanningContext): boolean | null {
     const robotTarget = toRobotPose(target)
-    const planningJoints = context.isContinuous
-      ? jogSession.getPlanningJoints(options.joints.value)
-      : ([...options.joints.value] as JointAngles)
-    const request = options.buildRequest(robotTarget, planningJoints)
+    const planningJoints = [...options.joints.value] as JointAngles
+    const baseRequest = options.buildRequest(robotTarget, planningJoints)
+    // 连续点动仍累计目标，但每次从实际关节重新规划；时间在请求中明确，不在播放器覆盖。
+    const actual = options.profile.model.forwardKinematics(planningJoints)
+    const distance = actual
+      ? Math.hypot(...robotTarget.position.map((value, i) => value - actual.position[i]))
+      : 0
+    const angle = actual
+      ? (rotationDistanceRad(actual.rotation, robotTarget.rotation) * 180) / Math.PI
+      : 0
+    const request =
+      context.isContinuous && baseRequest.intent.kind === 'linear-path'
+        ? {
+            ...baseRequest,
+            intent: {
+              ...baseRequest.intent,
+              speedMmPerSec: Math.max(0.01, distance / 0.14),
+              speedOriDegPerSec: Math.max(0.01, angle / 0.14),
+            },
+          }
+        : baseRequest
     const playback: MotionSubmissionMode = context.isContinuous ? 'stream' : 'trajectory'
     const submitted = options.submitMotion(
       request,
@@ -152,7 +176,11 @@ export function useCartesianControl(options: CartesianControlOptions) {
           status.value = 'unreachable'
           return false
         }
-        return applyCartesianResult(coreResultToPathResult(outcome.result), context.isContinuous, target)
+        return applyCartesianResult(
+          coreResultToPathResult(outcome.result),
+          context.isContinuous,
+          target,
+        )
       }
       // 连续目标已在 Runner 接受计划时提交锚点；最终 Promise 这里只保留真实运动结果，
       // 不能再次推进锚点，否则会把同一个步进累计两次。
@@ -161,7 +189,11 @@ export function useCartesianControl(options: CartesianControlOptions) {
         status.value = 'unreachable'
         return false
       }
-      return applyCartesianResult(coreResultToPathResult(outcome.plan), context.isContinuous, target)
+      return applyCartesianResult(
+        coreResultToPathResult(outcome.plan),
+        context.isContinuous,
+        target,
+      )
     }
     if (submitted instanceof Promise) {
       status.value = 'planning'

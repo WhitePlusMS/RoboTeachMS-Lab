@@ -6,15 +6,15 @@ import {
   createMotionRunner,
   type MotionResult,
   type MotionRunner,
-} from '@/robot-geometry/motion/runner.ts'
+} from '@/robot-motion-core/playback/runner.ts'
 import { planMotion, type MotionPlanningRequest } from '@/robot-motion-core/index.ts'
-import { mapCoreFailure } from '@/rapid/planning/core-motion.ts'
-import type { InstructionOutcome } from '@/rapid/execution/index.ts'
+import { mapCoreFailure } from '@/rapid/motion/motion-core-mapping.ts'
+import type { InstructionOutcome } from '@/rapid/runtime/index.ts'
 import { ManualMotionClock } from '@/testing/manual-motion-clock.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 import { isRapidMotionInstruction } from '@/rapid/language/index.ts'
 import { createBuiltinRapidSource } from './preset-programs.ts'
-import { useProgramController, type ProgramControllerMotion } from './program-control.ts'
+import { useProgramSession, type ProgramSessionMotion } from './use-program-session.ts'
 import type { RobTarget } from '@/rapid/data/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 
@@ -35,7 +35,7 @@ function taughtTarget(trans: [number, number, number]): RobTarget {
 function makeMotion() {
   let resolveEased: ((r: MotionResult) => void) | null = null
   const calls = { stop: 0, eased: 0 }
-  const motion: ProgramControllerMotion = {
+  const motion: ProgramSessionMotion = {
     submitMotion: (request: MotionPlanningRequest, playback): Promise<InstructionOutcome> => {
       const planned = planMotion(request)
       if (!planned.ok) {
@@ -45,7 +45,7 @@ function makeMotion() {
           error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' },
         })
       }
-      if (playback === 'eased') {
+      if (playback === 'trajectory') {
         calls.eased += 1
         return new Promise<InstructionOutcome>((resolve) => {
           resolveEased = (result) => resolve({ ok: true, result })
@@ -68,7 +68,7 @@ describe('program-control adapter', () => {
   it('启动前拒绝整段程序中的 fly-by，不启动任何运动', async () => {
     const { motion, calls } = makeMotion()
     const source = ref(MOVEJ_SOURCE.replace('fine', 'z50'))
-    const ctrl = useProgramController({
+    const ctrl = useProgramSession({
       source,
       profile: ABB_IRB1200_PROFILE,
       joints: ref<JointAngles>([...MOVEJ_START_JOINTS]),
@@ -79,21 +79,23 @@ describe('program-control adapter', () => {
     await flush()
 
     expect(ctrl.snapshot.value.state).toBe('error')
-    expect(ctrl.snapshot.value.error).toEqual(expect.objectContaining({
-      index: 0,
-      code: 'unsupported-option',
-      sourceRange: expect.any(Object),
-    }))
+    expect(ctrl.snapshot.value.error).toEqual(
+      expect.objectContaining({
+        index: 0,
+        code: 'unsupported-option',
+        sourceRange: expect.any(Object),
+      }),
+    )
     expect(calls.eased).toBe(0)
   })
 
-  it('ProgramController 暴露 run/step/stop/ppToMain，且关键命令输出 [ABB-PROGRAM] 日志', async () => {
+  it('ProgramSession 暴露 run/step/stop/ppToMain，且关键命令输出 [ABB-PROGRAM] 日志', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { motion, calls, settle } = makeMotion()
 
     const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
-    const ctrl = useProgramController({
+    const ctrl = useProgramSession({
       source: ref(createBuiltinRapidSource()),
       profile: ABB_IRB1200_PROFILE,
       joints,
@@ -139,7 +141,7 @@ describe('program-control adapter', () => {
     ENDPROC
 ENDMODULE`)
     const { motion } = makeMotion()
-    const ctrl = useProgramController({
+    const ctrl = useProgramSession({
       source,
       profile: ABB_IRB1200_PROFILE,
       joints,
@@ -190,22 +192,29 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
         joints.value = [...next]
       },
     })
-    const motion: ProgramControllerMotion = {
+    const motion: ProgramSessionMotion = {
       submitMotion: async (request, playback) => {
         const planned = planMotion(request)
         if (!planned.ok) {
           const error = mapCoreFailure(planned)
-          return { ok: false, error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' } }
+          return {
+            ok: false,
+            error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' },
+          }
         }
-        const waypoints = planned.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles)
-        const result = playback === 'eased'
-          ? await runner.startEased([...planned.end.jointsDeg] as JointAngles, planned.waypoints.at(-1)?.timeMs)
-          : await runner.startTrajectory(waypoints, planned.waypoints.at(-1)?.timeMs)
+        if (planned.waypoints.length === 1) return { ok: true, result: 'completed' }
+        const result =
+          playback === 'eased'
+            ? await runner.startEased(
+                [...planned.end.jointsDeg] as JointAngles,
+                planned.waypoints.at(-1)?.timeMs,
+              )
+            : await runner.startTrajectory(planned.waypoints)
         return { ok: true, result }
       },
       stopAnimation: () => runner.stop(),
     }
-    const ctrl = useProgramController({
+    const ctrl = useProgramSession({
       source: ref(createBuiltinRapidSource()),
       profile: ABB_IRB1200_PROFILE,
       joints,
@@ -226,13 +235,11 @@ describe('手动命令与程序竞争 MotionRunner 的抢占', () => {
     {
       name: '笛卡尔命令',
       start: (runner) =>
-        runner.startTrajectory(
-          [
-            [10, 0, 0, 0, 0, 0],
-            [20, 0, 0, 0, 0, 0],
-          ],
-          100,
-        ),
+        runner.startTrajectory([
+          { timeMs: 0, jointsDeg: [0, 0, 0, 0, 0, 0] },
+          { timeMs: 50, jointsDeg: [10, 0, 0, 0, 0, 0] },
+          { timeMs: 100, jointsDeg: [20, 0, 0, 0, 0, 0] },
+        ]),
     },
   ]
 
@@ -278,7 +285,7 @@ describe('applyEdit 单一受控编辑入口', () => {
     const { motion, calls } = makeMotion()
     const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
     const source = ref(createBuiltinRapidSource())
-    const ctrl = useProgramController({
+    const ctrl = useProgramSession({
       source,
       profile: ABB_IRB1200_PROFILE,
       joints,
@@ -371,7 +378,7 @@ describe('applyEdit 单一受控编辑入口', () => {
 
 interface ControllerHarness {
   source: Ref<string>
-  ctrl: ReturnType<typeof useProgramController>
+  ctrl: ReturnType<typeof useProgramSession>
   settle: (r: MotionResult) => void
 }
 
@@ -392,7 +399,7 @@ function setupController(): ControllerHarness {
   const { motion, settle } = makeMotion()
   const source = ref(MOVEJ_SOURCE)
   const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
-  const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+  const ctrl = useProgramSession({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
   return { source, ctrl, settle }
 }
 
@@ -707,22 +714,29 @@ describe('off-path Clear 全程单一 MotionRunner 集成', () => {
         joints.value = [...next]
       },
     })
-    const motion: ProgramControllerMotion = {
+    const motion: ProgramSessionMotion = {
       submitMotion: async (request, playback) => {
         const planned = planMotion(request)
         if (!planned.ok) {
           const error = mapCoreFailure(planned)
-          return { ok: false, error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' } }
+          return {
+            ok: false,
+            error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' },
+          }
         }
-        const waypoints = planned.waypoints.slice(1).map((point) => [...point.jointsDeg] as JointAngles)
-        const result = playback === 'eased'
-          ? await runner.startEased([...planned.end.jointsDeg] as JointAngles, planned.waypoints.at(-1)?.timeMs)
-          : await runner.startTrajectory(waypoints, planned.waypoints.at(-1)?.timeMs)
+        if (planned.waypoints.length === 1) return { ok: true, result: 'completed' }
+        const result =
+          playback === 'eased'
+            ? await runner.startEased(
+                [...planned.end.jointsDeg] as JointAngles,
+                planned.waypoints.at(-1)?.timeMs,
+              )
+            : await runner.startTrajectory(planned.waypoints)
         return { ok: true, result }
       },
       stopAnimation: () => runner.stop(),
     }
-    const ctrl = useProgramController({
+    const ctrl = useProgramSession({
       source: ref(MOVEJ_SOURCE),
       profile: ABB_IRB1200_PROFILE,
       joints,
@@ -783,11 +797,11 @@ function setupScalarController(sourceText = SCALAR_SOURCE) {
   const { motion } = makeMotion()
   const source = ref(sourceText)
   const joints = ref<JointAngles>([...BUILTIN_START_JOINTS])
-  const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+  const ctrl = useProgramSession({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
   return { source, ctrl }
 }
 
-describe('ProgramController 标量赋值执行', () => {
+describe('ProgramSession 标量赋值执行', () => {
   it('运行赋值程序更新运行变量，Program Data 的当前值来源于同一份快照', async () => {
     const { ctrl } = setupScalarController()
 
@@ -863,11 +877,11 @@ function setupBranchController(choice: number) {
   const { motion, calls, settle } = makeMotion()
   const source = ref(branchSource(choice))
   const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
-  const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+  const ctrl = useProgramSession({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
   return { ctrl, calls, settle, source }
 }
 
-describe('ProgramController 非嵌套条件分支', () => {
+describe('ProgramSession 非嵌套条件分支', () => {
   it.each([
     { choice: 1, marker: 10, branch: 'IF' },
     { choice: 2, marker: 20, branch: 'ELSEIF' },
@@ -890,7 +904,7 @@ describe('ProgramController 非嵌套条件分支', () => {
     const source = ref(branchSource(1).replace('choice = 2 THEN', 'choice = 1 THEN'))
     const joints = ref<JointAngles>([...MOVEJ_START_JOINTS])
     const { motion, calls, settle } = makeMotion()
-    const ctrl = useProgramController({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
+    const ctrl = useProgramSession({ source, profile: ABB_IRB1200_PROFILE, joints, motion })
 
     ctrl.step()
     await flush()
@@ -966,7 +980,7 @@ describe('ProgramController 非嵌套条件分支', () => {
   })
 })
 
-describe('ProgramController 循环执行', () => {
+describe('ProgramSession 循环执行', () => {
   it('WHILE 循环运行到条件为假，循环变量与累加值符合迭代次数', async () => {
     const { ctrl } = setupScalarController(`MODULE LoopDemo
     VAR num i := 0;

@@ -4,11 +4,9 @@ import { describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { injectRunLog, provideRunLog, RUN_LOG_CAP, useRunLog } from './run-log.ts'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 
-function makeSnapshot(
-  overrides: Partial<ProgramControllerSnapshot> = {},
-): ProgramControllerSnapshot {
+function makeSnapshot(overrides: Partial<ProgramSessionSnapshot> = {}): ProgramSessionSnapshot {
   return {
     state: 'idle',
     programPointer: 0,

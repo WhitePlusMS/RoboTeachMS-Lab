@@ -1,11 +1,18 @@
-import { planMotion, type MotionPlanningRequest, type MotionPlanningResult } from '@/robot-motion-core/index.ts'
+import {
+  planMotion,
+  type MotionPlanningRequest,
+  type MotionPlanningResult,
+} from '@/robot-motion-core/index.ts'
 import type { MotionSource } from '@/application/motion/motion-coordinator.ts'
 
 interface PlannerRequest {
   readonly requestId: number
   readonly request: MotionPlanningRequest
 }
-interface PlannerResponse { readonly requestId: number; readonly result: MotionPlanningResult }
+interface PlannerResponse {
+  readonly requestId: number
+  readonly result: MotionPlanningResult
+}
 
 /** gizmo 拖拽和笛卡尔连续点动走主线程同步直调 planMotion（复刻旧版本 5391fad 的低延迟
  *  路径，零 Worker 往返）；其余来源（RAPID、关节 Jog、离散笛卡尔目标）继续走常驻 Worker，
@@ -14,36 +21,33 @@ function isSyncTransportSource(source: MotionSource): boolean {
   return source === 'gizmo' || source === 'manual-cartesian'
 }
 
-/**
- * 同步预判笛卡尔目标可达性；供 gizmo 拖拽等下游 UI 需要在同一调用栈内判断"能不能到达"
- * 的场景使用（如 TransformControls 的 objectChange 回调，同步返回 false 才能立即回弹，
- * 不能等一次异步往返）。调用的是与 gizmo/笛卡尔点动 transport 完全相同的 planMotion，
- * 不是第二套规划实现，只是把已经同步可用的规划结果提前暴露给需要同步判断的调用方。
- */
-export function planCartesianTargetSync(request: MotionPlanningRequest): MotionPlanningResult {
-  return planMotion(request)
-}
-
-export interface MotionPlannerWorkerAdapter {
-  plan: (request: MotionPlanningRequest, source: MotionSource) => Promise<MotionPlanningResult | null>
+export interface MotionPlannerClient {
+  /** 同步拖拽预判；下一次相同请求消费此结果，其他请求立即淘汰。 */
+  preview: (request: MotionPlanningRequest) => MotionPlanningResult
+  plan: (
+    request: MotionPlanningRequest,
+    source: MotionSource,
+  ) => Promise<MotionPlanningResult | null>
   cancel: () => void
   dispose: () => void
 }
 
 /** 浏览器外的测试/SSR fallback 仍复用同一 adapter interface；生产浏览器优先使用常驻 Worker。 */
-export function createMotionPlannerAdapter(): MotionPlannerWorkerAdapter {
-  if (typeof Worker !== 'undefined') return createMotionPlannerWorkerAdapter()
-  return {
+export function createMotionPlannerClient(): MotionPlannerClient {
+  if (typeof Worker !== 'undefined') return createWorkerMotionPlannerClient()
+  return withPreview({
     plan: async (request) => planMotion(request),
     cancel: () => undefined,
     dispose: () => undefined,
-  }
+  })
 }
 
-function now(): number { return typeof performance === 'undefined' ? Date.now() : performance.now() }
+function now(): number {
+  return typeof performance === 'undefined' ? Date.now() : performance.now()
+}
 
 /** Core Worker transport；请求淘汰时由 Coordinator 触发取消并释放当前 Worker。 */
-export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
+export function createWorkerMotionPlannerClient(): MotionPlannerClient {
   let worker: Worker | null = null
   let nextId = 0
   let active: {
@@ -53,7 +57,10 @@ export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
     settled: boolean
   } | null = null
 
-  const terminate = (): void => { worker?.terminate(); worker = null }
+  const terminate = (): void => {
+    worker?.terminate()
+    worker = null
+  }
   const settleActive = (result: MotionPlanningResult | null): void => {
     const current = active
     if (!current) return
@@ -77,7 +84,11 @@ export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
     terminate()
   }
 
-  function start(request: { id: number; request: MotionPlanningRequest; resolve: (result: MotionPlanningResult | null) => void }): void {
+  function start(request: {
+    id: number
+    request: MotionPlanningRequest
+    resolve: (result: MotionPlanningResult | null) => void
+  }): void {
     const current = ensureWorker()
     active = { id: request.id, startedAt: now(), resolve: request.resolve, settled: false }
     current.postMessage({
@@ -91,7 +102,11 @@ export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
     created.onmessage = (event: MessageEvent<PlannerResponse>) => {
       if (!active || event.data.requestId !== active.id) return
       const current = active
-      console.info('[MOTION-CORE-WORKER]', { requestId: current.id, computeMs: now() - current.startedAt, ok: event.data.result.ok })
+      console.info('[MOTION-CORE-WORKER]', {
+        requestId: current.id,
+        computeMs: now() - current.startedAt,
+        ok: event.data.result.ok,
+      })
       settleActive(event.data.result)
     }
     created.onerror = () => {
@@ -101,7 +116,10 @@ export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
     worker = created
     return created
   }
-  function plan(request: MotionPlanningRequest, source: MotionSource): Promise<MotionPlanningResult | null> {
+  function plan(
+    request: MotionPlanningRequest,
+    source: MotionSource,
+  ): Promise<MotionPlanningResult | null> {
     if (isSyncTransportSource(source)) return Promise.resolve(planMotion(request))
     const id = ++nextId
     return new Promise((resolve) => {
@@ -112,5 +130,29 @@ export function createMotionPlannerWorkerAdapter(): MotionPlannerWorkerAdapter {
       start({ id, request, resolve })
     })
   }
-  return { plan, cancel, dispose }
+  return withPreview({ plan, cancel, dispose })
+}
+
+/** 一次性预判结果在 transport 内持有，业务层只能提交请求，不能提交自制计划。 */
+function withPreview(adapter: Omit<MotionPlannerClient, 'preview'>): MotionPlannerClient {
+  let cached: { key: string; result: MotionPlanningResult } | null = null
+  return {
+    preview(request) {
+      const result = planMotion(request)
+      cached = result.ok ? { key: JSON.stringify(request), result } : null
+      return result
+    },
+    plan(request, source) {
+      const previous = cached
+      cached = null
+      return previous?.key === JSON.stringify(request)
+        ? Promise.resolve(previous.result)
+        : adapter.plan(request, source)
+    },
+    cancel: adapter.cancel,
+    dispose() {
+      cached = null
+      adapter.dispose()
+    },
+  }
 }

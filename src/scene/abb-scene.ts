@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
-import { ABB_TEACHING_HOME_JOINTS } from '@/robot-models/abb-irb1200/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import { DEFAULT_ROBOT } from '@/robot-models/registry.ts'
+import { DEFAULT_ROBOT_VISUAL } from './robot-visual.ts'
 import { createAbbDhDebugChain } from './abb-dh-debug-chain.ts'
 import { abbScene } from '@/theme/scene.ts'
 import {
@@ -12,48 +13,19 @@ import {
 } from './scene-factory.ts'
 import { AbbTransformGizmo, type TransformGizmoMode } from './abb-transform-gizmo.ts'
 
-export const ABB_MODEL_URL = import.meta.env.BASE_URL + 'models/ABB_IRB1200_5_90.fbx'
-/** FBX 资产的单位基线是厘米；项目场景使用米，位姿面板再转换为毫米。 */
-export const ABB_MODEL_SCALE = 0.01
-export const ABB_BASE_NODE_NAME = 'dizuo'
-export const ABB_ACTIVE_JOINT_NODE_NAMES = [
-  'joint1',
-  'joint2',
-  'joint3',
-  'joint4',
-  'joint5',
-  'joint6',
-] as const
-/** joint6 是 ABB 机械法兰；joint7 及其 joint8/joint9 子树属于当前 FBX 携带的夹具。 */
-export const ABB_FLANGE_NODE_NAME = 'joint6'
-export const ABB_TOOL_NODE_NAME = 'joint7'
-
-export const ABB_JOINT_AXES: Record<(typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number], THREE.Vector3> = {
-  joint1: new THREE.Vector3(0, 1, 0),
-  // FBX 的 J2/J3 局部 +Z 与 DH 正轴相反，负轴后视觉动作才与关节输入同向。
-  joint2: new THREE.Vector3(0, 0, -1),
-  joint3: new THREE.Vector3(0, 0, -1),
-  joint4: new THREE.Vector3(1, 0, 0),
-  // J5/J6 同样沿 FBX 反向局部轴映射到 DH 正方向。
-  joint5: new THREE.Vector3(0, 0, -1),
-  joint6: new THREE.Vector3(0, -1, 0),
-}
-
-/**
- * FBX 资产姿态到 ABB/DH 零位的固定角度校正。
- * 原始模型的 J5 腕部向下折转 90°；ABB/DH 零位要求 J6/法兰径向与 J4 正轴同向。
- */
-export const ABB_JOINT_ZERO_OFFSETS_DEG: Record<
-  (typeof ABB_ACTIVE_JOINT_NODE_NAMES)[number],
-  number
-> = {
-  joint1: 0,
-  joint2: 0,
-  joint3: 0,
-  joint4: 0,
-  joint5: -90,
-  joint6: 0,
-}
+const visual = DEFAULT_ROBOT_VISUAL
+export const ABB_MODEL_URL = import.meta.env.BASE_URL + visual.assetPath
+export const ABB_MODEL_SCALE = visual.scale
+export const ABB_BASE_NODE_NAME = visual.baseNode
+export const ABB_ACTIVE_JOINT_NODE_NAMES = visual.jointNodes
+export const ABB_FLANGE_NODE_NAME = visual.flangeNode
+export const ABB_TOOL_NODE_NAME = visual.toolNode
+export const ABB_JOINT_AXES = Object.fromEntries(
+  visual.jointNodes.map((name, index) => [name, new THREE.Vector3(...visual.axes[index])]),
+) as Record<string, THREE.Vector3>
+export const ABB_JOINT_ZERO_OFFSETS_DEG = Object.fromEntries(
+  visual.jointNodes.map((name, index) => [name, visual.offsetsDeg[index]]),
+) as Record<string, number>
 
 export type AbbSceneStatus = 'loading' | 'ready' | 'error'
 
@@ -163,7 +135,7 @@ export function prepareAbbModel(model: THREE.Group): THREE.Group {
   scaleGroup.add(clone)
 
   const root = new THREE.Group()
-  root.name = 'ABB_IRB1200_5_90'
+  root.name = DEFAULT_ROBOT.id
   root.userData.baseNodeName = ABB_BASE_NODE_NAME
   root.userData.activeJointNodeNames = [...ABB_ACTIVE_JOINT_NODE_NAMES]
   root.userData.flangeNodeName = ABB_FLANGE_NODE_NAME
@@ -348,7 +320,7 @@ export function createAbbScene(
 
   const { controller, runtime } = createSceneController(container, {
     display: ABB_DISPLAY,
-    defaultJoints: [...ABB_TEACHING_HOME_JOINTS],
+    defaultJoints: [...DEFAULT_ROBOT.homeJoints],
     loadModel: (onSuccess, onError) => {
       const loader = new FBXLoader()
       loader.load(ABB_MODEL_URL, onSuccess, undefined, onError)

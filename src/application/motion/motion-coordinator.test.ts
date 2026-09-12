@@ -19,6 +19,66 @@ const plan = {
 }
 
 describe('MotionCoordinator', () => {
+  it('旧连续会话的迟到规划不得关闭同来源的新会话', async () => {
+    let resolveOld: (value: typeof plan) => void = () => {}
+    const oldPlan = new Promise<typeof plan>((resolve) => {
+      resolveOld = resolve
+    })
+    const planSpy = vi.fn().mockReturnValueOnce(oldPlan).mockReturnValue(plan)
+    const coordinator = createMotionCoordinator({
+      plan: planSpy,
+      runImmediate: vi.fn(),
+      runEased: async () => 'completed',
+      runTrajectory: async () => 'completed',
+      appendTrajectory: async () => 'completed',
+      runSpeedLimited: async () => 'completed',
+      stopRunner: vi.fn(),
+    })
+    await coordinator.submit({ kind: 'continuous-begin', source: 'manual-cartesian' })
+    const old = coordinator.submit({
+      kind: 'continuous-update',
+      source: 'manual-cartesian',
+      request,
+      playback: 'stream',
+    })
+    await coordinator.submit({ kind: 'continuous-end', source: 'manual-cartesian' })
+    await coordinator.submit({ kind: 'continuous-begin', source: 'manual-cartesian' })
+    const current = coordinator.submit({
+      kind: 'continuous-update',
+      source: 'manual-cartesian',
+      request,
+      playback: 'stream',
+    })
+    resolveOld(plan)
+    await expect(old).resolves.toMatchObject({ ok: false, reason: 'stale' })
+    await expect(current).resolves.toMatchObject({ ok: true, result: 'completed' })
+  })
+
+  it('完整透传小数毫秒时间点，不用宿主 duration 重写计划', async () => {
+    const runTrajectory = vi.fn(async () => 'completed' as const)
+    const timedPlan = {
+      ...plan,
+      waypoints: [plan.waypoints[0], { ...plan.waypoints[1], timeMs: 1200.125 }],
+    }
+    const coordinator = createMotionCoordinator({
+      plan: () => timedPlan,
+      runTrajectory,
+      runImmediate: vi.fn(),
+      runEased: async () => 'completed',
+      appendTrajectory: async () => 'completed',
+      runSpeedLimited: async () => 'completed',
+      stopRunner: vi.fn(),
+    })
+    await coordinator.submit({
+      kind: 'move',
+      source: 'rapid',
+      request,
+      playback: 'trajectory',
+      durationMs: 10,
+    })
+    expect(runTrajectory).toHaveBeenCalledWith(timedPlan.waypoints)
+  })
+
   it('通过 immediate 模式同步提交已验证关节目标', async () => {
     const runImmediate = vi.fn()
     const coordinator = createMotionCoordinator({
@@ -30,7 +90,12 @@ describe('MotionCoordinator', () => {
       runSpeedLimited: async () => 'completed',
       stopRunner: vi.fn(),
     })
-    const outcome = await coordinator.submit({ kind: 'move', source: 'manual-joint', request, playback: 'immediate' })
+    const outcome = await coordinator.submit({
+      kind: 'move',
+      source: 'manual-joint',
+      request,
+      playback: 'immediate',
+    })
     expect(outcome.ok).toBe(true)
     expect(runImmediate).toHaveBeenCalledWith([1, 0, 0, 0, 30, 0])
   })
@@ -46,7 +111,12 @@ describe('MotionCoordinator', () => {
       runSpeedLimited: runEased,
       stopRunner: vi.fn(),
     })
-    const outcome = await coordinator.submit({ kind: 'move', source: 'manual-joint', request, playback: 'eased' })
+    const outcome = await coordinator.submit({
+      kind: 'move',
+      source: 'manual-joint',
+      request,
+      playback: 'eased',
+    })
     expect(outcome.ok).toBe(true)
     expect(runEased).toHaveBeenCalledWith([1, 0, 0, 0, 30, 0], undefined)
   })
@@ -73,7 +143,10 @@ describe('MotionCoordinator', () => {
 
   it('rejects host-created plans that do not use Core time semantics', async () => {
     const runEased = vi.fn(async () => 'completed' as const)
-    const invalidPlan = { ...plan, waypoints: [{ ...plan.waypoints[0], timeMs: 1 }, plan.waypoints[1]] }
+    const invalidPlan = {
+      ...plan,
+      waypoints: [{ ...plan.waypoints[0], timeMs: 1 }, plan.waypoints[1]],
+    }
     const invalidCoordinator = createMotionCoordinator({
       plan: () => invalidPlan,
       runImmediate: vi.fn(),
@@ -83,7 +156,12 @@ describe('MotionCoordinator', () => {
       runSpeedLimited: runEased,
       stopRunner: vi.fn(),
     })
-    const outcome = await invalidCoordinator.submit({ kind: 'move', source: 'gizmo', request, playback: 'trajectory' })
+    const outcome = await invalidCoordinator.submit({
+      kind: 'move',
+      source: 'gizmo',
+      request,
+      playback: 'trajectory',
+    })
     expect(outcome).toEqual({
       ok: false,
       reason: 'planning-failure',
@@ -105,7 +183,12 @@ describe('MotionCoordinator', () => {
       log: (event) => events.push({ requestId: event.requestId, phase: event.phase }),
     })
 
-    const outcome = await coordinator.submit({ kind: 'move', source: 'gizmo', request, playback: 'trajectory' })
+    const outcome = await coordinator.submit({
+      kind: 'move',
+      source: 'gizmo',
+      request,
+      playback: 'trajectory',
+    })
     expect(outcome.ok).toBe(true)
     expect(events.map((event) => event.phase)).toEqual([
       'planning',
@@ -155,10 +238,10 @@ describe('MotionCoordinator', () => {
       stopRunner,
     })
 
-    await expect(coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'trajectory' })).rejects.toThrow(
-      'Runner 启动失败',
-    )
-    expect(stopRunner).toHaveBeenCalledTimes(1)
+    await expect(
+      coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'trajectory' }),
+    ).rejects.toThrow('Runner 启动失败')
+    expect(stopRunner).toHaveBeenCalledTimes(2)
   })
 
   it('显式 stop 将活动运动结算为 stopped，而不是 stale/error', async () => {
@@ -166,13 +249,21 @@ describe('MotionCoordinator', () => {
     const coordinator = createMotionCoordinator({
       plan: () => plan,
       runImmediate: vi.fn(),
-      runEased: () => new Promise<'stopped'>((resolve) => { release = () => resolve('stopped') }),
+      runEased: () =>
+        new Promise<'stopped'>((resolve) => {
+          release = () => resolve('stopped')
+        }),
       runTrajectory: async () => 'completed',
       appendTrajectory: async () => 'completed',
       runSpeedLimited: async () => 'completed',
       stopRunner: vi.fn(),
     })
-    const pending = coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'eased' })
+    const pending = coordinator.submit({
+      kind: 'move',
+      source: 'rapid',
+      request,
+      playback: 'eased',
+    })
     await Promise.resolve()
     coordinator.stop('user')
     release()
@@ -190,7 +281,12 @@ describe('MotionCoordinator', () => {
       runSpeedLimited: vi.fn(async () => 'completed' as const),
       stopRunner: vi.fn(),
     })
-    const outcome = await invalidCoordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'trajectory' })
+    const outcome = await invalidCoordinator.submit({
+      kind: 'move',
+      source: 'rapid',
+      request,
+      playback: 'trajectory',
+    })
     expect(outcome.ok).toBe(false)
     expect(runTrajectory).not.toHaveBeenCalled()
   })
@@ -209,9 +305,14 @@ describe('MotionCoordinator', () => {
       stopRunner,
     })
 
-    const outcome = await coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'trajectory' })
+    const outcome = await coordinator.submit({
+      kind: 'move',
+      source: 'rapid',
+      request,
+      playback: 'trajectory',
+    })
     expect(outcome).toMatchObject({ ok: false, reason: 'planning-failure' })
-    expect(stopRunner).toHaveBeenCalledTimes(1)
+    expect(stopRunner).toHaveBeenCalledTimes(2)
   })
 
   it('Coordinator 统一取消并释放规划 transport', () => {
@@ -258,13 +359,23 @@ describe('MotionCoordinator', () => {
       runSpeedLimited: async () => 'completed',
       stopRunner,
     })
-    const first = coordinator.submit({ kind: 'move', source: 'gizmo', request, playback: 'trajectory' })
-    const second = coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'trajectory' })
+    const first = coordinator.submit({
+      kind: 'move',
+      source: 'gizmo',
+      request,
+      playback: 'trajectory',
+    })
+    const second = coordinator.submit({
+      kind: 'move',
+      source: 'rapid',
+      request,
+      playback: 'trajectory',
+    })
     rejectFirst(new Error('旧 Worker 异常'))
 
     await expect(first).resolves.toEqual({ ok: false, reason: 'stale' })
     await expect(second).resolves.toMatchObject({ ok: true })
-    expect(stopRunner).not.toHaveBeenCalled()
+    expect(stopRunner).toHaveBeenCalledTimes(2) // 两次新请求接管；迟到异常没有额外停止
   })
 
   it('旧 Runner 异常不会停止新请求的 Runner', async () => {
@@ -297,7 +408,7 @@ describe('MotionCoordinator', () => {
     releaseFirst()
 
     await expect(first).resolves.toEqual({ ok: false, reason: 'stale' })
-    expect(stopRunner).not.toHaveBeenCalled()
+    expect(stopRunner).toHaveBeenCalledTimes(2) // 两次新请求接管；迟到异常没有额外停止
   })
 
   it('连续会话显式 begin/update/end，Coordinator 只保留一个最新 pending', async () => {
@@ -307,7 +418,9 @@ describe('MotionCoordinator', () => {
     const coordinator = createMotionCoordinator({
       plan: () => {
         planCalls += 1
-        return new Promise<typeof plan>((resolve) => { resolvePlan = resolve })
+        return new Promise<typeof plan>((resolve) => {
+          resolvePlan = resolve
+        })
       },
       runImmediate: vi.fn(),
       runEased: runStream,
@@ -317,8 +430,9 @@ describe('MotionCoordinator', () => {
       stopRunner: vi.fn(),
     })
 
-    await expect(coordinator.submit({ kind: 'continuous-begin', source: 'manual-cartesian' }))
-      .resolves.toMatchObject({ ok: true, result: 'completed' })
+    await expect(
+      coordinator.submit({ kind: 'continuous-begin', source: 'manual-cartesian' }),
+    ).resolves.toMatchObject({ ok: true, result: 'completed' })
     const first = coordinator.submit({
       kind: 'continuous-update',
       source: 'manual-cartesian',
@@ -339,8 +453,9 @@ describe('MotionCoordinator', () => {
     expect(planCalls).toBe(2)
     resolvePlan(plan)
     await expect(second).resolves.toMatchObject({ ok: true, result: 'completed' })
-    await expect(coordinator.submit({ kind: 'continuous-end', source: 'manual-cartesian' }))
-      .resolves.toMatchObject({ ok: true, result: 'stopped' })
+    await expect(
+      coordinator.submit({ kind: 'continuous-end', source: 'manual-cartesian' }),
+    ).resolves.toMatchObject({ ok: true, result: 'stopped' })
   })
 
   it('活动 stream 未完成时仍把最新连续目标追加到同一 Runner', async () => {
@@ -398,12 +513,14 @@ describe('MotionCoordinator', () => {
       stopRunner,
     })
     await coordinator.submit({ kind: 'continuous-begin', source: 'manual-joint' })
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'manual-cartesian',
-      request,
-      playback: 'stream',
-    })).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'manual-cartesian',
+        request,
+        playback: 'stream',
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'cancelled' })
     await coordinator.submit({ kind: 'continuous-end', source: 'manual-joint' })
     expect(planSpy).not.toHaveBeenCalled()
     expect(stopRunner).toHaveBeenCalledTimes(2)
@@ -412,7 +529,10 @@ describe('MotionCoordinator', () => {
   it('离散运动提交后会关闭连续会话并取消旧 pending', async () => {
     let releaseStream: () => void = () => {}
     const runStream = vi.fn(
-      () => new Promise<'completed'>((resolve) => { releaseStream = () => resolve('completed') }),
+      () =>
+        new Promise<'completed'>((resolve) => {
+          releaseStream = () => resolve('completed')
+        }),
     )
     const runImmediate = vi.fn()
     const stopRunner = vi.fn(() => releaseStream())
@@ -440,21 +560,31 @@ describe('MotionCoordinator', () => {
       request,
       playback: 'stream',
     })
-    const discrete = coordinator.submit({ kind: 'move', source: 'rapid', request, playback: 'immediate' })
+    const discrete = coordinator.submit({
+      kind: 'move',
+      source: 'rapid',
+      request,
+      playback: 'immediate',
+    })
 
     await expect(pending).resolves.toEqual({ ok: false, reason: 'stale' })
     await expect(discrete).resolves.toMatchObject({ ok: true, result: 'completed' })
     await expect(first).resolves.toEqual({ ok: false, reason: 'stale' })
     expect(runImmediate).toHaveBeenCalledWith([1, 0, 0, 0, 30, 0])
     expect(stopRunner).toHaveBeenCalled()
-    await expect(coordinator.submit({ kind: 'continuous-end', source: 'manual-cartesian' }))
-      .resolves.toMatchObject({ ok: true, result: 'completed' })
+    await expect(
+      coordinator.submit({ kind: 'continuous-end', source: 'manual-cartesian' }),
+    ).resolves.toMatchObject({ ok: true, result: 'completed' })
   })
 
   it('连续规划失败会关闭会话并取消后续 tick', async () => {
     const planSpy = vi.fn(() => ({
       ok: false as const,
-      error: { code: 'invalid-request' as const, category: 'invalid-request' as const, details: {} },
+      error: {
+        code: 'invalid-request' as const,
+        category: 'invalid-request' as const,
+        details: {},
+      },
     }))
     const coordinator = createMotionCoordinator({
       plan: planSpy,
@@ -467,18 +597,22 @@ describe('MotionCoordinator', () => {
     })
 
     await coordinator.submit({ kind: 'continuous-begin', source: 'manual-joint' })
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'manual-joint',
-      request,
-      playback: 'speed-limited',
-    })).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'manual-joint',
-      request,
-      playback: 'speed-limited',
-    })).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'manual-joint',
+        request,
+        playback: 'speed-limited',
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'manual-joint',
+        request,
+        playback: 'speed-limited',
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'cancelled' })
     expect(planSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -488,7 +622,11 @@ describe('MotionCoordinator', () => {
       unreachable
         ? {
             ok: false as const,
-            error: { code: 'unreachable' as const, category: 'planning-failure' as const, details: {} },
+            error: {
+              code: 'unreachable' as const,
+              category: 'planning-failure' as const,
+              details: {},
+            },
           }
         : plan,
     )
@@ -504,28 +642,36 @@ describe('MotionCoordinator', () => {
 
     await coordinator.submit({ kind: 'continuous-begin', source: 'gizmo' })
     // 第一个 tick：目标在工作空间外，规划失败，但会话不应关闭。
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'gizmo',
-      request,
-      playback: 'stream',
-    })).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'gizmo',
+        request,
+        playback: 'stream',
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
 
     unreachable = false
     // 第二个 tick：拖回工作空间内，同一会话应能继续规划并成功，不需要重新 continuous-begin。
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'gizmo',
-      request,
-      playback: 'stream',
-    })).resolves.toMatchObject({ ok: true, result: 'completed' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'gizmo',
+        request,
+        playback: 'stream',
+      }),
+    ).resolves.toMatchObject({ ok: true, result: 'completed' })
     expect(planSpy).toHaveBeenCalledTimes(2)
   })
 
   it('硬错误（invalid-request/unsupported-model 等）仍会关闭连续会话', async () => {
     const planSpy = vi.fn(() => ({
       ok: false as const,
-      error: { code: 'unsupported-model' as const, category: 'unsupported-model' as const, details: {} },
+      error: {
+        code: 'unsupported-model' as const,
+        category: 'unsupported-model' as const,
+        details: {},
+      },
     }))
     const coordinator = createMotionCoordinator({
       plan: planSpy,
@@ -538,18 +684,22 @@ describe('MotionCoordinator', () => {
     })
 
     await coordinator.submit({ kind: 'continuous-begin', source: 'gizmo' })
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'gizmo',
-      request,
-      playback: 'stream',
-    })).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
-    await expect(coordinator.submit({
-      kind: 'continuous-update',
-      source: 'gizmo',
-      request,
-      playback: 'stream',
-    })).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'gizmo',
+        request,
+        playback: 'stream',
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: 'planning-failure' })
+    await expect(
+      coordinator.submit({
+        kind: 'continuous-update',
+        source: 'gizmo',
+        request,
+        playback: 'stream',
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'cancelled' })
     expect(planSpy).toHaveBeenCalledTimes(1)
   })
 })

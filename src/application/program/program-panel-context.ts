@@ -1,14 +1,14 @@
 import { inject, provide, type InjectionKey } from 'vue'
-import type { ProgramControllerSnapshot } from './program-control.ts'
+import type { ProgramSessionSnapshot } from './use-program-session.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 import type {
   RapidExecutableInstruction,
   RapidMotionInsertionPoint,
   RapidProgramData,
 } from '@/rapid/language/index.ts'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 
 /**
  * 只读 ref：面板只读展示控制器提供的状态切片，因此只要求可读的 .value。
@@ -20,11 +20,11 @@ type ReadonlyRef<T> = { readonly value: T }
  * 右侧 RAPID/Program Data 工作区共享的控制器切片（由 App 单一实例化并 provide）。
  * Program Data 视图（data/activeIndex/canExecute/program/insertionPoints/runtimeValues）
  * 全部从同一次 parseRapidProgram 结果派生，不建立第二份点位存储或平行 parser。
- * 动作切片（run/step/stop/ppToMain/…/applyEdit）委托给唯一 ProgramController。
+ * 动作切片（run/step/stop/ppToMain/…/applyEdit）委托给唯一 ProgramSession。
  * 点位选中态由 App 单一持有，ProgramDataPanel 是受控组件。
  */
 export interface ProgramPanelController {
-  snapshot: ReadonlyRef<ProgramControllerSnapshot>
+  snapshot: ReadonlyRef<ProgramSessionSnapshot>
   source: ReadonlyRef<string>
   program: ReadonlyRef<readonly RapidExecutableInstruction[]>
   /** 全部已解析指令（含 `*` 占位运动），不受 canExecute 门控；供光标所在指令解析与参数编辑。 */

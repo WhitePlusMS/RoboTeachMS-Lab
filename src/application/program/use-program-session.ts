@@ -1,15 +1,32 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import type { MotionPlanningRequest } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
-import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import { isRapidMotionInstruction, parseRapidProgram, type RapidDiagnostic, type RapidExecutableInstruction, type RapidParseResult, type RapidSourceRange } from '@/rapid/language/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import {
+  isRapidMotionInstruction,
+  parseRapidProgram,
+  type RapidDiagnostic,
+  type RapidExecutableInstruction,
+  type RapidParseResult,
+  type RapidSourceRange,
+} from '@/rapid/language/index.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
-import { applyRapidEdit, type RapidEditCommand, type RapidEditResult, type RapidEditSuccess } from '@/rapid/editing/index.ts'
+import {
+  applyRapidEdit,
+  type RapidEditCommand,
+  type RapidEditResult,
+  type RapidEditSuccess,
+} from '@/rapid/editing/index.ts'
 import { createRapidRuntime } from '@/rapid/runtime/index.ts'
-import type { InstructionOutcome, ProgramError, ProgramExecutor, ProgramSnapshot } from '@/rapid/execution/index.ts'
+import type {
+  InstructionOutcome,
+  ProgramError,
+  ProgramExecutor,
+  ProgramSnapshot,
+} from '@/rapid/runtime/index.ts'
 
 /** 程序控制器唯一的运动提交 seam；宿主负责把 request 交给 MotionCoordinator。 */
-export interface ProgramControllerMotion {
+export interface ProgramSessionMotion {
   submitMotion: (
     request: MotionPlanningRequest,
     playback: 'eased' | 'trajectory',
@@ -17,26 +34,26 @@ export interface ProgramControllerMotion {
   stopAnimation: () => void
 }
 
-export interface ProgramControllerOptions {
+export interface ProgramSessionOptions {
   source: Ref<string>
   profile: RobotProfile
   joints: Ref<JointAngles>
-  motion: ProgramControllerMotion
+  motion: ProgramSessionMotion
 }
 
-export interface ProgramControllerError extends ProgramError {
+export interface ProgramSessionError extends ProgramError {
   sourceRange?: RapidSourceRange
 }
 
-export interface ProgramControllerSnapshot extends Omit<ProgramSnapshot, 'error'> {
-  error: ProgramControllerError | null
+export interface ProgramSessionSnapshot extends Omit<ProgramSnapshot, 'error'> {
+  error: ProgramSessionError | null
   diagnostics: readonly RapidDiagnostic[]
   needsPPtoMain: boolean
   offPath: boolean
 }
 
-export interface ProgramController {
-  snapshot: Ref<ProgramControllerSnapshot>
+export interface ProgramSession {
+  snapshot: Ref<ProgramSessionSnapshot>
   parsed: Ref<RapidParseResult>
   run: () => void
   step: () => void
@@ -85,8 +102,10 @@ function rapidLogicSignature(parsed: RapidParseResult): string {
   const statements = parsed.program.map((instruction) => {
     if (instruction.kind === 'assign') return `assign|${instruction.sourceText}`
     if (instruction.kind === 'singarea') return `singarea|${instruction.mode}`
-    if (instruction.kind === 'confj' || instruction.kind === 'confl') return `${instruction.kind}|${instruction.mode}`
-    if (instruction.kind === 'if') return `if|${instruction.conditionKind}|${instruction.sourceText}`
+    if (instruction.kind === 'confj' || instruction.kind === 'confl')
+      return `${instruction.kind}|${instruction.mode}`
+    if (instruction.kind === 'if')
+      return `if|${instruction.conditionKind}|${instruction.sourceText}`
     if (instruction.kind === 'while') return `while|${instruction.sourceText}`
     if (instruction.kind === 'for') return `for|${instruction.sourceText}`
     if (instruction.kind === 'exitdo') return `exitdo|${instruction.sourceText}`
@@ -121,7 +140,8 @@ function describeProgramError(
   const diagnostic = error.diagnostic
     ? {
         waypointIndex: error.diagnostic.waypointIndex ?? null,
-        axis: error.diagnostic.axisIndex === undefined ? null : `J${error.diagnostic.axisIndex + 1}`,
+        axis:
+          error.diagnostic.axisIndex === undefined ? null : `J${error.diagnostic.axisIndex + 1}`,
         axisIndex: error.diagnostic.axisIndex ?? null,
         previousAngleDeg: error.diagnostic.previousAngleDeg ?? null,
         attemptedAngleDeg: error.diagnostic.attemptedAngleDeg ?? null,
@@ -131,18 +151,27 @@ function describeProgramError(
     : null
   const sourceLine = instruction?.sourceRange.start.line ?? null
   const sourceColumn = instruction?.sourceRange.start.column ?? null
-  const location = sourceLine === null
-    ? `程序指令 #${error.index + 1}`
-    : `程序指令 #${error.index + 1}（第 ${sourceLine} 行，第 ${sourceColumn} 列）`
+  const location =
+    sourceLine === null
+      ? `程序指令 #${error.index + 1}`
+      : `程序指令 #${error.index + 1}（第 ${sourceLine} 行，第 ${sourceColumn} 列）`
   const detail = diagnostic
     ? [
         diagnostic.waypointIndex === null ? null : `waypoint #${diagnostic.waypointIndex}`,
         diagnostic.axis === null ? null : `失败轴 ${diagnostic.axis}`,
-        diagnostic.previousAngleDeg === null ? null : `前值 ${diagnostic.previousAngleDeg.toFixed(3)}°`,
-        diagnostic.attemptedAngleDeg === null ? null : `尝试值 ${diagnostic.attemptedAngleDeg.toFixed(3)}°`,
+        diagnostic.previousAngleDeg === null
+          ? null
+          : `前值 ${diagnostic.previousAngleDeg.toFixed(3)}°`,
+        diagnostic.attemptedAngleDeg === null
+          ? null
+          : `尝试值 ${diagnostic.attemptedAngleDeg.toFixed(3)}°`,
         diagnostic.deltaDeg === null ? null : `步长 ${diagnostic.deltaDeg.toFixed(3)}°`,
-        diagnostic.limitRangeDeg === null ? null : `限位 [${diagnostic.limitRangeDeg[0]}°, ${diagnostic.limitRangeDeg[1]}°]`,
-      ].filter((part): part is string => part !== null).join('，')
+        diagnostic.limitRangeDeg === null
+          ? null
+          : `限位 [${diagnostic.limitRangeDeg[0]}°, ${diagnostic.limitRangeDeg[1]}°]`,
+      ]
+        .filter((part): part is string => part !== null)
+        .join('，')
     : '规划器未提供关节级诊断（可能在起点正解、输入校验或全局候选筛选阶段失败）'
   return {
     summary: `${location}：${error.message}；错误码 ${error.code}；${detail}`,
@@ -157,14 +186,17 @@ function describeProgramError(
   }
 }
 
-export function useProgramController(options: ProgramControllerOptions): ProgramController {
-  const runtime = createRapidRuntime({
-    currentJoints: () => [...options.joints.value] as MotionPlanningRequest['state']['jointsDeg'],
-    submit: options.motion.submitMotion,
-    stop: options.motion.stopAnimation,
-  })
+export function useProgramSession(options: ProgramSessionOptions): ProgramSession {
+  const runtime = createRapidRuntime(
+    {
+      currentJoints: () => [...options.joints.value] as MotionPlanningRequest['state']['jointsDeg'],
+      submit: options.motion.submitMotion,
+      stop: options.motion.stopAnimation,
+    },
+    options.profile,
+  )
   const parsed = computed(() => parseRapidProgram(options.source.value))
-  const snapshot = ref<ProgramControllerSnapshot>({
+  const snapshot = ref<ProgramSessionSnapshot>({
     state: 'idle',
     programPointer: 0,
     motionPointer: null,
@@ -226,18 +258,27 @@ export function useProgramController(options: ProgramControllerOptions): Program
     }
   }
   const findUnsupportedZone = (program: readonly RapidExecutableInstruction[]): number | null => {
-    const index = program.findIndex((instruction) => isRapidMotionInstruction(instruction) && instruction.zone.finep !== true)
+    const index = program.findIndex(
+      (instruction) => isRapidMotionInstruction(instruction) && instruction.zone.finep !== true,
+    )
     return index >= 0 ? index : null
   }
 
-  function beginExecution(start: (exec: ProgramExecutor) => Promise<ProgramSnapshot['state']>): void {
+  function beginExecution(
+    start: (exec: ProgramExecutor) => Promise<ProgramSnapshot['state']>,
+  ): void {
     if (executor.getSnapshot().state === 'idle') {
       const result = parsed.value
       if (!result.canExecute) {
         loadedProgram = []
         loadedLogicSignature = null
         logicContextDirty = false
-        snapshot.value = { ...snapshot.value, state: 'error', error: null, diagnostics: result.diagnostics }
+        snapshot.value = {
+          ...snapshot.value,
+          state: 'error',
+          error: null,
+          diagnostics: result.diagnostics,
+        }
         console.warn('[ABB-PROGRAM] RAPID 源程序诊断阻止执行', result.diagnostics.length)
         return
       }
@@ -271,7 +312,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
       else if (final === 'stopped') console.info('[ABB-PROGRAM] 程序停止或等待下一步')
       else if (final === 'error') {
         const error = executor.getSnapshot().error
-        if (error) console.error('[ABB-PROGRAM] 程序规划错误', describeProgramError(error, loadedProgram))
+        if (error)
+          console.error('[ABB-PROGRAM] 程序规划错误', describeProgramError(error, loadedProgram))
       }
       sync()
       stopPolling()
@@ -317,7 +359,9 @@ export function useProgramController(options: ProgramControllerOptions): Program
     needsPPtoMain = false
     pendingEdit = null
     trackedPP = null
-    const runtimeValues = logicContextDirty ? new Map<string, RapidScalarVariable>() : executor.getSnapshot().variables
+    const runtimeValues = logicContextDirty
+      ? new Map<string, RapidScalarVariable>()
+      : executor.getSnapshot().variables
     const result = parsed.value
     loadedProgram = result.canExecute ? result.program : []
     loadedLogicSignature = result.canExecute ? rapidLogicSignature(result) : null
@@ -341,7 +385,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
     sync()
   }
   const applyEdit = (command: RapidEditCommand): RapidEditResult => {
-    if (executor.getSnapshot().state === 'running') return { ok: false, error: { code: 'source-error', message: '程序运行期间禁止编辑源码' } }
+    if (executor.getSnapshot().state === 'running')
+      return { ok: false, error: { code: 'source-error', message: '程序运行期间禁止编辑源码' } }
     const previousSource = options.source.value
     const result = applyRapidEdit(previousSource, command)
     if (result.ok) {
@@ -396,9 +441,16 @@ export function useProgramController(options: ProgramControllerOptions): Program
     if (oldProgram.length === 0) return
     const next = parsed.value
     if (pendingEdit && options.source.value !== pendingEdit.source) pendingEdit = null
-    if (needsPPtoMain) { sync(); return }
+    if (needsPPtoMain) {
+      sync()
+      return
+    }
     const isStructuredEdit = pendingEdit !== null
-    if (!isStructuredEdit && loadedLogicSignature !== null && rapidLogicSignature(next) !== loadedLogicSignature) {
+    if (
+      !isStructuredEdit &&
+      loadedLogicSignature !== null &&
+      rapidLogicSignature(next) !== loadedLogicSignature
+    ) {
       needsPPtoMain = true
       logicContextDirty = true
       pendingEdit = null
@@ -412,7 +464,8 @@ export function useProgramController(options: ProgramControllerOptions): Program
       const edit = pendingEdit as RapidEditSuccess
       pendingEdit = null
       const baseIndex = trackedPP ?? oldIndex
-      if (edit.programTextChangedAt !== undefined && edit.programTextChangedAt === baseIndex) trackedPP = null
+      if (edit.programTextChangedAt !== undefined && edit.programTextChangedAt === baseIndex)
+        trackedPP = null
       else {
         let mapped = baseIndex
         const removed = edit.programRemap?.removed ?? []
@@ -423,15 +476,24 @@ export function useProgramController(options: ProgramControllerOptions): Program
           if (inserted && mapped >= inserted.at) mapped += inserted.count
         }
         if (removedHit) trackedPP = null
-        else if (next.canExecute && mapped < next.program.length) { mapTo = mapped; trackedPP = null }
-        else if (!next.canExecute) { trackedPP = mapped; sync(); return }
-        else trackedPP = null
+        else if (next.canExecute && mapped < next.program.length) {
+          mapTo = mapped
+          trackedPP = null
+        } else if (!next.canExecute) {
+          trackedPP = mapped
+          sync()
+          return
+        } else trackedPP = null
       }
     } else {
       trackedPP = null
       if (next.canExecute && next.program.length > 0) {
         const oldSourceText = oldProgram[oldIndex]?.sourceText
-        const candidates = oldSourceText ? next.program.map((instruction, index) => instruction.sourceText === oldSourceText ? index : -1).filter((index) => index >= 0) : []
+        const candidates = oldSourceText
+          ? next.program
+              .map((instruction, index) => (instruction.sourceText === oldSourceText ? index : -1))
+              .filter((index) => index >= 0)
+          : []
         if (candidates.length === 1) mapTo = candidates[0]
       }
     }
@@ -448,5 +510,21 @@ export function useProgramController(options: ProgramControllerOptions): Program
 
   watch(parsed, reconcileProgramAfterSourceChange)
   onBeforeUnmount(stopPolling)
-  return { snapshot, parsed, run, step, stop, ppToMain, applyEdit, undo, redo, canUndo, canRedo, stopActiveProgram, confirmClearToNext, cancelClearToNext, pendingClear }
+  return {
+    snapshot,
+    parsed,
+    run,
+    step,
+    stop,
+    ppToMain,
+    applyEdit,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    stopActiveProgram,
+    confirmClearToNext,
+    cancelClearToNext,
+    pendingClear,
+  }
 }

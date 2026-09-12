@@ -1,4 +1,4 @@
-import type { MotionClock } from '@/robot-geometry/motion/runner'
+import type { MotionClock } from '@/robot-motion-core/playback/runner.ts'
 
 /**
  * 测试用手动时钟：可精确控制时间推进，供运动生命周期相关单测复用。

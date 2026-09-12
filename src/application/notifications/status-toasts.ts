@@ -1,5 +1,5 @@
 import { watch, type Ref } from 'vue'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 import type { ToastController } from './toast.ts'
 
 /**
@@ -8,11 +8,11 @@ import type { ToastController } from './toast.ts'
  * 仅在条件由成立变为成立的一次性转换时触发，避免同一状态反复刷屏。
  */
 export function useStatusToasts(
-  snapshot: Ref<ProgramControllerSnapshot>,
+  snapshot: Ref<ProgramSessionSnapshot>,
   toasts: ToastController,
 ): void {
   // 以上一次快照的相关字段为触发基线；初始化为当前快照，使首次状态切换也能命中。
-  let toastsSeen: Pick<ProgramControllerSnapshot, 'state' | 'needsPPtoMain' | 'offPath'> = {
+  let toastsSeen: Pick<ProgramSessionSnapshot, 'state' | 'needsPPtoMain' | 'offPath'> = {
     state: snapshot.value.state,
     needsPPtoMain: snapshot.value.needsPPtoMain,
     offPath: snapshot.value.offPath,

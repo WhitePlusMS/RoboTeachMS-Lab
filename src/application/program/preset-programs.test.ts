@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { findRapidPreset, RAPID_PRESET_PROGRAMS } from './preset-programs.ts'
 import { isRapidMotionInstruction, parseRapidProgram } from '@/rapid/language/index.ts'
 import { planMotion } from '@/robot-motion-core/index.ts'
-import { buildRapidMotionRequest } from '@/rapid/planning/motion-requests.ts'
+import { buildRapidMotionRequest } from '@/rapid/motion/rapid-motion-request.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 
 describe('RAPID 预设程序库', () => {
   it('提供 6 个取自测试用例文档的可运行示例模板', () => {

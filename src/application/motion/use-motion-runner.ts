@@ -4,18 +4,18 @@ import {
   type MotionClock,
   type MotionResult,
   type MotionStatus,
-} from '@/robot-geometry/motion/runner.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
-import type { MotionConfig } from '@/robot-geometry/motion/types.ts'
+} from '@/robot-motion-core/playback/runner.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import type { MotionConfig } from '@/robot-motion-core/playback/playback-config.ts'
 
-export interface MotionControlOptions {
+export interface MotionRunnerOptions {
   getCurrentJoints: () => JointAngles
   setJoints: (joints: JointAngles) => void
   motionConfig?: MotionConfig
 }
 
 /** Vue 只提供浏览器时钟 adapter，并在卸载时停止深层 Motion Runner。 */
-export function useMotion(options: MotionControlOptions) {
+export function useMotionRunner(options: MotionRunnerOptions) {
   const clock: MotionClock = {
     now: () => performance.now(),
     requestFrame: (callback) => window.requestAnimationFrame(callback),

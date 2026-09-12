@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyCartesianDelta } from './cartesian-math.ts'
-import type { PoseDisplay } from '@/robot-geometry/model/index.ts'
+import { applyCartesianDelta } from './cartesian-jog-input.ts'
+import type { PoseDisplay } from '@/robot-geometry/robot-types.ts'
 
 const pose: PoseDisplay = {
   positionMm: [100, 200, 300],
