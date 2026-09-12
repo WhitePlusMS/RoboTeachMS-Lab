@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as THREE from 'three'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import { extractPose } from '@/robot-geometry/transform'
-import type { JointAngles } from '@/robot-geometry/types'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 import {
   forwardAbbKinematicsDegrees,
   forwardAbbKinematicsFramesDegrees,
-} from '@/robot-models/abb-irb1200/abb-kinematics'
+} from '@/robot-models/abb-irb1200/forward-kinematics.ts'
 import {
   ABB_ACTIVE_JOINT_NODE_NAMES,
   ABB_JOINT_AXES,

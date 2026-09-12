@@ -2,11 +2,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import ProgramDataTargetList from './ProgramDataTargetList.vue'
-import {
-  parseRapidProgram,
-  type RapidProgramData,
-} from '@/rapid/language/index.ts'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import { parseRapidProgram, type RapidProgramData } from '@/rapid/language/index.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 const SOURCE = `
@@ -115,13 +112,22 @@ describe('ProgramDataTargetList — ABB 式 robtarget 列表', () => {
     const edit = vi.fn(() => ({ ok: true as const, result: { source: 'x' } }))
     const wrapper = mountList({ data: DEFAULT_PARSED.data, applyEdit: edit })
     await wrapper.get('[aria-label="新点位名称"]').setValue('pNew')
-    await wrapper.findAll('button').find((b) => b.text().includes('新建点位'))!.trigger('click')
-    expect(edit).toHaveBeenCalledWith({ type: 'create-target', name: 'pNew', target: expect.any(Object) })
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('新建点位'))!
+      .trigger('click')
+    expect(edit).toHaveBeenCalledWith({
+      type: 'create-target',
+      name: 'pNew',
+      target: expect.any(Object),
+    })
   })
 
   it('activeTargetName 高亮当前指令使用的目标', () => {
     const wrapper = mountList({ data: DEFAULT_PARSED.data, activeTargetName: 'pApproach' })
-    const approach = wrapper.findAll('.program-data-item').find((li) => li.text().includes('pApproach'))
+    const approach = wrapper
+      .findAll('.program-data-item')
+      .find((li) => li.text().includes('pApproach'))
     expect(approach?.classes()).toContain('active')
   })
 })
@@ -151,7 +157,10 @@ describe('ProgramDataTargetList — 点位详情与受控编辑', () => {
     const edit = vi.fn(() => ({ ok: true as const, result: { source: 'x' } }))
     const wrapper = mountList({ data: DEFAULT_PARSED.data, applyEdit: edit })
     await selectTarget(wrapper, 'pApproach')
-    await wrapper.findAll('button').find((b) => b.text().includes('Modify Position'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Modify Position'))!
+      .trigger('click')
     expect(edit).toHaveBeenCalledWith({
       type: 'modify-position',
       name: 'pApproach',
@@ -163,12 +172,18 @@ describe('ProgramDataTargetList — 点位详情与受控编辑', () => {
     const edit = vi.fn(() => ({ ok: true as const, result: { source: 'x' } }))
     const wrapper = mountList({ data: DEFAULT_PARSED.data, applyEdit: edit })
     await selectTarget(wrapper, 'pApproach')
-    await wrapper.findAll('button').find((b) => b.text().includes('编辑位置'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('编辑位置'))!
+      .trigger('click')
     const inputs = wrapper.get('.program-data-edit-position').findAll('input')
     await inputs[0].setValue('100')
     await inputs[1].setValue('200')
     await inputs[2].setValue('300')
-    await wrapper.findAll('button').find((b) => b.text().includes('确认'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('确认'))!
+      .trigger('click')
     expect(edit).toHaveBeenCalledWith({
       type: 'modify-position',
       name: 'pApproach',
@@ -180,10 +195,20 @@ describe('ProgramDataTargetList — 点位详情与受控编辑', () => {
     const edit = vi.fn(() => ({ ok: true as const, result: { source: 'x' } }))
     const wrapper = mountList({ data: DEFAULT_PARSED.data, applyEdit: edit })
     await selectTarget(wrapper, 'pApproach')
-    await wrapper.findAll('button').find((b) => b.text().includes('重命名'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('重命名'))!
+      .trigger('click')
     await wrapper.get('[aria-label="重命名点位"]').setValue('pApproach2')
-    await wrapper.findAll('button').find((b) => b.text().includes('确认重命名'))!.trigger('click')
-    expect(edit).toHaveBeenCalledWith({ type: 'rename-target', name: 'pApproach', newName: 'pApproach2' })
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('确认重命名'))!
+      .trigger('click')
+    expect(edit).toHaveBeenCalledWith({
+      type: 'rename-target',
+      name: 'pApproach',
+      newName: 'pApproach2',
+    })
     expect(wrapper.emitted('select-target')).toContainEqual(['pApproach2'])
   })
 
@@ -199,10 +224,16 @@ describe('ProgramDataTargetList — 点位详情与受控编辑', () => {
   })
 
   it('编辑失败：emit edit-error 携带错误消息', async () => {
-    const edit = vi.fn(() => ({ ok: false as const, error: { code: 'duplicate-name' as const, message: '名称已存在' } }))
+    const edit = vi.fn(() => ({
+      ok: false as const,
+      error: { code: 'duplicate-name' as const, message: '名称已存在' },
+    }))
     const wrapper = mountList({ data: DEFAULT_PARSED.data, applyEdit: edit })
     await wrapper.get('[aria-label="新点位名称"]').setValue('pApproach')
-    await wrapper.findAll('button').find((b) => b.text().includes('新建点位'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('新建点位'))!
+      .trigger('click')
     expect(wrapper.emitted('edit-error')).toEqual([[null], ['名称已存在']])
   })
 

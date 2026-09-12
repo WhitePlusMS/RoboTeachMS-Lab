@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { makeTaughtTargetFromPose } from '@/rapid/editing/index.ts'
-import type {
-  RapidExecutableInstruction,
-  RapidProgramDataTarget,
-} from '@/rapid/language/index.ts'
+import type { RapidExecutableInstruction, RapidProgramDataTarget } from '@/rapid/language/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
-import type { ProgramPanelController } from '@/application/program/use-program-panel-controller.ts'
+import type { ProgramPanelController } from '@/application/program/program-panel-context.ts'
 
 /**
  * FlexPendant 参数编辑器（3HAC050941 5.4.2「参数编辑」对齐）：
@@ -97,11 +94,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
 </script>
 
 <template>
-  <section
-    v-if="motion"
-    class="motion-argument-panel"
-    aria-label="指令参数"
-  >
+  <section v-if="motion" class="motion-argument-panel" aria-label="指令参数">
     <header class="motion-argument-head">
       <span class="motion-argument-kind">{{
         motion.instruction.kind === 'movej' ? 'MoveJ' : 'MoveL'
@@ -116,7 +109,11 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
           @click="openOperand = openOperand === 'target' ? null : 'target'"
           @keydown.enter="openOperand = openOperand === 'target' ? null : 'target'"
         >
-          {{ motion.instruction.operands.target === '*' ? '未示教 *' : motion.instruction.operands.target }}
+          {{
+            motion.instruction.operands.target === '*'
+              ? '未示教 *'
+              : motion.instruction.operands.target
+          }}
         </span>
         <span
           class="motion-argument-operand"
@@ -138,8 +135,13 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         >
           {{ motion.instruction.operands.zone }}
         </span>
-        <span class="motion-argument-operand motion-argument-tool">tool {{ motion.instruction.operands.tool }}</span>
-        <span v-if="motion.instruction.operands.wobj" class="motion-argument-operand motion-argument-tool">
+        <span class="motion-argument-operand motion-argument-tool"
+          >tool {{ motion.instruction.operands.tool }}</span
+        >
+        <span
+          v-if="motion.instruction.operands.wobj"
+          class="motion-argument-operand motion-argument-tool"
+        >
           WObj {{ motion.instruction.operands.wobj }}
         </span>
       </span>
@@ -162,12 +164,19 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         :key="target.name"
         type="button"
         class="motion-argument-option"
-        :aria-pressed="motion.instruction.operands.target.toLocaleLowerCase('en-US') === target.name.toLocaleLowerCase('en-US')"
+        :aria-pressed="
+          motion.instruction.operands.target.toLocaleLowerCase('en-US') ===
+          target.name.toLocaleLowerCase('en-US')
+        "
         :title="`选择目标点 ${target.name}`"
         @click="chooseExistingTarget(target.name)"
       >
         <span class="motion-argument-option-name">{{ target.name }}</span>
-        <span class="motion-argument-option-detail">[{{ target.target.trans.map((v) => (Number.isFinite(v) ? v.toFixed(1) : '—')).join(', ') }}]</span>
+        <span class="motion-argument-option-detail"
+          >[{{
+            target.target.trans.map((v) => (Number.isFinite(v) ? v.toFixed(1) : '—')).join(', ')
+          }}]</span
+        >
       </button>
       <button
         v-if="controller.pose.value"
@@ -193,15 +202,16 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         type="button"
         class="motion-argument-option"
         :class="{ 'motion-argument-option-system': entry.system }"
-        :aria-pressed="motion.instruction.operands.speed.toLocaleLowerCase('en-US') === entry.name.toLocaleLowerCase('en-US')"
+        :aria-pressed="
+          motion.instruction.operands.speed.toLocaleLowerCase('en-US') ===
+          entry.name.toLocaleLowerCase('en-US')
+        "
         :title="`选择速度 ${entry.name}`"
         @click="chooseDataOperand('speed', entry.name)"
       >
         <span class="motion-argument-option-name">{{ entry.name }}</span>
         <span v-if="entry.system" class="motion-argument-option-badge">系统</span>
-        <span class="motion-argument-option-detail">
-          {{ entry.value.v_tcp.toFixed(0) }} mm/s
-        </span>
+        <span class="motion-argument-option-detail"> {{ entry.value.v_tcp.toFixed(0) }} mm/s </span>
       </button>
       <p v-if="speedEntries.length === 0" class="motion-argument-empty">尚无 speeddata。</p>
     </div>
@@ -215,7 +225,10 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
         type="button"
         class="motion-argument-option"
         :class="{ 'motion-argument-option-system': entry.system }"
-        :aria-pressed="motion.instruction.operands.zone.toLocaleLowerCase('en-US') === entry.name.toLocaleLowerCase('en-US')"
+        :aria-pressed="
+          motion.instruction.operands.zone.toLocaleLowerCase('en-US') ===
+          entry.name.toLocaleLowerCase('en-US')
+        "
         :title="`选择转弯区 ${entry.name}`"
         @click="chooseDataOperand('zone', entry.name)"
       >
@@ -229,9 +242,7 @@ function chooseDataOperand(operand: 'speed' | 'zone', name: string): void {
     </div>
 
     <div v-if="motion.instruction.operands.target === '*'" class="motion-argument-actions">
-      <span class="motion-argument-note">
-        目标未示教：请选择或新建点位，否则程序不能运行。
-      </span>
+      <span class="motion-argument-note"> 目标未示教：请选择或新建点位，否则程序不能运行。 </span>
     </div>
 
     <p v-if="panelError" class="motion-argument-error">{{ panelError }}</p>

@@ -2,23 +2,17 @@
 import { computed, nextTick, ref } from 'vue'
 import CartesianControlPanel from './CartesianControlPanel.vue'
 import JointControlPanel from './JointControlPanel.vue'
-import type {
-  JointAngles,
-  PoseDisplay,
-} from '@/robot-geometry/model/index.ts'
-import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-types.ts'
-import type { JointRange } from '@/robot-geometry/model/robot-profile.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-jog-input.ts'
+import type { JointRange } from '@/robot-geometry/robot-types.ts'
 import type { JointDirection, JointStep } from '@/application/motion/joint-math.ts'
 import type {
   CartesianDirection,
-  CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '@/application/motion/cartesian-math.ts'
-import {
-  injectRobotController,
-  type RobotController,
-} from '@/application/use-robot-controller.ts'
+} from '@/application/motion/cartesian-jog-input.ts'
+import type { CartesianStatus } from '@/application/motion/cartesian-result-presentation.ts'
+import { injectRobotController, type RobotController } from '@/application/use-robot-controller.ts'
 
 interface Props {
   joints?: JointAngles
@@ -56,35 +50,32 @@ const EMPTY_POSE: PoseDisplay = { positionMm: [0, 0, 0], orientationDeg: [0, 0, 
  * 共享控制器：App provide 时直接使用；独立挂载（测试）时回退到本地 props + 转发事件。
  * 这样左侧 Jog 工作区在真实应用里无需再传一长串 props/emits。
  */
-const controller: RobotController =
-  injectRobotController() ??
-  {
-    joints: computed(() => props.joints ?? EMPTY_JOINTS),
-    jointRanges: props.jointRanges ?? [],
-    jointStep: computed(() => props.jointStep ?? 1),
-    pose: computed(() => props.pose ?? EMPTY_POSE),
-    coordinateSystem: computed(() => props.coordinateSystem ?? 'World'),
-    positionStep: computed(() => props.positionStep ?? 1),
-    orientationStep: computed(() => props.orientationStep ?? 1),
-    status: computed(() => props.status ?? 'ready'),
-    statusMessage: computed(() => props.statusMessage ?? ''),
-    setJoint: (index, value) => emit('set-joint', index, value),
-    adjustJoint: (index, direction, isContinuous) =>
-      emit('adjust-joint', index, direction, isContinuous),
-    beginJointContinuous: (index, direction) => emit('joint-continuous-start', index, direction),
-    endJointContinuous: () => emit('joint-continuous-end'),
-    setStep: (value) => emit('step-change', value),
-    reset: () => emit('reset'),
-    resetMechanicalZero: () => emit('mechanical-zero'),
-    randomize: () => emit('random'),
-    moveCartesian: (axis, direction, isContinuous) =>
-      emit('move', axis, direction, isContinuous),
-    beginCartesianContinuous: () => {},
-    endCartesianContinuous: () => {},
-    setCoordinateSystem: (value) => emit('coordinate-change', value),
-    setPositionStep: (value) => emit('position-step-change', value),
-    setOrientationStep: (value) => emit('orientation-step-change', value),
-  }
+const controller: RobotController = injectRobotController() ?? {
+  joints: computed(() => props.joints ?? EMPTY_JOINTS),
+  jointRanges: props.jointRanges ?? [],
+  jointStep: computed(() => props.jointStep ?? 1),
+  pose: computed(() => props.pose ?? EMPTY_POSE),
+  coordinateSystem: computed(() => props.coordinateSystem ?? 'World'),
+  positionStep: computed(() => props.positionStep ?? 1),
+  orientationStep: computed(() => props.orientationStep ?? 1),
+  status: computed(() => props.status ?? 'ready'),
+  statusMessage: computed(() => props.statusMessage ?? ''),
+  setJoint: (index, value) => emit('set-joint', index, value),
+  adjustJoint: (index, direction, isContinuous) =>
+    emit('adjust-joint', index, direction, isContinuous),
+  beginJointContinuous: (index, direction) => emit('joint-continuous-start', index, direction),
+  endJointContinuous: () => emit('joint-continuous-end'),
+  setStep: (value) => emit('step-change', value),
+  reset: () => emit('reset'),
+  resetMechanicalZero: () => emit('mechanical-zero'),
+  randomize: () => emit('random'),
+  moveCartesian: (axis, direction, isContinuous) => emit('move', axis, direction, isContinuous),
+  beginCartesianContinuous: () => {},
+  endCartesianContinuous: () => {},
+  setCoordinateSystem: (value) => emit('coordinate-change', value),
+  setPositionStep: (value) => emit('position-step-change', value),
+  setOrientationStep: (value) => emit('orientation-step-change', value),
+}
 
 type JogTab = 'joint' | 'cartesian'
 const activeTab = ref<JogTab>('joint')

@@ -9,32 +9,36 @@ import RunLogPanel from '@/components/RunLogPanel.vue'
 import SceneViewport from '@/components/SceneViewport.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import WorkbenchLayout from '@/components/WorkbenchLayout.vue'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
-import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
-import { useJointControl } from '@/application/motion/joint-control.ts'
-import { useMotion } from '@/application/motion/motion-control.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import { DEFAULT_ROBOT } from '@/robot-models/registry.ts'
+import { useRobotState } from '@/application/motion/use-robot-state.ts'
+import { useMotionRunner } from '@/application/motion/use-motion-runner.ts'
 import { createMotionCoordinator } from '@/application/motion/motion-coordinator.ts'
 import {
   presentMotionError,
   type HostMotionErrorPresentation,
 } from '@/application/motion/motion-errors.ts'
-import { useProgramController } from '@/application/program/program-control.ts'
+import { useProgramSession } from '@/application/program/use-program-session.ts'
 import { createBuiltinRapidSource, findRapidPreset } from '@/application/program/preset-programs.ts'
 import { useRunLog, provideRunLog } from '@/application/notifications/run-log.ts'
 import { provideToasts, useToasts } from '@/application/notifications/toast.ts'
 import { useStatusToasts } from '@/application/notifications/status-toasts.ts'
 import type { AbbRobTargetMarker, AbbSceneStatus } from '@/scene/abb-scene.ts'
-import { useCartesianControl } from '@/application/motion/cartesian-control.ts'
-import { createMotionPlannerAdapter, planCartesianTargetSync } from '@/infrastructure/motion-worker/adapter.ts'
-import { createCartesianTargetRequest } from '@/application/motion/motion-requests.ts'
+import { useCartesianJog } from '@/application/motion/use-cartesian-jog.ts'
+import { createMotionPlannerClient } from '@/infrastructure/motion-worker/motion-planner-client.ts'
+import { createCartesianTargetRequest } from '@/application/motion/manual-motion-request.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
-import { provideProgramPanelController } from '@/application/program/use-program-panel-controller.ts'
-import { preemptManualMotion, provideRobotController, useRobotController } from '@/application/use-robot-controller.ts'
-import { mapCoreFailure } from '@/rapid/planning/core-motion.ts'
-import type { InstructionOutcome } from '@/rapid/execution/index.ts'
+import { provideProgramPanelController } from '@/application/program/program-panel-context.ts'
+import {
+  preemptManualMotion,
+  provideRobotController,
+  useRobotController,
+} from '@/application/use-robot-controller.ts'
+import { mapCoreFailure } from '@/rapid/motion/motion-core-mapping.ts'
+import type { InstructionOutcome } from '@/rapid/runtime/index.ts'
 
-const profile = ABB_IRB1200_PROFILE
+const profile = DEFAULT_ROBOT
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '')
 const labPath = basePath + '/lab'
 const isLabRoute = ref(
@@ -57,10 +61,10 @@ const {
   pose,
   setJoints: setJointsImmediate,
   setStep,
-} = useJointControl({ profile })
+} = useRobotState({ profile })
 
-/** 所有生产规划统一使用同一个常驻 Worker adapter；非浏览器环境仅用于测试的同步 fallback 仍在 adapter 内。 */
-const motionPlanner = createMotionPlannerAdapter()
+/** 所有规划经过同一 transport；拖拽和笛卡尔点动同步，其余请求使用 Worker。 */
+const motionPlanner = createMotionPlannerClient()
 
 const {
   startEasedAnimation,
@@ -68,7 +72,7 @@ const {
   startCartesianTrajectory,
   appendCartesianTrajectory,
   stopAnimation,
-} = useMotion({
+} = useMotionRunner({
   getCurrentJoints: () => joints.value,
   setJoints: setJointsImmediate,
 })
@@ -127,26 +131,28 @@ function persistRapidSource(source: string): void {
 const rapidSource = ref(loadPersistedRapidSource())
 
 /** RAPID 源程序控制器；解析结果只在运行时生成，运动链从同一 profile 获取模型与限制。 */
-const programControl = useProgramController({
+const programControl = useProgramSession({
   source: rapidSource,
   profile,
   joints,
   motion: {
     submitMotion: (request, playback): Promise<InstructionOutcome> =>
-      motionCoordinator.submit({ kind: 'move', source: 'rapid', request, playback }).then((outcome) => {
-        if (outcome.ok) return { ok: true, result: outcome.result }
-        if (outcome.result && !outcome.result.ok) {
-          const error = mapCoreFailure(outcome.result)
+      motionCoordinator
+        .submit({ kind: 'move', source: 'rapid', request, playback })
+        .then((outcome) => {
+          if (outcome.ok) return { ok: true, result: outcome.result }
+          if (outcome.result && !outcome.result.ok) {
+            const error = mapCoreFailure(outcome.result)
+            return {
+              ok: false,
+              error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' },
+            }
+          }
           return {
             ok: false,
-            error: error ?? { kind: 'unreachable', message: 'Core 运动规划失败' },
+            error: { kind: 'runtime-error', message: `运动执行${outcome.reason}` },
           }
-        }
-        return {
-          ok: false,
-          error: { kind: 'runtime-error', message: `运动执行${outcome.reason}` },
-        }
-      }),
+        }),
     stopAnimation: () => motionCoordinator.stop('user'),
   },
 })
@@ -210,16 +216,16 @@ const toolPose = computed(() => profile.model.forwardKinematics(joints.value))
  */
 const transformGizmoEnabled = ref(false)
 const transformGizmoMode = ref<'translate' | 'rotate'>('translate')
-/** 本次拖拽会话（drag-start→drag-end）内是否出现过不可达目标；用于结束一次性提示。 */
+/** 最近一次拖拽目标是否不可达；拖回合法区域后清除，结束时仅报告最终状态。 */
 const gizmoDragUnreachable = ref(false)
 const gizmoDragError = ref<HostMotionErrorPresentation | null>(null)
 
 function solveGizmoTarget(pose: Pose): boolean {
-  const request = createCartesianTargetRequest(pose, [...joints.value] as JointAngles)
+  const request = createCartesianTargetRequest(pose, [...joints.value] as JointAngles, profile)
   // TransformControls 的 objectChange 回调是同步的：先同步预判可达性（复用与
   // gizmo transport 完全相同的 planMotion），失败立即同步返回 false 让手柄回弹，
   // 不能等一次异步 submit 往返——那样手柄会先飘到不可达目标再等结果，永远不回弹。
-  const planned = planCartesianTargetSync(request)
+  const planned = motionPlanner.preview(request)
   if (!planned.ok) {
     gizmoDragUnreachable.value = true
     gizmoDragError.value = presentMotionError(planned.error)
@@ -246,7 +252,10 @@ function getGizmoPose(): Pose | null {
 function handleGizmoDragStart(): void {
   gizmoDragUnreachable.value = false
   gizmoDragError.value = null
-  preemptManualMotion({ endCartesianContinuous, stopActiveProgram: programControl.stopActiveProgram })
+  preemptManualMotion({
+    endCartesianContinuous,
+    stopActiveProgram: programControl.stopActiveProgram,
+  })
   void motionCoordinator.submit({ kind: 'continuous-begin', source: 'gizmo' })
 }
 
@@ -294,11 +303,11 @@ const {
   setOrientationStep,
   beginContinuous: beginCartesianContinuous,
   endContinuous: endCartesianContinuous,
-} = useCartesianControl({
+} = useCartesianJog({
   joints,
   pose,
   profile,
-  buildRequest: createCartesianTargetRequest,
+  buildRequest: (target, initial) => createCartesianTargetRequest(target, initial, profile),
   submitMotion: (request, mode, durationMs, continuous = false, onPlanAccepted) => {
     if (continuous) {
       return motionCoordinator.submit({
@@ -334,7 +343,7 @@ const statusLabel = computed(() => {
 
 const motionPointerText = computed(() => programSnapshot.value.motionPointer?.toString() ?? '—')
 
-/** 程序动作包装：在委托给 ProgramController 前补一条操作日志（状态迁移日志由 useRunLog 观察快照产生）。 */
+/** 程序动作包装：在委托给 ProgramSession 前补一条操作日志（状态迁移日志由 useRunLog 观察快照产生）。 */
 function handlePP(): void {
   programControl.ppToMain()
   runLog.info('程序', 'PP 已回到 main，等待运行')

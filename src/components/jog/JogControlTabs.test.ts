@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import JogControlTabs from './JogControlTabs.vue'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
-import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
 
 const joints: JointAngles = [0, 0, 0, 0, 0, 0]
 const pose: PoseDisplay = {

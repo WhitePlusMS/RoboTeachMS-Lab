@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import {
-  Compartment,
-  EditorState,
-  RangeSet,
-  StateEffect,
-  StateField,
-} from '@codemirror/state'
+import { Compartment, EditorState, RangeSet, StateEffect, StateField } from '@codemirror/state'
 import {
   EditorView,
   GutterMarker,
@@ -23,7 +17,7 @@ import {
   type RapidExecutableInstruction,
   type RapidSourceRange,
 } from '@/rapid/language/index.ts'
-import { rapid } from '@/rapid/editor/rapid-highlight.ts'
+import { rapid } from '@/components/program/rapid-syntax-highlight.ts'
 
 interface Props {
   source: string
@@ -134,7 +128,8 @@ function syncGutterMarkers(): void {
   }
   for (const line of props.diagnosticLines) add(line, 'diagnostic-line')
   if (props.runtimeErrorLine !== null) add(props.runtimeErrorLine, 'runtime-line')
-  if (props.cursorLine !== null && props.cursorLine !== undefined) add(props.cursorLine, 'cursor-line')
+  if (props.cursorLine !== null && props.cursorLine !== undefined)
+    add(props.cursorLine, 'cursor-line')
   const entries = Array.from(merged.entries()).map(([line, classList]) => ({
     line,
     className: classList.join(' '),
@@ -260,8 +255,13 @@ watch(wrapOn, (next) => {
 /** 行标记（PP/MP/诊断/运行时/光标）变化时刷新 gutter。 */
 watch(
   () =>
-    [props.ppLine, props.mpLine, props.cursorLine, props.diagnosticLines, props.runtimeErrorLine] as
-      const,
+    [
+      props.ppLine,
+      props.mpLine,
+      props.cursorLine,
+      props.diagnosticLines,
+      props.runtimeErrorLine,
+    ] as const,
   () => syncGutterMarkers(),
 )
 

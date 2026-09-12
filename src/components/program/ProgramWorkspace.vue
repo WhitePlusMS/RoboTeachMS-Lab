@@ -6,7 +6,7 @@ import ProgramEditorToolbar from './ProgramEditorToolbar.vue'
 import MotionArgumentPanel from './MotionArgumentPanel.vue'
 import RapidPresetSelector from './RapidPresetSelector.vue'
 import type { RapidPresetProgram } from '@/application/program/preset-programs.ts'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 import type { RapidProgramDataTarget } from '@/rapid/language/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
@@ -16,12 +16,12 @@ import type {
   RapidProgramData,
   RapidSourceRange,
 } from '@/rapid/language/index.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
 import {
   injectProgramPanelController,
   type ProgramPanelController,
-} from '@/application/program/use-program-panel-controller.ts'
+} from '@/application/program/program-panel-context.ts'
 
 /** 工作区视图：由右侧窄图标边栏驱动（受控），RAPID 与 Program Data 二选一。 */
 type WorkspaceView = 'rapid' | 'data'
@@ -29,7 +29,7 @@ type WorkspaceView = 'rapid' | 'data'
 interface Props {
   /** 当前视图（受控）；从 Program Data 查看引用时通过 update:view 请求切回 RAPID。 */
   view?: WorkspaceView
-  snapshot?: ProgramControllerSnapshot
+  snapshot?: ProgramSessionSnapshot
   source?: string
   program?: readonly RapidExecutableInstruction[]
   /** 全部已解析指令（含 `*` 占位运动）；独立挂载时由父级透传，供光标指令解析与参数编辑。 */
@@ -63,7 +63,7 @@ const emit = defineEmits<{
   'cancel-clear': []
 }>()
 
-const EMPTY_SNAPSHOT: ProgramControllerSnapshot = {
+const EMPTY_SNAPSHOT: ProgramSessionSnapshot = {
   state: 'idle',
   programPointer: 0,
   motionPointer: null,
@@ -121,7 +121,7 @@ const controller: ProgramPanelController = injected ?? {
   editable: computed(() => props.canExecute ?? true),
   insertionPoints: computed(() => props.insertionPoints ?? []),
   pose: computed(() => props.pose ?? null),
-  joints: computed(() => props.joints ?? [0, 0, 0, 0, 0, 0] as JointAngles),
+  joints: computed(() => props.joints ?? ([0, 0, 0, 0, 0, 0] as JointAngles)),
   runtimeValues: computed(() => props.runtimeValues ?? new Map()),
   selectedTargetName: computed(() =>
     isValidTargetName(fallbackSelectedTargetName.value, props.data ?? [])
@@ -191,7 +191,9 @@ const cursorLineText = computed<string | null>(() => {
 const argumentTargetIndex = ref<number | null>(null)
 
 /** 打开参数面板：仅当目标是运动指令时有效（与真机一致，赋值/控制流没有参数编辑页）。 */
-function openArguments(target: { index: number; instruction: RapidExecutableInstruction } | null): void {
+function openArguments(
+  target: { index: number; instruction: RapidExecutableInstruction } | null,
+): void {
   if (!target) return
   if (target.instruction.kind !== 'movej' && target.instruction.kind !== 'movel') return
   argumentTargetIndex.value = target.index

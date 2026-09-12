@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/language/index.ts'
 import type { EditorView } from '@codemirror/view'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 /** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */
@@ -21,7 +21,11 @@ function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {
 /** 把编辑器光标（selection）移到第 line 行（1 起始），触发光标行上报。 */
 async function focusLine(wrapper: ReturnType<typeof mount>, source: string, line: number) {
   const view = getEditorView(wrapper)
-  const pos = source.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0)
+  const pos =
+    source
+      .split('\n')
+      .slice(0, line - 1)
+      .join('\n').length + (line > 1 ? 1 : 0)
   view.dispatch({ selection: { anchor: pos, head: pos } })
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
@@ -42,7 +46,7 @@ const pose: Pose = {
     [0, 0, 1],
   ],
 }
-const snapshot: ProgramControllerSnapshot = {
+const snapshot: ProgramSessionSnapshot = {
   state: 'idle',
   programPointer: 0,
   motionPointer: null,
@@ -97,17 +101,17 @@ describe('ProgramWorkspace 受控视图的 RAPID/Program Data 工作区', () => 
     expect(wrapper.find('#program-tab-rapid').exists()).toBe(false)
     expect(wrapper.find('[aria-label="程序控制栏"]').exists()).toBe(false)
     // RAPID 面板显示程序编辑器工具栏，Program Data 面板不显示。
-    expect(
-      wrapper.get('#program-panel-rapid').find('[aria-label="程序编辑器操作"]').exists(),
-    ).toBe(true)
+    expect(wrapper.get('#program-panel-rapid').find('[aria-label="程序编辑器操作"]').exists()).toBe(
+      true,
+    )
 
     await wrapper.setProps({ view: 'data' })
     expect(wrapper.get('#program-panel-rapid').attributes('hidden')).toBeDefined()
     expect(wrapper.get('#program-panel-data').attributes('hidden')).toBeUndefined()
     expect(wrapper.get('.rapid-codemirror').element).toBe(editor)
-    expect(
-      wrapper.get('#program-panel-data').find('[aria-label="程序编辑器操作"]').exists(),
-    ).toBe(false)
+    expect(wrapper.get('#program-panel-data').find('[aria-label="程序编辑器操作"]').exists()).toBe(
+      false,
+    )
   })
 
   it('查看引用会请求切回 RAPID 视图并生成新的源码定位请求', async () => {

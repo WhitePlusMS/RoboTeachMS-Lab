@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import ProgramWorkspace from './ProgramWorkspace.vue'
 import { parseRapidProgram } from '@/rapid/language/index.ts'
 import type { EditorView } from '@codemirror/view'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 const SOURCE = `MODULE Demo
@@ -23,7 +23,7 @@ const pose: Pose = {
     [0, 0, 1],
   ],
 }
-const snapshot: ProgramControllerSnapshot = {
+const snapshot: ProgramSessionSnapshot = {
   state: 'idle',
   programPointer: 0,
   motionPointer: null,
@@ -111,7 +111,10 @@ describe('ProgramEditorToolbar FlexPendant 式操作', () => {
     const items = list.findAll('button').map((b) => b.text().trim())
     expect(items).toEqual(['MoveJ', 'MoveL'])
 
-    await list.findAll('button').find((b) => b.text().trim() === 'MoveL')!.trigger('click')
+    await list
+      .findAll('button')
+      .find((b) => b.text().trim() === 'MoveL')!
+      .trigger('click')
     expect(commands).toHaveLength(1)
     expect(commands[0]).toMatchObject({ type: 'insert-motion', kind: 'movel' })
     // 调用方不携带 target；命令层负责生成 `*,v1000,z50,tool0`（见 controlled-rapid-edit 测试）。

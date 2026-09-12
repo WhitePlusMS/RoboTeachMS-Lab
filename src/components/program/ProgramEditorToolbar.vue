@@ -7,7 +7,7 @@ import type {
   RapidMotionInsertionPoint,
 } from '@/rapid/language/index.ts'
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
-import type { ProgramPanelController } from '@/application/program/use-program-panel-controller.ts'
+import type { ProgramPanelController } from '@/application/program/program-panel-context.ts'
 
 /**
  * FlexPendant 程序编辑器工具栏（3HAC050941 5.3.4 对齐）：
@@ -210,10 +210,29 @@ function redo(): void {
         >
           添加指令 ▾
         </button>
-        <div v-if="addOpen" class="program-editor-menu-list" role="menu" aria-label="Common 指令列表">
+        <div
+          v-if="addOpen"
+          class="program-editor-menu-list"
+          role="menu"
+          aria-label="Common 指令列表"
+        >
           <p class="program-editor-menu-category">Common</p>
-          <button type="button" role="menuitem" title="插入 MoveJ（关节运动）" @click="addMotion('movej')">MoveJ</button>
-          <button type="button" role="menuitem" title="插入 MoveL（直线运动）" @click="addMotion('movel')">MoveL</button>
+          <button
+            type="button"
+            role="menuitem"
+            title="插入 MoveJ（关节运动）"
+            @click="addMotion('movej')"
+          >
+            MoveJ
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            title="插入 MoveL（直线运动）"
+            @click="addMotion('movel')"
+          >
+            MoveL
+          </button>
         </div>
       </div>
 

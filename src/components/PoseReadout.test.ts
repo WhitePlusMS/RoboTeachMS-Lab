@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import PoseReadout from './PoseReadout.vue'
-import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
 
 const pose: PoseDisplay = {
   positionMm: [451.04, 0, 807.06],

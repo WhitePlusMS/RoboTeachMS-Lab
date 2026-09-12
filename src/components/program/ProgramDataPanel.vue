@@ -9,7 +9,7 @@ import type {
 } from '@/rapid/language/index.ts'
 import { isRapidMotionInstruction } from '@/rapid/language/index.ts'
 import type { RapidScalarVariable } from '@/rapid/data/index.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import ProgramDataTargetList from './ProgramDataTargetList.vue'
 import ProgramDataReadonlyList from './ProgramDataReadonlyList.vue'
 

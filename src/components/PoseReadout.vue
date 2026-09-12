@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { Axis3d, Copy, Rotate3d, SlidersHorizontal } from '@lucide/vue'
-import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
 import { injectRobotController } from '@/application/use-robot-controller.ts'
-import { eulerZYXToMatrix } from '@/robot-geometry/transform/transform-matrix.ts'
+import { eulerZYXToMatrix } from '@/robot-geometry/math/transform-matrix.ts'
 import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
 
 interface Props {
@@ -41,11 +41,9 @@ let copyResetTimer: ReturnType<typeof setTimeout> | undefined
  */
 const rapidQuat = computed<[number, number, number, number]>(() => {
   const deg = pose.value.orientationDeg
-  const rotation = eulerZYXToMatrix(deg.map((value) => (value * Math.PI) / 180) as [
-    number,
-    number,
-    number,
-  ])
+  const rotation = eulerZYXToMatrix(
+    deg.map((value) => (value * Math.PI) / 180) as [number, number, number],
+  )
   const [qx, qy, qz, qw] = rotationMatrixToQuaternion(rotation)
   return [qw, qx, qy, qz]
 })
@@ -125,11 +123,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="pose-card pose-readout"
-    :class="{ compact }"
-    aria-label="正解结果"
-  >
+  <section class="pose-card pose-readout" :class="{ compact }" aria-label="正解结果">
     <div class="pose-readout-title">
       <span>{{ compact ? '位姿' : '当前位姿（World 坐标值）' }}</span>
       <div class="orientation-toggle" role="group" aria-label="位姿表示方式">
@@ -178,27 +172,28 @@ onBeforeUnmount(() => {
     <template v-if="readoutMode === 'joints'">
       <div class="pose-grid joint-grid">
         <div v-for="cell in readoutCells.slice(0, 3)" :key="cell.label" class="pose-cell">
-          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+          <span>{{ cell.label }}</span
+          ><strong>{{ cell.value }}</strong>
         </div>
       </div>
       <div class="pose-grid joint-grid">
         <div v-for="cell in readoutCells.slice(3)" :key="cell.label" class="pose-cell">
-          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+          <span>{{ cell.label }}</span
+          ><strong>{{ cell.value }}</strong>
         </div>
       </div>
     </template>
     <template v-else>
       <div class="pose-grid">
         <div v-for="cell in readoutCells.slice(0, 3)" :key="cell.label" class="pose-cell">
-          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+          <span>{{ cell.label }}</span
+          ><strong>{{ cell.value }}</strong>
         </div>
       </div>
-      <div
-        class="pose-grid"
-        :class="{ 'quat-grid': readoutMode === 'quat' }"
-      >
+      <div class="pose-grid" :class="{ 'quat-grid': readoutMode === 'quat' }">
         <div v-for="cell in readoutCells.slice(3)" :key="cell.label" class="pose-cell">
-          <span>{{ cell.label }}</span><strong>{{ cell.value }}</strong>
+          <span>{{ cell.label }}</span
+          ><strong>{{ cell.value }}</strong>
         </div>
       </div>
     </template>
@@ -218,6 +213,9 @@ onBeforeUnmount(() => {
    让背面 backdrop-filter 的模糊清晰可见（--color-overlay-bg 本身是 0.88 近不透明白，
    直接用会盖住模糊、毛玻璃失效——见主题提交 f02e46a 的回归）。 */
 .pose-readout.compact {
+  /* 固定角标和列宽，避免运动中位数、负号变化推动整张卡片和相邻读数。 */
+  box-sizing: border-box;
+  width: 264px;
   padding: 8px 12px 9px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -231,22 +229,19 @@ onBeforeUnmount(() => {
 }
 
 .pose-readout.compact .pose-grid {
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px 10px;
-  justify-content: start;
 }
 
 .pose-readout.compact .pose-grid.quat-grid {
-  grid-template-columns: repeat(4, auto);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 3px;
 }
 
-.pose-readout.compact .pose-grid.joint-grid {
-  grid-template-columns: repeat(3, auto);
-}
-
 .pose-readout.compact .pose-cell {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
   align-items: baseline;
   gap: 5px;
   padding: 2px 0;
@@ -260,6 +255,8 @@ onBeforeUnmount(() => {
 
 .pose-readout.compact .pose-cell strong {
   font-size: var(--text-md);
+  text-align: right;
+  white-space: nowrap;
 }
 
 .pose-readout-title {

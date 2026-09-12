@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import ProgramControlPanel from './ProgramControlPanel.vue'
 import type { EditorView } from '@codemirror/view'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 
 /** 取模具内 RapidSourceEditor 暴露的 EditorView（script-setup 的 exposed 在 $.exposed 下）。 */
 function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {
@@ -17,7 +17,7 @@ function getEditorView(wrapper: ReturnType<typeof mount>): EditorView {
 
 const SOURCE = 'MODULE Demo ENDMODULE'
 
-function snapshot(overrides: Partial<ProgramControllerSnapshot> = {}): ProgramControllerSnapshot {
+function snapshot(overrides: Partial<ProgramSessionSnapshot> = {}): ProgramSessionSnapshot {
   return {
     state: 'idle',
     programPointer: 0,
@@ -32,7 +32,7 @@ function snapshot(overrides: Partial<ProgramControllerSnapshot> = {}): ProgramCo
   }
 }
 
-function mountPanel(value: ProgramControllerSnapshot, pendingClear: 'run' | 'step' | null = null) {
+function mountPanel(value: ProgramSessionSnapshot, pendingClear: 'run' | 'step' | null = null) {
   return mount(ProgramControlPanel, {
     props: { snapshot: value, source: SOURCE, program: [], pendingClear },
   })
@@ -41,7 +41,9 @@ function mountPanel(value: ProgramControllerSnapshot, pendingClear: 'run' | 'ste
 describe('ProgramControlPanel 按钮可用性与命令映射', () => {
   it('idle 时运行/单步/PP available，停止禁用；运行按钮发出 run', async () => {
     const wrapper = mountPanel(snapshot())
-    const [run, step, stop, pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
+    const [run, step, stop, pp] = wrapper.findAll(
+      '.program-control-footer > .program-actions > button',
+    )
     expect(run.attributes('disabled')).toBeUndefined()
     expect(step.attributes('disabled')).toBeUndefined()
     expect(stop.attributes('disabled')).toBeDefined()
@@ -53,7 +55,9 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
 
   it('running 时只有停止可用，运行/单步/PP 禁用', () => {
     const wrapper = mountPanel(snapshot({ state: 'running', motionPointer: 0 }))
-    const [run, step, stop, pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
+    const [run, step, stop, pp] = wrapper.findAll(
+      '.program-control-footer > .program-actions > button',
+    )
     expect(run.attributes('disabled')).toBeDefined()
     expect(step.attributes('disabled')).toBeDefined()
     expect(stop.attributes('disabled')).toBeUndefined()
@@ -62,7 +66,9 @@ describe('ProgramControlPanel 按钮可用性与命令映射', () => {
 
   it('stopped 时可继续运行/单步/PP to Main', async () => {
     const wrapper = mountPanel(snapshot({ state: 'stopped', programPointer: 2 }))
-    const [run, step, stop, pp] = wrapper.findAll('.program-control-footer > .program-actions > button')
+    const [run, step, stop, pp] = wrapper.findAll(
+      '.program-control-footer > .program-actions > button',
+    )
     expect(run.attributes('disabled')).toBeUndefined()
     expect(step.attributes('disabled')).toBeUndefined()
     expect(stop.attributes('disabled')).toBeDefined()
@@ -117,7 +123,9 @@ describe('ProgramControlPanel 状态显示', () => {
   it('编辑 RAPID 源程序发出 source-change', async () => {
     const idle = mountPanel(snapshot())
     const view = getEditorView(idle)
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'MODULE Changed ENDMODULE' } })
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: 'MODULE Changed ENDMODULE' },
+    })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(idle.emitted('source-change')?.[0]).toEqual(['MODULE Changed ENDMODULE'])
   })
@@ -228,9 +236,9 @@ describe('ProgramControlPanel 停止态 PP 与 off-path', () => {
       }),
     )
     expect(
-      wrapper.findAll('.program-control-footer > .program-actions > button')[0].attributes(
-        'disabled',
-      ),
+      wrapper
+        .findAll('.program-control-footer > .program-actions > button')[0]
+        .attributes('disabled'),
     ).toBeDefined()
   })
 

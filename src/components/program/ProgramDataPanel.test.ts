@@ -7,7 +7,7 @@ import {
   type RapidExecutableInstruction,
   type RapidProgramData,
 } from '@/rapid/language/index.ts'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 import type { RapidEditCommand, RapidEditResult } from '@/rapid/editing/index.ts'
 
 const MULTI = `
@@ -89,7 +89,9 @@ describe('ProgramDataPanel — shell 协调与 Tab 切换', () => {
   })
 
   it('display=content 模式不渲染标题行（dock 内嵌模式）', () => {
-    const wrapper = mount(ProgramDataPanel, { props: { ...baseProps({ data: parsed.data }), display: 'content' } })
+    const wrapper = mount(ProgramDataPanel, {
+      props: { ...baseProps({ data: parsed.data }), display: 'content' },
+    })
     expect(wrapper.find('#program-data-title').exists()).toBe(false)
   })
 
@@ -150,10 +152,16 @@ describe('ProgramDataPanel — shell 协调与 Tab 切换', () => {
   })
 
   it('子组件 ProgramDataTargetList 的 edit-error 事件更新 shell 错误横幅', async () => {
-    const edit = vi.fn(() => ({ ok: false as const, error: { code: 'duplicate-name' as const, message: '名称已存在' } }))
+    const edit = vi.fn(() => ({
+      ok: false as const,
+      error: { code: 'duplicate-name' as const, message: '名称已存在' },
+    }))
     const wrapper = mountPanel({ data: parsed.data, applyEdit: edit })
     await wrapper.get('[aria-label="新点位名称"]').setValue('pA')
-    await wrapper.findAll('button').find((b) => b.text().includes('新建点位'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('新建点位'))!
+      .trigger('click')
     expect(wrapper.text()).toContain('名称已存在')
   })
 

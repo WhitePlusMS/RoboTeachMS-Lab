@@ -12,14 +12,14 @@ import {
   RotateCw,
 } from '@lucide/vue'
 import PoseQuickActions from './PoseQuickActions.vue'
-import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-types.ts'
+import type { CartesianAxis, CoordinateSystem } from '@/application/motion/cartesian-jog-input.ts'
 import type {
   CartesianDirection,
-  CartesianStatus,
   OrientationStep,
   PositionStep,
-} from '@/application/motion/cartesian-math.ts'
-import { ORIENTATION_STEPS, POSITION_STEPS } from '@/application/motion/cartesian-math.ts'
+} from '@/application/motion/cartesian-jog-input.ts'
+import type { CartesianStatus } from '@/application/motion/cartesian-result-presentation.ts'
+import { ORIENTATION_STEPS, POSITION_STEPS } from '@/application/motion/cartesian-jog-input.ts'
 
 interface Props {
   coordinateSystem: CoordinateSystem

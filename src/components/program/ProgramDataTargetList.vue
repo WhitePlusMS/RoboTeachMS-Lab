@@ -9,7 +9,7 @@ import {
 import { isRobtargetProgramData } from '@/rapid/language/index.ts'
 import type { RapidProgramData, RapidSourceRange } from '@/rapid/language/index.ts'
 import type { RobTarget } from '@/rapid/data/index.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import { formatCoord, formatRotation, isActiveName, referenceLabel } from './program-data-format.ts'
 
 interface Props {

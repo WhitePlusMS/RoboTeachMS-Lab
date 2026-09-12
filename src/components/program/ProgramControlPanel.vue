@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Play, Rewind, Square, StepForward } from '@lucide/vue'
 import RapidSourceEditor from './RapidSourceEditor.vue'
-import type { ProgramControllerSnapshot } from '@/application/program/program-control.ts'
+import type { ProgramSessionSnapshot } from '@/application/program/use-program-session.ts'
 import {
   isRapidMotionInstruction,
   type RapidExecutableInstruction,
@@ -10,7 +10,7 @@ import {
 } from '@/rapid/language/index.ts'
 
 interface Props {
-  snapshot: ProgramControllerSnapshot
+  snapshot: ProgramSessionSnapshot
   source: string
   /** 已解析的可执行指令序列，用于把 PP/MP 索引映射到源码行并展示结构化指令。 */
   program: readonly RapidExecutableInstruction[]
@@ -43,7 +43,7 @@ const emit = defineEmits<{
   'cancel-clear': []
 }>()
 
-const STATE_LABEL: Record<ProgramControllerSnapshot['state'], string> = {
+const STATE_LABEL: Record<ProgramSessionSnapshot['state'], string> = {
   idle: '空闲',
   running: '运行中',
   stopped: '已停止',
@@ -178,7 +178,12 @@ const errorText = computed(() => {
           >
             确认
           </button>
-          <button type="button" class="secondary-action" title="取消本次操作" @click="emit('cancel-clear')">
+          <button
+            type="button"
+            class="secondary-action"
+            title="取消本次操作"
+            @click="emit('cancel-clear')"
+          >
             取消
           </button>
         </div>
