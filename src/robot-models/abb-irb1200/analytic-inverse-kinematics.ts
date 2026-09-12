@@ -1,8 +1,8 @@
 import { rotationDistanceRad, mat3Mul } from '@/robot-geometry/math/rotation3d.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
-import type { IKCandidate } from '@/robot-geometry/numerical-ik/types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import type { IKCandidate } from '@/robot-geometry/ik/ik-types.ts'
 import { ABB_FLANGE_CORRECTION, forwardAbbKinematicsFramesDegrees } from './forward-kinematics.ts'
-import { ABB_IRB1200_5_90_STANDARD_DH, ABB_WRIST_SINGULARITY_THRESHOLD_DEG } from '../parameters.ts'
+import { ABB_IRB1200_5_90_STANDARD_DH, ABB_WRIST_SINGULARITY_THRESHOLD_DEG } from './parameters.ts'
 import { abbConfigurationFromBranch, abbQuadrant, type ABBConfiguration } from './configuration.ts'
 
 /** ABB IRB1200 候选 DH 链的几何解析逆解。

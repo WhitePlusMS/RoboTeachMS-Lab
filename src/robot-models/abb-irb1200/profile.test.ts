@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import { AbbRobotModelAdapter } from './analytic-kinematics/abb-robot-model-adapter.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import { AbbRobotModelAdapter } from './abb-robot-model-adapter.ts'
 import { ABB_IRB1200_PROFILE } from './profile.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,
@@ -39,6 +39,7 @@ describe('ABB IRB 1200 profile seam', () => {
       'jointRanges',
       'mechanicalZeroJoints',
       'model',
+      'revision',
     ])
   })
 

@@ -1,5 +1,5 @@
-import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import { AbbRobotModelAdapter } from './analytic-kinematics/abb-robot-model-adapter.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import { AbbRobotModelAdapter } from './abb-robot-model-adapter.ts'
 import {
   ABB_MECHANICAL_ZERO_JOINTS,
   ABB_IRB1200_5_90_STANDARD_DH,
@@ -13,6 +13,7 @@ import {
  */
 export const ABB_IRB1200_PROFILE: RobotProfile = {
   id: 'abb-irb1200-5-0.9',
+  revision: 'dh-standard-v1',
   displayName: ABB_IRB1200_5_90_STANDARD_DH.name,
   model: new AbbRobotModelAdapter(),
   jointRanges: ABB_JOINT_RANGES,

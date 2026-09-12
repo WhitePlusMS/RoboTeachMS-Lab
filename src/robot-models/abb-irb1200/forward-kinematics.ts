@@ -1,7 +1,7 @@
-import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
-import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
-import type { RobotConfig } from '@/robot-geometry/transform/dh-types.ts'
-import { ABB_IRB1200_5_90_STANDARD_DH } from '../parameters.ts'
+import { Matrix4x4 } from '@/robot-geometry/math/transform-matrix.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import type { RobotConfig } from '@/robot-geometry/math/dh-types.ts'
+import { ABB_IRB1200_5_90_STANDARD_DH } from './parameters.ts'
 
 /**
  * 标准 DH 齐次变换；与 KUKA 历史矩阵约定隔离，长度单位为毫米，角度使用弧度。

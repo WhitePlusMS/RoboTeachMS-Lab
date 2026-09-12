@@ -1,6 +1,6 @@
-import type { SixAxisJointRanges } from '@/robot-geometry/model/robot-profile.ts'
-import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
-import type { RobotConfig } from '@/robot-geometry/transform/dh-types.ts'
+import type { SixAxisJointRanges } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import type { RobotConfig } from '@/robot-geometry/math/dh-types.ts'
 
 /**
  * ABB 经典 IRB 1200-5/0.9 候选标准 DH profile。
@@ -42,9 +42,6 @@ export const ABB_MECHANICAL_ZERO_JOINTS: JointAngles = [0, 0, 0, 0, 30, 0]
 
 /** J5 接近 0° 时的 ABB 腕部奇异判定阈值；仅供 ABB adapter 使用。 */
 export const ABB_WRIST_SINGULARITY_THRESHOLD_DEG = 1
-
-/** 机械零位附近的局部策略范围；普通工作姿态不得进入自动 wrist 修正。 */
-export const ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG = 5
 
 /** 常规教学 Home：保持可复现，同时让 J5 离开腕部奇异面。 */
 export const ABB_TEACHING_HOME_JOINTS: JointAngles = [0, -25, 45, 0, 20, 0]

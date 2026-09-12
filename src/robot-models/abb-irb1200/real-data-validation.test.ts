@@ -3,9 +3,9 @@ import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
-import { solveIK } from '@/robot-geometry/numerical-ik/numerical-ik.ts'
+import { solveIK } from '@/robot-geometry/ik/ik-solver.ts'
 import { rotationDistanceRad } from '@/robot-geometry/math/rotation3d.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 
 interface RpiPoseRecord {
   q_rad: number[]

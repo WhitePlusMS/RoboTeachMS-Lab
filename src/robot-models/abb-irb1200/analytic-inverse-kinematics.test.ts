@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { orientationError } from '@/robot-geometry/math/rotation3d.ts'
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
 import { forwardAbbKinematicsDegrees } from './forward-kinematics.ts'
 import { abbConfigurationFromBranch, abbQuadrant } from './configuration.ts'
 import { solveAbbAnalyticIK } from './analytic-inverse-kinematics.ts'

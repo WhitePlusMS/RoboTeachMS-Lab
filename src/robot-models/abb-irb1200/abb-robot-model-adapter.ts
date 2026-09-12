@@ -1,15 +1,11 @@
-import { estimateNumericalJacobian } from '@/robot-geometry/transform/numerical-jacobian.ts'
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import { estimateNumericalJacobian } from '@/robot-geometry/ik/numerical-jacobian.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import { forwardAbbKinematicsDegrees } from './forward-kinematics.ts'
 import { abbConfigurationFromJoints, solveAbbAnalyticIK } from './analytic-inverse-kinematics.ts'
 import { abbConfigurationForRepresentation, type ABBConfiguration } from './configuration.ts'
-import {
-  ABB_MECHANICAL_ZERO_JOINTS,
-  ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG,
-  ABB_WRIST_SINGULARITY_THRESHOLD_DEG,
-} from '../parameters.ts'
+import { ABB_WRIST_SINGULARITY_THRESHOLD_DEG } from './parameters.ts'
 
 /**
  * ABB 候选等价 DH 链模型；当前用于FK/IK验证，不代表ABB官方标定机制。
@@ -22,15 +18,6 @@ export class AbbRobotModelAdapter implements RobotModel {
 
   isWristSingularity(jointsDeg: JointAngles): boolean {
     return Math.abs(jointsDeg[4]) <= ABB_WRIST_SINGULARITY_THRESHOLD_DEG
-  }
-
-  isMechanicalZeroSingularityNeighborhood(jointsDeg: JointAngles): boolean {
-    if (!this.isWristSingularity(jointsDeg)) return false
-    return jointsDeg.every((value, index) => {
-      const threshold =
-        index === 4 ? ABB_WRIST_SINGULARITY_THRESHOLD_DEG : ABB_MECHANICAL_ZERO_NEIGHBORHOOD_DEG
-      return Math.abs(value - ABB_MECHANICAL_ZERO_JOINTS[index]) <= threshold
-    })
   }
 
   forwardKinematics(jointsDeg: JointAngles): Pose {

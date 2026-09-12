@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
 import { abbBaseFrameToSceneFrame } from '@/scene/abb-scene-transform.ts'
 import {
   forwardAbbKinematicsDegrees,

@@ -1,7 +1,7 @@
-import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
-import type { JointAngles, PoseDisplay } from '@/robot-geometry/model/joint-pose.ts'
-import type { RobotConfig } from '@/robot-geometry/transform/dh-types.ts'
+import { Matrix4x4 } from '@/robot-geometry/math/transform-matrix.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
+import type { JointAngles, PoseDisplay } from '@/robot-geometry/robot-types.ts'
+import type { RobotConfig } from '@/robot-geometry/math/dh-types.ts'
 
 /** KUKA 回退模型使用的历史 DH 变换；角度为弧度，长度为毫米。 */
 function dhTransform(theta: number, d: number, a: number, alpha: number): Matrix4x4 {

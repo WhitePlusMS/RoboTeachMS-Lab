@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
 import { forwardKinematicsDegrees } from './legacy-forward-kinematics.ts'
-import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 import { DEFAULT_JOINTS, KUKA_LIKE } from '@/robot-models/kuka-like/parameters.ts'
 
 describe('KUKA 历史 DH 正运动学', () => {

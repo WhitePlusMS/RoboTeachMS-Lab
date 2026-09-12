@@ -1,8 +1,8 @@
-import { extractPose } from '@/robot-geometry/transform/pose-conversion.ts'
+import { extractPose } from '@/robot-geometry/math/pose-conversion.ts'
 import { forwardKinematicsDegrees } from './legacy-forward-kinematics.ts'
-import { estimateNumericalJacobian } from '@/robot-geometry/transform/numerical-jacobian.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import { estimateNumericalJacobian } from '@/robot-geometry/ik/numerical-jacobian.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import { KUKA_LIKE } from '../parameters.ts'
 
 /** GLB 尚未完成加载时的同接口 DH 回退模型。 */

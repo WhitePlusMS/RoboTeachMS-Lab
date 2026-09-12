@@ -1,5 +1,5 @@
-import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
-import type { RobotConfiguration } from '@/robot-geometry/numerical-ik/types.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import type { RobotConfiguration } from '@/robot-geometry/ik/ik-types.ts'
 
 /** ABB robtarget 构型参数 [cf1, cf4, cf6, cfx]。 */
 export type ABBConfiguration = [cf1: number, cf4: number, cf6: number, cfx: number]
