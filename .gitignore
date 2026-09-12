@@ -35,3 +35,9 @@ docs/
 
 # 本地设计原型，不纳入发布仓库
 /prototype-design-variants.html
+
+# 独立运动核心构建产物
+dist-core/
+
+# Unity DLL 独立交付目录，不纳入本前端仓库版本控制
+/unity-abb-jog-dll/
