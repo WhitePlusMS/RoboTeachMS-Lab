@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
-import { planMotion, type MotionPlanningRequest, type ABBConfigurationData, type PoseData, type ConfigurationPolicy } from './index.ts'
+import {
+  planMotion,
+  type MotionPlanningRequest,
+  type ABBConfigurationData,
+  type PoseData,
+  type ConfigurationPolicy,
+} from './index.ts'
 
 const home: MotionPlanningRequest = {
   schemaVersion: 1,
@@ -15,11 +21,17 @@ const IDENTITY_FRAME: PoseData = { positionMm: [0, 0, 0], quaternionWxyz: [1, 0,
 
 function poseData(pose: Pose): PoseData {
   const quaternion = rotationMatrixToQuaternion(pose.rotation)
-  return { positionMm: [...pose.position] as PoseData['positionMm'], quaternionWxyz: [quaternion[3], quaternion[0], quaternion[1], quaternion[2]] }
+  return {
+    positionMm: [...pose.position] as PoseData['positionMm'],
+    quaternionWxyz: [quaternion[3], quaternion[0], quaternion[1], quaternion[2]],
+  }
 }
 
 function offsetPosition(pose: Pose, deltaMm: readonly [number, number, number]): Pose {
-  return { ...pose, position: pose.position.map((value, axis) => value + deltaMm[axis]) as Pose['position'] }
+  return {
+    ...pose,
+    position: pose.position.map((value, axis) => value + deltaMm[axis]) as Pose['position'],
+  }
 }
 
 describe('robot motion core contract', () => {
@@ -31,7 +43,11 @@ describe('robot motion core contract', () => {
     expect(result.waypoints[0]).toEqual({ timeMs: 0, jointsDeg: [0, 0, 0, 0, 30, 0] })
     expect(result.end.jointsDeg).toEqual([1, 2, 3, 4, 5, 6])
     expect(result.waypoints.at(-1)?.jointsDeg).toEqual([1, 2, 3, 4, 5, 6])
-    expect(result.waypoints.every((point, index, points) => index === 0 || point.timeMs > points[index - 1].timeMs)).toBe(true)
+    expect(
+      result.waypoints.every(
+        (point, index, points) => index === 0 || point.timeMs > points[index - 1].timeMs,
+      ),
+    ).toBe(true)
   })
 
   it('rejects malformed numeric contract data before planning', () => {
@@ -51,7 +67,9 @@ describe('robot motion core contract', () => {
   })
 
   it('rejects unsupported model and joint limits structurally', () => {
-    expect(planMotion({ ...home, robot: { modelId: 'unknown', modelRevision: 'dh-standard-v1' } })).toEqual({
+    expect(
+      planMotion({ ...home, robot: { modelId: 'unknown', modelRevision: 'dh-standard-v1' } }),
+    ).toEqual({
       ok: false,
       error: {
         code: 'unsupported-model',
@@ -121,13 +139,19 @@ describe('robot motion core contract — configurationPolicy 特征化', () => {
 
   const baseIntent = {
     tool: { robhold: true as const, tcpInFlange: IDENTITY_FRAME },
-    workObject: { robhold: false as const, userFrame: IDENTITY_FRAME, objectFrame: IDENTITY_FRAME, ufprog: true as const, ufmec: '' as const },
+    workObject: {
+      robhold: false as const,
+      userFrame: IDENTITY_FRAME,
+      objectFrame: IDENTITY_FRAME,
+      ufprog: true as const,
+      ufmec: '' as const,
+    },
     singularityPolicy: 'strict' as const,
     zone: 'fine' as const,
   }
 
   function requestFor(
-    kind: 'cartesian-target' | 'linear-path' | 'circular-path',
+    kind: 'pose-joint-target' | 'linear-path' | 'circular-path',
     configurationPolicy: ConfigurationPolicy,
   ): MotionPlanningRequest {
     return {
@@ -140,13 +164,13 @@ describe('robot motion core contract — configurationPolicy 特征化', () => {
         ...(kind === 'circular-path' ? { viaTcpPose: poseData(viaPose) } : {}),
         ...baseIntent,
         configurationPolicy,
-        ...(kind === 'cartesian-target' ? {} : { speedMmPerSec: 50 }),
+        ...(kind === 'pose-joint-target' ? {} : { speedMmPerSec: 50 }),
       } as MotionPlanningRequest['intent'],
     }
   }
 
   describe.each([
-    ['cartesian-target', 'planCartesianTarget'],
+    ['pose-joint-target', 'planCartesianTarget'],
     ['linear-path', 'planLinearPath'],
     ['circular-path', 'planCircularPath'],
   ] as const)('%s (%s)', (kind, _entryPoint) => {
@@ -163,15 +187,23 @@ describe('robot motion core contract — configurationPolicy 特征化', () => {
     })
 
     it('current-main 且解出构型与当前主构型一致时规划成功', () => {
-      const result = planMotion(requestFor(kind, { kind: 'current-main', currentMain: startConfiguration }))
+      const result = planMotion(
+        requestFor(kind, { kind: 'current-main', currentMain: startConfiguration }),
+      )
       expect(result.ok).toBe(true)
     })
 
     it('current-main 但解出构型与当前主构型不一致时以 configuration-unreachable 失败', () => {
-      const result = planMotion(requestFor(kind, { kind: 'current-main', currentMain: mismatchedConfiguration }))
+      const result = planMotion(
+        requestFor(kind, { kind: 'current-main', currentMain: mismatchedConfiguration }),
+      )
       expect(result).toEqual({
         ok: false,
-        error: { code: 'configuration-unreachable', category: 'planning-failure', details: { policy: 'current-main' } },
+        error: {
+          code: 'configuration-unreachable',
+          category: 'planning-failure',
+          details: { policy: 'current-main' },
+        },
       })
     })
 

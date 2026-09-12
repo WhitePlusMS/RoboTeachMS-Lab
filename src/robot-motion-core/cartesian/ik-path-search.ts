@@ -1,14 +1,15 @@
-import { DEFAULT_IK_CONFIG } from '@/robot-geometry/numerical-ik/numerical-ik.ts'
+import { DEFAULT_IK_CONFIG } from '@/robot-geometry/ik/ik-solver.ts'
 import {
   buildIKCandidateCatalog,
+  isIKCandidateValid,
   type IKCandidateRecord,
-} from '@/robot-geometry/numerical-ik/candidate-catalog.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
-import type { IKSolverConfig, RobotConfiguration } from '@/robot-geometry/numerical-ik/types.ts'
-import type { WaypointFailureDiagnostic } from './solution/waypoint-types.ts'
-import { buildCandidateLimitFailureDetail, buildStepFailureDetail } from './solution/waypoint-diagnostics.ts'
-import { MAX_CARTESIAN_JOINT_STEP_DEG } from './step-policy.ts'
+} from '@/robot-geometry/ik/candidate-catalog.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import type { IKSolverConfig, RobotConfiguration } from '@/robot-geometry/ik/ik-types.ts'
+import type { WaypointFailureDiagnostic } from './waypoint-types.ts'
+import { buildCandidateLimitFailureDetail, buildStepFailureDetail } from './waypoint-diagnostics.ts'
+import { MAX_CARTESIAN_JOINT_STEP_DEG } from './path-limits.ts'
 
 export interface CandidateGraphOptions {
   solverConfig?: Partial<IKSolverConfig>
@@ -58,18 +59,13 @@ function validCandidates(
   requiredConfiguration?: readonly number[],
 ): IKCandidateRecord[] {
   const expectedConfiguration = requiredConfiguration ?? referenceConfiguration
-  return catalog.filter(
-    (candidate) =>
-      candidate.normalizedJoints !== null &&
-      candidate.withinJointRanges &&
-      !candidate.atJointLimit &&
-      candidate.positionErrorMm <= config.posTolerance &&
-      candidate.orientationErrorRad <= config.oriTolerance &&
-      (expectedConfiguration === undefined ||
-        (candidate.configuration !== undefined &&
-          candidate.configuration.every(
-            (value, index) => value === expectedConfiguration[index],
-          ))),
+  return catalog.filter((candidate) =>
+    isIKCandidateValid(candidate, {
+      positionTolerance: config.posTolerance,
+      orientationTolerance: config.oriTolerance,
+      rejectAtJointLimit: true,
+      referenceConfiguration: expectedConfiguration,
+    }),
   )
 }
 
@@ -97,15 +93,15 @@ export function planStrictCandidateGraph(
       ? undefined
       : (model.deriveConfiguration?.(initialJoints) ?? undefined)
   const layers: JointAngles[][] = []
-  let hasOutOfRangeCandidate = false
 
   for (let poseIndex = 0; poseIndex < poses.length; poseIndex += 1) {
     const pose = poses[poseIndex]
     const catalog = buildIKCandidateCatalog(toFlange(pose), initialJoints, model, jointRanges)
-    hasOutOfRangeCandidate ||= catalog.some((candidate) => !candidate.withinJointRanges)
+    const hasOutOfRangeCandidate = catalog.some((candidate) => !candidate.withinJointRanges)
     // required robconf 是终点语义；路径起点/中间层仍需允许当前构型，
     // 否则从当前构型切换到目标构型会在第一层就被错误判为不可达。
-    const requiredForLayer = poseIndex === poses.length - 1 ? options.requiredConfiguration : undefined
+    const requiredForLayer =
+      poseIndex === poses.length - 1 ? options.requiredConfiguration : undefined
     const candidates = validCandidates(catalog, config, referenceConfiguration, requiredForLayer)
       .map((candidate) => candidate.normalizedJoints)
       .filter((candidate): candidate is JointAngles => candidate !== null)
@@ -161,7 +157,10 @@ export function planStrictCandidateGraph(
     return {
       ok: false,
       failure: 'joint-step',
-      diagnostic: { ...buildStepFailureDetail(initialJoints, attempted, jointRanges), waypointIndex: 1 },
+      diagnostic: {
+        ...buildStepFailureDetail(initialJoints, attempted, jointRanges),
+        waypointIndex: 1,
+      },
     }
   }
 
@@ -202,7 +201,10 @@ export function planStrictCandidateGraph(
       return {
         ok: false,
         failure: 'joint-step',
-        diagnostic: { ...buildStepFailureDetail(previous, candidate, jointRanges), waypointIndex: layerIndex + 1 },
+        diagnostic: {
+          ...buildStepFailureDetail(previous, candidate, jointRanges),
+          waypointIndex: layerIndex + 1,
+        },
       }
     }
   }

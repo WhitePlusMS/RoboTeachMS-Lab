@@ -1,15 +1,15 @@
-import { DEFAULT_IK_CONFIG, solveIK } from '@/robot-geometry/numerical-ik/numerical-ik.ts'
+import { DEFAULT_IK_CONFIG, solveIK } from '@/robot-geometry/ik/ik-solver.ts'
 import {
   buildIKCandidateCatalog,
   isCandidateAtJointLimit,
   selectBestIKCandidate,
   type IKCandidateRecord,
-} from '@/robot-geometry/numerical-ik/candidate-catalog.ts'
-import { MAX_CARTESIAN_JOINT_STEP_DEG } from '../step-policy.ts'
+} from '@/robot-geometry/ik/candidate-catalog.ts'
+import { MAX_CARTESIAN_JOINT_STEP_DEG } from './path-limits.ts'
 import { rotationDistanceRad } from '@/robot-geometry/math/rotation3d.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
-import type { IKSolverConfig } from '@/robot-geometry/numerical-ik/types.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import type { IKSolverConfig } from '@/robot-geometry/ik/ik-types.ts'
 import { buildJointLimitFailureDetail, buildStepFailureDetail } from './waypoint-diagnostics.ts'
 import type {
   JointFailureDetail,
@@ -351,7 +351,7 @@ export function getSinglePointWristEscapeDirection(
  * 传送更紧的定位精度，MoveJ/MoveC 用缺省值。
  *
  * `wristContext`（票据 02）：把原本只在 `solvePoseWaypoints` 中实现的腕部奇异回退
- * 下沉到单点 IK 入口。路径规划器在机械零位腕部路径起点创建 `WristSingularityContext`
+ * 下沉到单点 IK 入口。路径规划器在显式授权的腕部路径起点创建 `WristSingularityContext`
  * 并在相邻 waypoint 之间传递；MoveJ / Gizmo 等单点调用不传上下文时不触发回退，避免
  * 把关节空间运动错误降级为 position-only。
  */
@@ -364,7 +364,7 @@ export function resolveJointSolution(
   continuityLimitDeg?: number,
   wristContext?: WristSingularityContext,
 ): JointSolutionResult {
-  // wrist 回退仅在被显式传递的上下文中激活：路径规划器在机械零位腕部路径起点创建
+  // wrist 回退仅在被显式传递的上下文中激活：路径规划器在显式授权的腕部路径起点创建
   // wristContext 并在相邻 waypoint 之间传递；MoveJ / Gizmo 等单点调用不传上下文，
   // 因此不会自动把关节空间运动降级为 position-only。
   const wristModeActive = wristContext !== undefined
@@ -489,7 +489,7 @@ export function resolveJointSolution(
 }
 
 /**
- * 严格姿态单点求解：解析法优先，失败后用 DLS + 备用初值。
+ * 严格姿态单点求解：模型有解析能力时直接返回解析结论；无解析能力才用 DLS 与备用初值。
  * 这是原 `resolveJointSolution` 的核心逻辑，被下沉后的入口复用。
  */
 function resolveJointSolutionStrict(

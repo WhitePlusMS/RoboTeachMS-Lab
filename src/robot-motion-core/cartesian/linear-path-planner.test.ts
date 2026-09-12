@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
-import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
-import { mat3Mul, mat3Transpose, rotationMatrixToEulerZYX } from '@/robot-geometry/math/rotation3d.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import { planCartesianPath } from '@/robot-motion-core/cartesian/linear-path-planner.ts'
+import {
+  mat3Mul,
+  mat3Transpose,
+  rotationMatrixToEulerZYX,
+} from '@/robot-geometry/math/rotation3d.ts'
 
 const planCartesianTarget = (
   target: Pose,
@@ -35,12 +39,8 @@ describe('Cartesian path planner', () => {
   it('机械零位已离开腕部奇异面，邻域判定不再触发', () => {
     const model = new AbbRobotModelAdapter()
 
-    // 机械零位 J5=+30°，不在 J5=0° 的腕部奇异面上。
-    expect(model.isMechanicalZeroSingularityNeighborhood([0, 0, 0, 0, 30, 0])).toBe(false)
-    // 旧机械零位 [0,0,0,0,0,0] 仍在奇异面，但已不再是机械零位。
-    expect(model.isMechanicalZeroSingularityNeighborhood([0, 0, 0, 0, 0, 0])).toBe(false)
-    // 普通工作姿态更不会触发。
-    expect(model.isMechanicalZeroSingularityNeighborhood([15, -20, 30, 0, 0, -300])).toBe(false)
+    expect(model.isWristSingularity([...ABB_IRB1200_PROFILE.mechanicalZeroJoints])).toBe(false)
+    expect(model.isWristSingularity([0, 0, 0, 0, 0, 0])).toBe(true)
   })
 
   it('让 ABB 的 5 mm 世界坐标点动保持直线并准确到达终点', () => {

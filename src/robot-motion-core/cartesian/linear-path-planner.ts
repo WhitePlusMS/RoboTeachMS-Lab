@@ -3,16 +3,16 @@ import {
   rotationMatrixToEulerZYX,
   rotationMatrixToQuaternion,
 } from '@/robot-geometry/math/rotation3d.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
-import type { IKSolverConfig } from '@/robot-geometry/numerical-ik/types.ts'
-import { solvePoseWaypoints } from './solution/waypoint-solver.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import type { IKSolverConfig } from '@/robot-geometry/ik/ik-types.ts'
+import { solvePoseWaypoints } from './pose-path-solver.ts'
 import type {
   WaypointFailureDiagnostic,
   WaypointFailureReason,
   WaypointSolveResult,
-} from './solution/waypoint-types.ts'
-import { MAX_ADAPTIVE_JOINT_STEP_DEG } from './step-policy.ts'
+} from './waypoint-types.ts'
+import { MAX_ADAPTIVE_JOINT_STEP_DEG } from './path-limits.ts'
 
 export type CartesianPathFailure = WaypointFailureReason
 export type CartesianPathResult = WaypointSolveResult
@@ -72,8 +72,7 @@ function slerpQuaternion(start: Quaternion, target: Quaternion, progress: number
  * - `toFlange`：把插补得到的 TCP 位姿变换为机械法兰位姿后再送入 IK；缺省为原样（tool0 时法兰=TCP）。
  * 未提供 options 时保持手动 Cartesian Jog 的默认严格姿态策略。
  *
- * 腕部奇异回退由底层 IK 根据当前关节是否处于机械零位腕部邻域自动判断，不再通过
- * 通用姿态模式开关控制；RAPID `SingArea\\Wrist` 通过窄的显式授权上下文传入。
+ * 腕部奇异回退仅在调用方明确授权时启用；普通点动始终保持严格位姿约束。
  */
 export function planCartesianPath(
   targetPose: Pose,
@@ -139,7 +138,7 @@ export function planCartesianPath(
       jointRanges,
       toFlange,
       // 始终先使用完整位姿 IK；`solvePoseWaypoints` 只在单个 waypoint
-      // 接近腕部奇异或发生构型重新分配时，按算法自动局部回退。
+      // 接近腕部奇异且 options 明确授权时才允许局部回退。
       { ...MOVE_L_IK_CONFIG, preserveConfiguration: opts?.preserveConfiguration },
       {
         allowWristFallback: opts?.allowWristFallback,

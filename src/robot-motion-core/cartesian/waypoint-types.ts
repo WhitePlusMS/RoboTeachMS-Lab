@@ -1,4 +1,4 @@
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 
 /** 已应用的腕部奇异处理模式。 */
 export type AppliedSingularityMode = 'wrist'

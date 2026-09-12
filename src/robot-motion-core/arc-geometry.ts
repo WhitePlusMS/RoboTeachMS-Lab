@@ -1,4 +1,4 @@
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 import { quaternionToRotationMatrix } from '@/robot-geometry/math/rotation3d.ts'
 
 /**
@@ -20,11 +20,7 @@ function scale3(a: readonly number[], scale: number): number[] {
 }
 
 function cross3(a: readonly number[], b: readonly number[]): number[] {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ]
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 }
 
 function dot3(a: readonly number[], b: readonly number[]): number {
@@ -61,7 +57,12 @@ function slerpQuaternion(
   const denominator = Math.sin(angle)
   const startWeight = Math.sin((1 - progress) * angle) / denominator
   const endWeight = Math.sin(progress * angle) / denominator
-  return start.map((value, index) => value * startWeight + end[index] * endWeight) as [number, number, number, number]
+  return start.map((value, index) => value * startWeight + end[index] * endWeight) as [
+    number,
+    number,
+    number,
+    number,
+  ]
 }
 
 /**
@@ -85,7 +86,8 @@ function buildArc(
   const area = Math.hypot(...normal)
   const firstLength = Math.hypot(...first)
   const secondLength = Math.hypot(...second)
-  if (firstLength < 1e-9 || secondLength < 1e-9 || area / (firstLength * secondLength) < 1e-4) return null
+  if (firstLength < 1e-9 || secondLength < 1e-9 || area / (firstLength * secondLength) < 1e-4)
+    return null
 
   const normalAxis = normalize3(normal)
   if (!normalAxis) return null
@@ -145,7 +147,10 @@ export function sampleArcPoses(
     const theta = arc.endAngle * progress
     const position = add3(
       arc.center,
-      add3(scale3(arc.xAxis, Math.cos(theta) * arc.radius), scale3(arc.yAxis, Math.sin(theta) * arc.radius)),
+      add3(
+        scale3(arc.xAxis, Math.cos(theta) * arc.radius),
+        scale3(arc.yAxis, Math.sin(theta) * arc.radius),
+      ),
     )
     const quaternion = slerpQuaternion(q0, q2, progress)
     poses.push({

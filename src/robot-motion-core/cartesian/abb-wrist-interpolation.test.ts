@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationDistanceRad } from '@/robot-geometry/math/rotation3d.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
-import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import { planCartesianPath } from '@/robot-motion-core/cartesian/linear-path-planner.ts'
 
 const TRUE_ZERO: JointAngles = [0, 0, 0, 0, 0, 0]
 
@@ -22,13 +22,9 @@ describe('显式腕部退化插补', () => {
     if (!start) return
     const target = clonePose(start)
     target.position[1] += direction * 50
-    const result = planCartesianPath(
-      target,
-      TRUE_ZERO,
-      model,
-      ABB_IRB1200_PROFILE.jointRanges,
-      { allowWristFallback: true },
-    )
+    const result = planCartesianPath(target, TRUE_ZERO, model, ABB_IRB1200_PROFILE.jointRanges, {
+      allowWristFallback: true,
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -49,8 +45,7 @@ describe('显式腕部退化插补', () => {
           actual.position[2] - start.position[2],
         ),
       )
-      const orientationDeg =
-        (rotationDistanceRad(start.rotation, actual.rotation) * 180) / Math.PI
+      const orientationDeg = (rotationDistanceRad(start.rotation, actual.rotation) * 180) / Math.PI
       if (orientationDeg > maxOrientationDeg) {
         maxOrientationDeg = orientationDeg
         maxOrientationProgress = progress

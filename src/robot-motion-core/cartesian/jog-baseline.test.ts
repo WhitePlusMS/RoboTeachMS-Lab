@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ABB_IRB1200_PROFILE } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationDistanceRad } from '@/robot-geometry/math/rotation3d.ts'
-import { createMotionRunner, type MotionClock } from '@/robot-geometry/motion/runner.ts'
-import { planCartesianPath } from '@/robot-motion-core/internal/cartesian/path-planner.ts'
-import type { RobotProfile } from '@/robot-geometry/model/robot-profile.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/index.ts'
+import { createMotionRunner, type MotionClock } from '@/robot-motion-core/playback/runner.ts'
+import { planCartesianPath } from '@/robot-motion-core/cartesian/linear-path-planner.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
 
 const planCartesianTarget = (
   target: Pose,
@@ -95,9 +95,15 @@ describe('Cartesian Jog baseline', () => {
       },
     })
 
-    runner.startTrajectory([[10, 10, 10, 10, 10, 10]], 140)
+    runner.startTrajectory([
+      { timeMs: 0, jointsDeg: [...joints] },
+      { timeMs: 140, jointsDeg: [10, 10, 10, 10, 10, 10] },
+    ])
     clock.advanceBy(70)
-    runner.startTrajectory([[20, 20, 20, 20, 20, 20]], 140)
+    runner.startTrajectory([
+      { timeMs: 0, jointsDeg: [...joints] },
+      { timeMs: 140, jointsDeg: [20, 20, 20, 20, 20, 20] },
+    ])
     clock.advanceBy(70)
     clock.advanceBy(70)
 

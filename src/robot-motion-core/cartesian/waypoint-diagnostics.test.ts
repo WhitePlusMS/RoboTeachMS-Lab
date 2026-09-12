@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { IKCandidateRecord } from '@/robot-geometry/numerical-ik/candidate-catalog.ts'
-import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
+import type { IKCandidateRecord } from '@/robot-geometry/ik/candidate-catalog.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 import {
   buildCandidateLimitFailureDetail,
   buildJointLimitFailureDetail,
@@ -19,7 +19,10 @@ const JOINT_RANGES: readonly (readonly [number, number])[] = [
   [-400, 400],
 ]
 
-function candidateRecord(joints: JointAngles, overrides: Partial<IKCandidateRecord> = {}): IKCandidateRecord {
+function candidateRecord(
+  joints: JointAngles,
+  overrides: Partial<IKCandidateRecord> = {},
+): IKCandidateRecord {
   return {
     joints,
     positionErrorMm: 0,
@@ -56,7 +59,10 @@ describe('waypoint diagnostics — 两条求解路径的选轴策略逐位保留
     })
 
     // joint-solution.ts 原 buildJointStepDetail：怀疑腕部奇异时只在 [3,5] 中选，J4 步长最大。
-    expect(selectStepFailureAxis(previous, attempted, [3, 5])).toEqual({ axisIndex: 3, deltaDeg: 8 })
+    expect(selectStepFailureAxis(previous, attempted, [3, 5])).toEqual({
+      axisIndex: 3,
+      deltaDeg: 8,
+    })
     expect(buildStepFailureDetail(previous, attempted, JOINT_RANGES, [3, 5])).toEqual({
       axisIndex: 3,
       previousAngleDeg: 0,
@@ -101,7 +107,9 @@ describe('waypoint diagnostics — 两条求解路径的选轴策略逐位保留
   })
 
   it('限位诊断：候选目录为空时 buildCandidateLimitFailureDetail 返回 undefined', () => {
-    expect(buildCandidateLimitFailureDetail([], [0, 0, 0, 0, 0, 0], JOINT_RANGES, 1)).toBeUndefined()
+    expect(
+      buildCandidateLimitFailureDetail([], [0, 0, 0, 0, 0, 0], JOINT_RANGES, 1),
+    ).toBeUndefined()
   })
 
   it('限位诊断：candidate-path-planner 路径优先选夹限位的候选，再在其六轴中比较越界严重度', () => {
@@ -118,7 +126,14 @@ describe('waypoint diagnostics — 两条求解路径的选轴策略逐位保留
     })
     // atJointLimit=true 的候选排在前面（即使 maxJointDeltaDeg 更大），与原实现排序规则一致：
     // 诊断的目的正是解释为什么会夹限位，应该选中真正触及限位的那个候选。
-    expect(buildCandidateLimitFailureDetail([otherCandidate, atLimitCandidate], previous, JOINT_RANGES, 3)).toEqual({
+    expect(
+      buildCandidateLimitFailureDetail(
+        [otherCandidate, atLimitCandidate],
+        previous,
+        JOINT_RANGES,
+        3,
+      ),
+    ).toEqual({
       waypointIndex: 3,
       axisIndex: 0,
       previousAngleDeg: 0,

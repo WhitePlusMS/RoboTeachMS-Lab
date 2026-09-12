@@ -1,5 +1,8 @@
-import { JOINT_LIMIT_EPS_DEG, type IKCandidateRecord } from '@/robot-geometry/numerical-ik/candidate-catalog.ts'
-import type { JointAngles } from '@/robot-geometry/model/joint-pose.ts'
+import {
+  JOINT_LIMIT_EPS_DEG,
+  type IKCandidateRecord,
+} from '@/robot-geometry/ik/candidate-catalog.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
 import type { JointFailureDetail, WaypointFailureDiagnostic } from './waypoint-types.ts'
 
 /**
@@ -14,7 +17,10 @@ export function selectStepFailureAxis(
   attempted: JointAngles,
   preferredAxes?: readonly number[],
 ): { axisIndex: number; deltaDeg: number } {
-  const axes = preferredAxes && preferredAxes.length > 0 ? preferredAxes : attempted.map((_value, index) => index)
+  const axes =
+    preferredAxes && preferredAxes.length > 0
+      ? preferredAxes
+      : attempted.map((_value, index) => index)
   let axisIndex = axes[0]
   let deltaDeg = Math.abs(attempted[axisIndex] - previous[axisIndex])
   for (const index of axes.slice(1)) {

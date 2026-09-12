@@ -1,8 +1,8 @@
-import { planStrictCandidateGraph } from '../candidate-path-planner.ts'
-import { MAX_CARTESIAN_JOINT_STEP_DEG } from '../step-policy.ts'
-import type { RobotModel } from '@/robot-geometry/model/robot-model.ts'
-import type { JointAngles, Pose } from '@/robot-geometry/model/joint-pose.ts'
-import type { IKSolverConfig } from '@/robot-geometry/numerical-ik/types.ts'
+import { planStrictCandidateGraph } from './ik-path-search.ts'
+import { MAX_CARTESIAN_JOINT_STEP_DEG } from './path-limits.ts'
+import type { RobotModel } from '@/robot-geometry/robot-types.ts'
+import type { JointAngles, Pose } from '@/robot-geometry/robot-types.ts'
+import type { IKSolverConfig } from '@/robot-geometry/ik/ik-types.ts'
 import {
   getSinglePointWristEscapeDirection,
   isNearWristSingularity,
@@ -10,7 +10,7 @@ import {
   mapJointSolutionFailure,
   resolveJointSolution,
   withWaypointDiagnostic,
-} from './joint-solution.ts'
+} from './waypoint-ik.ts'
 import { buildStepFailureDetail } from './waypoint-diagnostics.ts'
 import type {
   AppliedSingularityMode,
@@ -35,11 +35,10 @@ export function solvePoseWaypoints(
   // 腕部回退必须由调用方显式声明（例如 RAPID SingArea\\Wrist）；
   // 型号位置不能隐式改变完整位姿约束。
   const wristFallbackPath = options.allowWristFallback === true
-  // 只有明确授权或机械零位腕部特例需要相邻步长护栏；普通严格路径保持全局候选图。
+  // 局部回退路径使用相邻步长护栏；严格路径在全局候选图中应用相同步长约束。
   const continuityLimitDeg = wristFallbackPath ? MAX_CARTESIAN_JOINT_STEP_DEG : undefined
 
-  // 非机械零位的严格解析路径先使用全局候选图，避免逐 waypoint 最近分支把任一腕部推向
-  // 等价构型；机械零位腕部路径直接走局部求解，并预创建 wristContext 供单点 IK 使用。
+  // 严格解析路径使用全局候选图；显式授权的腕部路径使用带上下文的局部求解。
   if (!wristFallbackPath && model.solveAllIK) {
     const graph = planStrictCandidateGraph(poses, initialJoints, model, jointRanges, toFlange, {
       solverConfig,
