@@ -1,4 +1,4 @@
-import type { JointAngles } from '../model/joint-pose.ts'
+import type { JointAngles } from '../robot-types.ts'
 
 /** 型号适配器提供的构型标签；具体字段语义由机器人型号模块拥有。 */
 export type RobotConfiguration = readonly number[]

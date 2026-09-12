@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { solveIK } from './numerical-ik.ts'
-import { eulerZYXToMatrix } from '../transform/transform-matrix.ts'
+import { solveIK } from './ik-solver.ts'
+import { eulerZYXToMatrix } from '../math/transform-matrix.ts'
 import { orientationError } from '../math/rotation3d.ts'
-import type { JointAngles, Pose } from '../model/index.ts'
+import type { JointAngles, Pose } from '../robot-types.ts'
 import { DEFAULT_JOINTS, KUKA_JOINT_RANGES } from '@/robot-models/kuka-like/parameters.ts'
 import { KukaRobotModelAdapter } from '@/robot-models/kuka-like/kinematics/kuka-robot-model-adapter.ts'
-import {
-  ABB_MECHANICAL_ZERO_JOINTS,
-  ABB_JOINT_RANGES,
-} from '@/robot-models/abb-irb1200/index.ts'
+import { ABB_MECHANICAL_ZERO_JOINTS, ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 
 describe('KUKA 数值逆解', () => {

@@ -1,6 +1,6 @@
-import type { RobotModel } from '../model/robot-model.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { IKCandidate, RobotConfiguration } from './types.ts'
+import type { RobotModel } from '../robot-types.ts'
+import type { JointAngles, Pose } from '../robot-types.ts'
+import type { IKCandidate, RobotConfiguration } from './ik-types.ts'
 
 const RANGE_EPSILON_DEG = 1e-7
 /** 候选接近关节限位的统一软边界，单位为度。 */
@@ -146,37 +146,39 @@ export function buildIKCandidateCatalog(
     })
 }
 
-/** 从候选目录统一选择离参考姿态最近的合法候选；不改变目录顺序或原始记录。 */
+/** 通用合法性规则；路径层与单点层共享，距离代价由各自策略决定。 */
+export function isIKCandidateValid(
+  candidate: IKCandidateRecord,
+  options: IKCandidateSelectionOptions,
+): boolean {
+  const expected = options.referenceConfiguration
+  return (
+    candidate.normalizedJoints !== null &&
+    candidate.withinJointRanges &&
+    (options.rejectAtJointLimit !== true || !candidate.atJointLimit) &&
+    candidate.positionErrorMm <= options.positionTolerance &&
+    candidate.orientationErrorRad <= options.orientationTolerance &&
+    (options.maxJointStepDeg === undefined ||
+      candidate.maxJointDeltaDeg <= options.maxJointStepDeg) &&
+    (expected === undefined ||
+      (candidate.configuration !== undefined &&
+        candidate.configuration.length === expected.length &&
+        candidate.configuration.every((value, index) => value === expected[index])))
+  )
+}
+
+/** 从合法候选中选择离参考姿态最近的一项；不修改原目录。 */
 export function selectBestIKCandidate(
   catalog: readonly IKCandidateRecord[],
   options: IKCandidateSelectionOptions,
 ): IKCandidateRecord | null {
-  const valid = catalog.filter(
-    (candidate) =>
-      candidate.normalizedJoints !== null &&
-      candidate.withinJointRanges &&
-      (options.rejectAtJointLimit !== true || !candidate.atJointLimit) &&
-      candidate.positionErrorMm <= options.positionTolerance &&
-      candidate.orientationErrorRad <= options.orientationTolerance &&
-      (options.maxJointStepDeg === undefined ||
-        candidate.maxJointDeltaDeg <= options.maxJointStepDeg),
-  )
-  // 型号构型语义：提供当前构型时，只允许同构型候选；
-  // 异构型候选必须由上层显式授权，不能在这里静默切换后执行。
-  const referenceConfiguration = options.referenceConfiguration
-  const pool = referenceConfiguration
-    ? valid.filter(
-        (candidate) =>
-          candidate.configuration !== undefined &&
-          candidate.configuration.every((value, index) => value === referenceConfiguration[index]),
-      )
-    : []
-  const selectable = referenceConfiguration ? pool : valid
-  return selectable.reduce<IKCandidateRecord | null>(
-    (best, candidate) =>
-      best === null || candidate.distanceFromReferenceDeg < best.distanceFromReferenceDeg
-        ? candidate
-        : best,
-    null,
-  )
+  return catalog
+    .filter((candidate) => isIKCandidateValid(candidate, options))
+    .reduce<IKCandidateRecord | null>(
+      (best, candidate) =>
+        best === null || candidate.distanceFromReferenceDeg < best.distanceFromReferenceDeg
+          ? candidate
+          : best,
+      null,
+    )
 }

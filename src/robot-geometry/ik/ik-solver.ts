@@ -3,9 +3,9 @@ import { clampDegStep, clampVectorMagnitude } from '@/robot-geometry/math/vector
 import { radToDeg } from '@/robot-geometry/math/angle.ts'
 import { orientationError } from '@/robot-geometry/math/rotation3d.ts'
 import { buildIKCandidateCatalog, selectBestIKCandidate } from './candidate-catalog.ts'
-import type { RobotModel } from '../model/robot-model.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
-import type { IKLockedJointTargets, IKSolverConfig } from './types.ts'
+import type { RobotModel } from '../robot-types.ts'
+import type { JointAngles, Pose } from '../robot-types.ts'
+import type { IKLockedJointTargets, IKSolverConfig } from './ik-types.ts'
 
 /** 原项目使用的 Levenberg-Marquardt 阻尼最小二乘配置。 */
 export const DEFAULT_IK_CONFIG: IKSolverConfig = {

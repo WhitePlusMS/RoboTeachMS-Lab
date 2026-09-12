@@ -3,7 +3,7 @@ import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { ABB_JOINT_RANGES } from '@/robot-models/abb-irb1200/index.ts'
 import { buildIKCandidateCatalog, selectBestIKCandidate } from './candidate-catalog.ts'
 import type { IKCandidateRecord } from './candidate-catalog.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
+import type { JointAngles, Pose } from '../robot-types.ts'
 import type { ABBConfiguration } from '@/robot-models/abb-irb1200/index.ts'
 
 describe('IK candidate catalog', () => {

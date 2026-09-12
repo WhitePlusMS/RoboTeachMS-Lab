@@ -1,5 +1,5 @@
 import { orientationError } from '@/robot-geometry/math/rotation3d.ts'
-import type { JointAngles, Pose } from '../model/joint-pose.ts'
+import type { JointAngles, Pose } from '../robot-types.ts'
 
 export type ForwardKinematics = (jointsDeg: JointAngles) => Pose | null
 
