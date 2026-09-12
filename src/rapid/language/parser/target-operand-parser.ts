@@ -33,7 +33,11 @@ function expectOperandSlot(
   onAbort: () => void,
 ): OperandSlotResult {
   if (isSymbol(ctx.current(), ',')) {
-    ctx.addMissingDiagnostic('syntax-error', `缺少${description}（空操作数，当前为 ","）`, ctx.current())
+    ctx.addMissingDiagnostic(
+      'syntax-error',
+      `缺少${description}（空操作数，当前为 ","）`,
+      ctx.current(),
+    )
     ctx.advance()
     return { token: null, separatorConsumed: true }
   }
@@ -156,12 +160,7 @@ export function parseTargetOperand(
       )
       return { target: null, separatorConsumed: false }
     }
-    if (
-      keyword === 'reltool' &&
-      namedRotationCount === 0 &&
-      paramCount !== 3 &&
-      paramCount !== 6
-    ) {
+    if (keyword === 'reltool' && namedRotationCount === 0 && paramCount !== 3 && paramCount !== 6) {
       ctx.addDiagnostic('invalid-data', `RelTool 需要 3 或 6 个参数，实际 ${paramCount} 个`, first)
       return { target: null, separatorConsumed: false }
     }

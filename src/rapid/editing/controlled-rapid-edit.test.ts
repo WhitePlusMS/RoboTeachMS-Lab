@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  applyRapidEdit,
-  makeTaughtTargetFromPose,
-} from './controlled-rapid-edit.ts'
+import { applyRapidEdit, makeTaughtTargetFromPose } from './controlled-rapid-edit.ts'
 import { formatRobTarget } from './formatting.ts'
 import {
   isRapidMotionInstruction,
@@ -10,7 +7,7 @@ import {
   parseRapidProgram,
   type RapidProgramDataTarget,
 } from '../language/index.ts'
-import type { Pose } from '@/robot-geometry/model/index.ts'
+import type { Pose } from '@/robot-geometry/robot-types.ts'
 
 const BASE = `MODULE TeachingDemo
     CONST robtarget pApproach := [[451,150,680],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];

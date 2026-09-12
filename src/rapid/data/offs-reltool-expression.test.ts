@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isRapidMotionInstruction, parseRapidProgram } from '../language/index.ts'
-import { offsRobTarget, relToolRobTarget } from './target-expression.ts'
-import { robTargetToWorldPose } from './coordinate-transform.ts'
+import { offsRobTarget, relToolRobTarget } from './target-operations.ts'
+import { robTargetToWorldPose } from './workobject-pose.ts'
 import { defaultWobj0, type RobTarget, type WobjData } from './index.ts'
 
 /**

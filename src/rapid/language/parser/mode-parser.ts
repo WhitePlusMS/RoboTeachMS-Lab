@@ -1,9 +1,9 @@
 import type { ConfigurationMonitoringMode, SingAreaMode } from '../../data/index.ts'
-import type { Token } from '../../language/rapid-lexer.ts'
-import { rangeFromOffsets } from '../../language/rapid-lexer.ts'
-import type { RapidDiagnosticCode } from '../../language/rapid-diagnostics.ts'
-import { normalizeName } from '../../language/rapid-symbols.ts'
-import type { PendingStatement } from '../../language/parser/pending-types.ts'
+import type { Token } from '../rapid-lexer.ts'
+import { rangeFromOffsets } from '../rapid-lexer.ts'
+import type { RapidDiagnosticCode } from '../rapid-diagnostics.ts'
+import { normalizeName } from '../rapid-symbols.ts'
+import type { PendingStatement } from './pending-types.ts'
 
 /** 模式语句 parser 的最小上下文；游标、诊断与输出容器仍由主 parser 独占。 */
 export interface ModeStatementContext {
@@ -41,10 +41,7 @@ export function parseSingArea(ctx: ModeStatementContext): void {
   })
 }
 
-export function parseConfiguration(
-  ctx: ModeStatementContext,
-  kind: 'confj' | 'confl',
-): void {
+export function parseConfiguration(ctx: ModeStatementContext, kind: 'confj' | 'confl'): void {
   const start = ctx.advance()
   const slash = ctx.expectSymbol('\\')
   const modeToken = ctx.expectIdentifier(`${kind === 'confj' ? 'ConfJ' : 'ConfL'} 模式（On/Off）`)

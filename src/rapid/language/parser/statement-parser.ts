@@ -1,9 +1,9 @@
 import { isKeyword, isSymbol } from '../rapid-symbols.ts'
 import type { RapidDiagnosticCode } from '../rapid-diagnostics.ts'
 import type { Token } from '../rapid-lexer.ts'
-import { LEAF_INSTRUCTION_KEYWORDS } from '../../instructions/index.ts'
+import { LEAF_INSTRUCTION_KEYWORDS } from './instruction-keywords.ts'
 
-/** 运动/模式叶子指令的关键字集合；与 rapid/instructions/index.ts 的注册表共用同一份真源，不重复维护。 */
+/** 运动/模式叶子指令的关键字集合；与 rapid/language/parser/instruction-keywords.ts 的注册表共用同一份真源，不重复维护。 */
 const MOTION_KEYWORDS = [
   ...LEAF_INSTRUCTION_KEYWORDS.movej,
   ...LEAF_INSTRUCTION_KEYWORDS.movel,
@@ -69,7 +69,10 @@ export function parseStatementList(
       isKeyword(ctx.current(), 'ENDWHILE') ||
       isKeyword(ctx.current(), 'ENDFOR')
     ) {
-      ctx.addDiagnostic('syntax-error', `${ctx.current().text} 没有对应的 IF/WHILE/FOR 控制流结束结构`)
+      ctx.addDiagnostic(
+        'syntax-error',
+        `${ctx.current().text} 没有对应的 IF/WHILE/FOR 控制流结束结构`,
+      )
       ctx.advance()
     } else {
       ctx.addDiagnostic('unsupported-syntax', `首期不支持 ${ctx.current().text || '空语句'}`)

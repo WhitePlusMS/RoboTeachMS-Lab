@@ -1,6 +1,6 @@
 import type { RapidScalarExpression } from '../language/index.ts'
 import type { RapidScalarValue } from '../data/index.ts'
-import type { ProgramExecutionContext } from '../execution/program-executor.ts'
+import type { ProgramExecutionContext } from './program-executor.ts'
 
 /**
  * 标量表达式运行期求值；供 assign 叶子指令与控制流条件（IF/WHILE/FOR）共用同一份语义，
@@ -8,8 +8,7 @@ import type { ProgramExecutionContext } from '../execution/program-executor.ts'
  * `language/parser/scalar-expression.ts`，两者独立但规则必须保持一致。
  */
 export type ScalarEvaluationResult =
-  | { ok: true; value: RapidScalarValue }
-  | { ok: false; message: string }
+  { ok: true; value: RapidScalarValue } | { ok: false; message: string }
 
 function runtimeError(message: string): ScalarEvaluationResult {
   return { ok: false, message }
@@ -61,7 +60,8 @@ export function evaluateScalarExpression(
         }
       }
       if (operator === '=' || operator === '<>') {
-        if (typeof left.value !== typeof right.value) return runtimeError('比较运算的两侧类型不一致')
+        if (typeof left.value !== typeof right.value)
+          return runtimeError('比较运算的两侧类型不一致')
         const equal = left.value === right.value
         return { ok: true, value: operator === '=' ? equal : !equal }
       }
@@ -80,10 +80,18 @@ export function evaluateScalarExpression(
       if (operator === '/' && right.value === 0) return runtimeError('表达式除数不能为 0')
       let value: number
       switch (operator) {
-        case '+': value = left.value + right.value; break
-        case '-': value = left.value - right.value; break
-        case '*': value = left.value * right.value; break
-        case '/': value = left.value / right.value; break
+        case '+':
+          value = left.value + right.value
+          break
+        case '-':
+          value = left.value - right.value
+          break
+        case '*':
+          value = left.value * right.value
+          break
+        case '/':
+          value = left.value / right.value
+          break
       }
       return Number.isFinite(value) ? { ok: true, value } : runtimeError('表达式结果不是有限数值')
     }

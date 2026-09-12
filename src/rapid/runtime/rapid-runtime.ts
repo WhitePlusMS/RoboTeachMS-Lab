@@ -1,3 +1,5 @@
+import { DEFAULT_ROBOT } from '@/robot-models/registry.ts'
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
 import type { MotionPlanningRequest } from '@/robot-motion-core/index.ts'
 import type {
   RapidExecutableInstruction,
@@ -7,14 +9,14 @@ import type {
   RapidWhileInstruction,
 } from '../language/index.ts'
 import type { RapidScalarVariable, SingAreaMode } from '../data/index.ts'
-import { executeRapidMotion } from '../execution/motion-execution.ts'
+import { submitMotionInstruction } from './submit-motion-instruction.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,
   type ProgramExecutionContext,
   type ProgramExecutor,
   type ProgramExecutionSeam,
-} from '../execution/program-executor.ts'
+} from './program-executor.ts'
 import { evaluateScalarExpression } from './scalar-evaluation.ts'
 
 /** RAPID 运行时与宿主之间唯一的运动提交 seam。 */
@@ -45,7 +47,8 @@ function attachBranchNextPointer(
     outcome.result !== 'completed' ||
     !('nextPointer' in instruction) ||
     instruction.nextPointer === undefined
-  ) return outcome
+  )
+    return outcome
   return { ...outcome, nextPointer: instruction.nextPointer }
 }
 
@@ -58,7 +61,10 @@ interface ForCursor {
   step: number
 }
 
-export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
+export function createRapidRuntime(
+  port: RapidMotionPort,
+  profile: RobotProfile = DEFAULT_ROBOT,
+): RapidRuntime {
   let singAreaMode: SingAreaMode = 'off'
   let confJMode: 'on' | 'off' = 'on'
   let confLMode: 'on' | 'off' = 'on'
@@ -69,13 +75,17 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
   function consumeLoopStep(): InstructionOutcome | null {
     loopSteps += 1
     return loopSteps > MAX_LOOP_STEPS
-      ? { ok: false, error: { kind: 'runtime-error', message: `循环迭代次数超过安全上限 ${MAX_LOOP_STEPS}` } }
+      ? {
+          ok: false,
+          error: { kind: 'runtime-error', message: `循环迭代次数超过安全上限 ${MAX_LOOP_STEPS}` },
+        }
       : null
   }
 
   function clearForCursorByExitTarget(target: number): void {
     for (const instruction of loadedProgram) {
-      if (instruction.kind === 'for' && instruction.falseTarget === target) forCursors.delete(instruction)
+      if (instruction.kind === 'for' && instruction.falseTarget === target)
+        forCursors.delete(instruction)
     }
   }
 
@@ -86,7 +96,10 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
     const result = evaluateScalarExpression(instruction.expression, context)
     if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
     if (!context.writeVariable(instruction.target.name, result.value)) {
-      return { ok: false, error: { kind: 'runtime-error', message: `无法写入变量 ${instruction.target.name}` } }
+      return {
+        ok: false,
+        error: { kind: 'runtime-error', message: `无法写入变量 ${instruction.target.name}` },
+      }
     }
     return {
       ok: true,
@@ -101,9 +114,16 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
     what: string,
   ): { ok: true; value: number } | { ok: false; outcome: InstructionOutcome } {
     const result = evaluateScalarExpression(expression, context)
-    if (!result.ok) return { ok: false, outcome: { ok: false, error: { kind: 'runtime-error', message: result.message } } }
+    if (!result.ok)
+      return {
+        ok: false,
+        outcome: { ok: false, error: { kind: 'runtime-error', message: result.message } },
+      }
     if (typeof result.value !== 'number' || !Number.isFinite(result.value)) {
-      return { ok: false, outcome: { ok: false, error: { kind: 'runtime-error', message: `${what} 必须是有限数值` } } }
+      return {
+        ok: false,
+        outcome: { ok: false, error: { kind: 'runtime-error', message: `${what} 必须是有限数值` } },
+      }
     }
     return { ok: true, value: result.value }
   }
@@ -119,7 +139,10 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
     return evaluated.ok ? evaluated.value : evaluated.outcome
   }
 
-  function executeFor(instruction: RapidForInstruction, context: ProgramExecutionContext): InstructionOutcome {
+  function executeFor(
+    instruction: RapidForInstruction,
+    context: ProgramExecutionContext,
+  ): InstructionOutcome {
     const over = consumeLoopStep()
     if (over) return over
     let cursor = forCursors.get(instruction)
@@ -149,18 +172,29 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
       return { ok: true, result: 'completed', nextPointer: instruction.falseTarget }
     }
     if (!context.writeVariable(instruction.loopVar.name, cursor.current)) {
-      return { ok: false, error: { kind: 'runtime-error', message: `无法写入循环变量 ${instruction.loopVar.name}` } }
+      return {
+        ok: false,
+        error: { kind: 'runtime-error', message: `无法写入循环变量 ${instruction.loopVar.name}` },
+      }
     }
     return { ok: true, result: 'completed', nextPointer: instruction.trueTarget }
   }
 
-  function executeWhile(instruction: RapidWhileInstruction, context: ProgramExecutionContext): InstructionOutcome {
+  function executeWhile(
+    instruction: RapidWhileInstruction,
+    context: ProgramExecutionContext,
+  ): InstructionOutcome {
     const over = consumeLoopStep()
     if (over) return over
     const result = evaluateScalarExpression(instruction.condition, context)
     if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
-    if (typeof result.value !== 'boolean') return { ok: false, error: { kind: 'runtime-error', message: 'WHILE 条件必须是 bool' } }
-    return { ok: true, result: 'completed', nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget }
+    if (typeof result.value !== 'boolean')
+      return { ok: false, error: { kind: 'runtime-error', message: 'WHILE 条件必须是 bool' } }
+    return {
+      ok: true,
+      result: 'completed',
+      nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget,
+    }
   }
 
   function load(
@@ -181,9 +215,15 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
     ): Promise<InstructionOutcome> => {
       if (instruction.kind === 'if') {
         const result = evaluateScalarExpression(instruction.condition, context)
-        if (!result.ok) return { ok: false, error: { kind: 'runtime-error', message: result.message } }
-        if (typeof result.value !== 'boolean') return { ok: false, error: { kind: 'runtime-error', message: 'IF 条件必须是 bool' } }
-        return { ok: true, result: 'completed', nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget }
+        if (!result.ok)
+          return { ok: false, error: { kind: 'runtime-error', message: result.message } }
+        if (typeof result.value !== 'boolean')
+          return { ok: false, error: { kind: 'runtime-error', message: 'IF 条件必须是 bool' } }
+        return {
+          ok: true,
+          result: 'completed',
+          nextPointer: result.value ? instruction.trueTarget : instruction.falseTarget,
+        }
       }
       if (instruction.kind === 'while') return executeWhile(instruction, context)
       if (instruction.kind === 'for') return executeFor(instruction, context)
@@ -200,19 +240,27 @@ export function createRapidRuntime(port: RapidMotionPort): RapidRuntime {
         else confLMode = instruction.mode
         return attachBranchNextPointer(instruction, { ok: true, result: 'completed' })
       }
-      if (instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec') {
+      if (
+        instruction.kind === 'movej' ||
+        instruction.kind === 'movel' ||
+        instruction.kind === 'movec'
+      ) {
         const motion = {
           ...instruction,
           ...(instruction.kind === 'movej' ? { confJ: confJMode } : { confL: confLMode }),
         }
-        const outcome = await executeRapidMotion(motion, singAreaMode, {
+        const outcome = await submitMotionInstruction(motion, singAreaMode, {
+          profile,
           currentJoints: () => [...port.currentJoints()],
           submit: port.submit,
         })
         return attachBranchNextPointer(instruction, outcome)
       }
       if (instruction.kind === 'assign') return executeAssignment(instruction, context)
-      return { ok: false, error: { kind: 'runtime-error', message: `不支持的 RAPID 指令 ${instruction.kind}` } }
+      return {
+        ok: false,
+        error: { kind: 'runtime-error', message: `不支持的 RAPID 指令 ${instruction.kind}` },
+      }
     }
     const seam: ProgramExecutionSeam<RapidExecutableInstruction> = { execute, stop: port.stop }
     return createProgramExecutor(instructions, seam, initialPointer, initialVariables)

@@ -1,13 +1,7 @@
 import type { RapidDiagnostic } from '../rapid-diagnostics.ts'
 import { rangeFromToken } from '../rapid-lexer.ts'
-import type {
-  RapidExecutableInstruction,
-  RapidExitInstruction,
-} from './rapid-parser.ts'
-import {
-  scalarExpressionType,
-  type ScalarExpressionContext,
-} from './scalar-expression.ts'
+import type { RapidExecutableInstruction, RapidExitInstruction } from './rapid-parser.ts'
+import { scalarExpressionType, type ScalarExpressionContext } from './scalar-expression.ts'
 import type {
   PendingConditional,
   PendingExit,
@@ -91,9 +85,7 @@ function appendConditional(
     branchBodies.push({ start: bodyStart, end: output.length })
   }
 
-  const elseBody = conditional.elseStatements
-    ? { start: output.length, end: output.length }
-    : null
+  const elseBody = conditional.elseStatements ? { start: output.length, end: output.length } : null
   if (conditional.elseStatements) {
     appendBody(conditional.elseStatements, output, ctx)
     if (elseBody) elseBody.end = output.length
@@ -142,16 +134,12 @@ function appendStatement(
   if (resolved) output.push(resolved)
 }
 
-function pendingExit(
-  exit: PendingExit,
-): Pick<RapidExitInstruction, 'sourceRange' | 'sourceText'> {
+function pendingExit(exit: PendingExit): Pick<RapidExitInstruction, 'sourceRange' | 'sourceText'> {
   return { sourceRange: exit.range, sourceText: exit.sourceText }
 }
 
 function isControlBlockStatement(statement: PendingStatement): boolean {
-  return (
-    statement.kind === 'conditional' || statement.kind === 'while' || statement.kind === 'for'
-  )
+  return statement.kind === 'conditional' || statement.kind === 'while' || statement.kind === 'for'
 }
 
 function appendBody(

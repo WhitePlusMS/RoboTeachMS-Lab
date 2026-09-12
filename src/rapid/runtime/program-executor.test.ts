@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AbbRobotModelAdapter } from '@/robot-models/abb-irb1200/index.ts'
 import { rotationMatrixToQuaternion } from '@/robot-geometry/math/rotation3d.ts'
-import { internalQuatToRapid } from '../data/pose-transform.ts'
+import { internalQuatToRapid } from '../data/rapid-pose-conversion.ts'
 import {
   createProgramExecutor,
   type InstructionOutcome,

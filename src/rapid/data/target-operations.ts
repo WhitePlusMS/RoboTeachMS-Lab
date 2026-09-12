@@ -1,4 +1,4 @@
-import { Matrix4x4 } from '@/robot-geometry/transform/transform-matrix.ts'
+import { Matrix4x4 } from '@/robot-geometry/math/transform-matrix.ts'
 import {
   mat3Mul,
   quaternionToRotationMatrix,
@@ -6,7 +6,7 @@ import {
 } from '@/robot-geometry/math/rotation3d.ts'
 import { degToRad } from '@/robot-geometry/math/angle.ts'
 import type { RobTarget } from './index.ts'
-import { internalQuatToRapid, rapidQuatToInternal } from './pose-transform.ts'
+import { internalQuatToRapid, rapidQuatToInternal } from './rapid-pose-conversion.ts'
 
 /**
  * ABB 目标位置函数求值（票据 03）：

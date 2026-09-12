@@ -1,6 +1,7 @@
+import type { RobotProfile } from '@/robot-geometry/robot-types.ts'
 import type { MotionPlanningRequest } from '@/robot-motion-core/index.ts'
-import type { JointAngles } from '@/robot-geometry/model/index.ts'
-import { abbConfigurationFromJoints } from '@/robot-models/abb-irb1200/index.ts'
+import type { JointAngles } from '@/robot-geometry/robot-types.ts'
+import { DEFAULT_ROBOT } from '@/robot-models/registry.ts'
 import type { RapidMotionInstruction, RapidSourceRange } from '@/rapid/language/index.ts'
 import type { SingAreaMode } from '../data/index.ts'
 import {
@@ -10,8 +11,8 @@ import {
   coreToolFromRapid,
   coreWorkObjectFromRapid,
   poseDataFromRobTarget,
-} from './core-motion.ts'
-import { validateMotionInput, type MotionPlanError } from './motion-input.ts'
+} from './motion-core-mapping.ts'
+import { validateMotionInput, type MotionPlanError } from './rapid-motion-validation.ts'
 
 export type RapidMotionPlayback = 'eased' | 'trajectory'
 
@@ -32,6 +33,7 @@ export function buildRapidMotionRequest(
   instruction: RapidMotionInstruction,
   singArea: SingAreaMode,
   currentJoints: JointAngles,
+  profile: RobotProfile = DEFAULT_ROBOT,
 ): RapidMotionRequestResult {
   const inputError = validateMotionInput(
     instruction.target,
@@ -52,9 +54,12 @@ export function buildRapidMotionRequest(
     if (circleError) return { ok: false, error: circleError }
   }
 
-  const configuration = abbConfigurationFromJoints(currentJoints)
+  const configuration = profile.model.deriveConfiguration?.(currentJoints)
   if (!configuration) {
-    return { ok: false, error: sourceError('当前关节无法推导 ABB robconf', instruction.sourceRange) }
+    return {
+      ok: false,
+      error: sourceError('当前关节无法推导 ABB robconf', instruction.sourceRange),
+    }
   }
   const currentConfiguration = {
     cf1: configuration[0],
@@ -66,7 +71,7 @@ export function buildRapidMotionRequest(
     ? { kind: 'nearest-valid' as const }
     : coreConfigurationPolicy(
         instruction.target,
-        instruction.kind === 'movej' ? instruction.confJ ?? 'on' : instruction.confL ?? 'on',
+        instruction.kind === 'movej' ? (instruction.confJ ?? 'on') : (instruction.confL ?? 'on'),
         currentConfiguration,
       )
   const targetPose = poseDataFromRobTarget(instruction.target)
@@ -75,13 +80,14 @@ export function buildRapidMotionRequest(
     tool: coreToolFromRapid(instruction.tool),
     workObject: coreWorkObjectFromRapid(instruction.wobj),
     speedMmPerSec: instruction.speed.v_tcp,
+    speedOriDegPerSec: instruction.speed.v_ori,
     zone: instruction.zone.finep ? ('fine' as const) : ('fly-by' as const),
     configurationPolicy: targetConfiguration,
     singularityPolicy: coreSingularity(singArea),
   }
   const intent: MotionPlanningRequest['intent'] =
     instruction.kind === 'movej'
-      ? { kind: 'cartesian-target', ...common }
+      ? { kind: 'pose-joint-target', ...common }
       : instruction.kind === 'movel'
         ? { kind: 'linear-path', ...common }
         : {
@@ -91,7 +97,7 @@ export function buildRapidMotionRequest(
           }
   return {
     ok: true,
-    request: coreRequest(currentJoints, intent),
-    playback: instruction.kind === 'movej' ? 'eased' : 'trajectory',
+    request: coreRequest(currentJoints, intent, profile),
+    playback: 'trajectory',
   }
 }

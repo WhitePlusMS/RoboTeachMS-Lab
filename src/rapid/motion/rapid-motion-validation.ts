@@ -8,13 +8,6 @@ import {
   type ZoneData,
 } from '../data/index.ts'
 
-type CartesianPathFailure =
-  | 'wrist-singularity'
-  | 'wrist-reconfiguration'
-  | 'joint-limit'
-  | 'joint-step'
-  | 'ik-not-converged'
-
 /** 外部轴六项是否均为 ABB“未使用”常量（9E9），即目标不带外部轴。 */
 function isNoExternalAxis(extax: RobTarget['extax']): boolean {
   return extax.every((value, index) => value === NO_EXTERNAL_AXIS[index])
@@ -54,40 +47,6 @@ export interface MotionPlanError {
   diagnostic?: MotionPlanDiagnostic
   /** 保留 Core 原始机器错误，供日志和诊断关联；展示文案仍由 RAPID 层负责。 */
   coreError?: MotionError
-}
-
-/** 把笛卡尔 waypoint 失败映射为 RAPID 运行时可定位的规划错误，禁止吞成普通 unreachable。 */
-export function cartesianPathFailureToMotionError(
-  failure: CartesianPathFailure,
-  diagnostic?: MotionPlanDiagnostic,
-): MotionPlanError {
-  const withDiagnostic = (error: MotionPlanError): MotionPlanError =>
-    diagnostic ? { ...error, diagnostic } : error
-
-  switch (failure) {
-    case 'wrist-singularity':
-      return withDiagnostic({
-        kind: 'wrist-singularity',
-        message:
-          '严格保持姿态的直线/圆弧运动不能通过腕部奇异（J5≈0°）；请修改奇异点另一侧第一个目标的姿态，启用 SingArea\\Wrist，或先用关节 Jog 脱离。',
-      })
-    case 'wrist-reconfiguration':
-      return withDiagnostic({
-        kind: 'wrist-reconfiguration',
-        message:
-          '目标将导致机器人构型重新配置；请修改奇异点另一侧第一个目标的姿态，启用 SingArea\\Wrist，或先用关节 Jog 脱离。',
-      })
-    case 'joint-step':
-      return withDiagnostic({
-        kind: 'joint-step',
-        message: '路径相邻关节步长超过连续运动限制，已拒绝该路径点。',
-      })
-    case 'joint-limit':
-      return withDiagnostic({ kind: 'joint-limit', message: '路径会触及关节限位，未执行。' })
-    case 'ik-not-converged':
-      return withDiagnostic({ kind: 'unreachable', message: '逆解未收敛，目标未执行。' })
-  }
-  return withDiagnostic({ kind: 'unreachable', message: '目标位姿不可达，未执行。' })
 }
 
 function allFinite(...values: number[]): boolean {

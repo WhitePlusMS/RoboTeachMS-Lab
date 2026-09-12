@@ -22,7 +22,7 @@ import {
   SYSTEM_WOBJDATA,
   SYSTEM_ZONE,
 } from '../../data/index.ts'
-import { offsRobTarget, relToolRobTarget } from '../../data/target-expression.ts'
+import { offsRobTarget, relToolRobTarget } from '../../data/target-operations.ts'
 import type { RapidSourceRange, Token } from '../rapid-lexer.ts'
 import {
   buildLineStarts,
@@ -46,7 +46,7 @@ import {
 } from '../rapid-symbols.ts'
 import type { DataValidationContext } from '../rapid-data-validation.ts'
 import { scalarExpressionType, type ScalarExpressionContext } from './scalar-expression.ts'
-import { appendPendingStatements } from './control-flow.ts'
+import { appendPendingStatements } from './control-flow-lowering.ts'
 import {
   parseConditional as parseConditionalStatement,
   parseExitDo as parseExitDoStatement,
@@ -54,12 +54,12 @@ import {
   parseWhile as parseWhileStatement,
   type ControlFlowParserContext,
 } from './control-flow-parser.ts'
+import { parseAssignment as parseAssignmentStatement } from './assignment-parser.ts'
+import { parseMotion as parseMotionStatement } from './motion-parser.ts'
 import {
-  parseAssignment as parseAssignmentStatement,
   parseConfiguration as parseConfigurationStatement,
-  parseMotion as parseMotionStatement,
   parseSingArea as parseSingAreaStatement,
-} from '../../instructions/index.ts'
+} from './mode-parser.ts'
 import { parseDataDeclaration as parseDataDeclarationStatement } from './data-declaration.ts'
 import { parseStatementList as parseStatementListStatement } from './statement-parser.ts'
 import type {
@@ -75,7 +75,7 @@ import type {
  * RAPID 文本解析模块的公共入口。
  *
  * 本文件保持整个模块的稳定外部接口：所有调用方（program-executor、
- * application/program/program-control、各组件）从这里导入的结构化类型与 parseRapidProgram
+ * application/program/use-program-session、各组件）从这里导入的结构化类型与 parseRapidProgram
  * 均不变。实现本身按职责拆分到同目录下的内部模块：
  *
  * - rapid-lexer.ts：词法分析与源码位置换算；
@@ -242,7 +242,9 @@ export type RapidExecutableInstruction =
 export function isRapidMotionInstruction(
   instruction: RapidExecutableInstruction,
 ): instruction is RapidMotionInstruction {
-  return instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec'
+  return (
+    instruction.kind === 'movej' || instruction.kind === 'movel' || instruction.kind === 'movec'
+  )
 }
 
 /** main 内可插入一条新运动的合法锚点；index 表示插入到第几条现有运动之前。 */
@@ -522,7 +524,6 @@ export function parseRapidProgram(source: string): RapidParseResult {
       sourceText: pending.sourceText,
     }
   }
-
 
   function parseDataDeclaration(): void {
     parseDataDeclarationStatement({
@@ -997,7 +998,12 @@ export function parseRapidProgram(source: string): RapidParseResult {
       }
     }
     if (statement.kind === 'confj' || statement.kind === 'confl') {
-      return { kind: statement.kind, mode: statement.configuration.mode, sourceRange: statement.configuration.range, sourceText: statement.configuration.sourceText }
+      return {
+        kind: statement.kind,
+        mode: statement.configuration.mode,
+        sourceRange: statement.configuration.range,
+        sourceText: statement.configuration.sourceText,
+      }
     }
     return null
   }

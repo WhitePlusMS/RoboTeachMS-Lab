@@ -2,7 +2,7 @@ import type {
   MotionPlanDiagnostic,
   MotionPlanError,
   MotionPlanErrorKind,
-} from '../planning/motion-input.ts'
+} from '../motion/rapid-motion-validation.ts'
 import type { MotionError } from '@/robot-motion-core/index.ts'
 import type {
   RapidScalarValue,

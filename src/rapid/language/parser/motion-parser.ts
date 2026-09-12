@@ -1,17 +1,14 @@
-import type { OperandKind } from '../../language/rapid-symbols.ts'
-import { isSymbol, normalizeName } from '../../language/rapid-symbols.ts'
-import type { Token } from '../../language/rapid-lexer.ts'
-import { positionAt, rangeFromOffsets } from '../../language/rapid-lexer.ts'
+import type { OperandKind } from '../rapid-symbols.ts'
+import { isSymbol, normalizeName } from '../rapid-symbols.ts'
+import type { Token } from '../rapid-lexer.ts'
+import { positionAt, rangeFromOffsets } from '../rapid-lexer.ts'
 import type {
   PendingMotion,
   PendingStatement,
   PendingTarget,
   PendingTargetExpressionKind,
-} from '../../language/parser/pending-types.ts'
-import {
-  parseTargetOperand,
-  type TargetExpressionContext,
-} from '../../language/parser/target-expression.ts'
+} from './pending-types.ts'
+import { parseTargetOperand, type TargetExpressionContext } from './target-operand-parser.ts'
 
 /** 运动语句 parser 的上下文；运动锚点和 pending 引用仍由主 parser 统一收集。 */
 export interface MotionStatementContext extends TargetExpressionContext {
@@ -28,7 +25,10 @@ export interface MotionStatementContext extends TargetExpressionContext {
 export function parseMotion(ctx: MotionStatementContext): void {
   const start = ctx.advance()
   const kind = normalizeName(start.text) as PendingMotion['kind']
-  ctx.motionAnchors.push({ offset: start.start, line: positionAt(start.start, ctx.lineStarts).line })
+  ctx.motionAnchors.push({
+    offset: start.start,
+    line: positionAt(start.start, ctx.lineStarts).line,
+  })
   let abandoned = false
   const abort = (): void => {
     abandoned = true
@@ -38,7 +38,11 @@ export function parseMotion(ctx: MotionStatementContext): void {
   const firstTarget = firstTargetResult.target
   let separatorConsumed = firstTargetResult.separatorConsumed
   if (firstTarget && firstTarget.kind !== 'star') {
-    ctx.queueReference('target', firstTarget.baseToken, firstTarget.kind === 'name' ? undefined : firstTarget.kind)
+    ctx.queueReference(
+      'target',
+      firstTarget.baseToken,
+      firstTarget.kind === 'name' ? undefined : firstTarget.kind,
+    )
   }
   if (abandoned) return
 
@@ -55,7 +59,11 @@ export function parseMotion(ctx: MotionStatementContext): void {
           ctx.current(),
         )
       } else {
-        ctx.addMissingDiagnostic('syntax-error', 'MoveC 的圆点与终点之间缺少逗号 ","', ctx.current())
+        ctx.addMissingDiagnostic(
+          'syntax-error',
+          'MoveC 的圆点与终点之间缺少逗号 ","',
+          ctx.current(),
+        )
         ctx.recoverMotionTail()
       }
       abort()
@@ -66,7 +74,11 @@ export function parseMotion(ctx: MotionStatementContext): void {
     target = toResult.target
     separatorConsumed = toResult.separatorConsumed
     if (target && target.kind !== 'star') {
-      ctx.queueReference('target', target.baseToken, target.kind === 'name' ? undefined : target.kind)
+      ctx.queueReference(
+        'target',
+        target.baseToken,
+        target.kind === 'name' ? undefined : target.kind,
+      )
     }
     if (abandoned) return
   }
